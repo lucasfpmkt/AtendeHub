@@ -1,0 +1,5 @@
+# HTTPS automático quando DOMAIN é um domínio real.
+# Com DOMAIN=":80", serve em HTTP puro (útil para testar pelo IP).
+{$DOMAIN} {
+	reverse_proxy app:3001
+}

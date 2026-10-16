@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/dev.db
+**/dev.db-journal
+**/auth_info
+**/.env
+.git
+*.log
+atendehub.zip

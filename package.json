@@ -1,0 +1,20 @@
+{
+  "name": "atendehub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Hub de atendimento com IA, CRM e WhatsApp (QR code). Produto próprio.",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c green,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:client": "npm --workspace client run dev",
+    "setup": "npm install && npm --workspace server run db:setup",
+    "build": "npm --workspace client run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

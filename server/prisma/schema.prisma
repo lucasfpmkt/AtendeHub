@@ -1,0 +1,85 @@
+// Modelo de dados do AtendeHub.
+// SQLite por padrão; para Postgres troque o provider e a DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Um contato do CRM. Criado automaticamente quando chega uma mensagem
+/// de um número ainda desconhecido.
+model Contact {
+  id            String         @id @default(cuid())
+  waJid         String         @unique // ex: 5585999999999@s.whatsapp.net
+  phone         String
+  name          String?
+  avatarUrl     String?
+  notes         String?
+  tags          String         @default("") // CSV simples; vire tabela se precisar
+  stageId       String?
+  stage         PipelineStage? @relation(fields: [stageId], references: [id])
+  conversations Conversation[]
+  deals         Deal[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+/// Uma conversa (thread) com um contato por um canal.
+model Conversation {
+  id         String    @id @default(cuid())
+  contactId  String
+  contact    Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channel    String    @default("whatsapp")
+  status     String    @default("open") // open | pending | closed
+  aiEnabled  Boolean   @default(false)  // auto-resposta por IA ligada nesta conversa
+  lastMessageAt DateTime @default(now())
+  messages   Message[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+/// Uma mensagem dentro de uma conversa.
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      String       // in | out
+  author         String       // contact | agent | ai
+  body           String
+  waMessageId    String?
+  createdAt      DateTime     @default(now())
+}
+
+/// Colunas do funil (kanban).
+model PipelineStage {
+  id       String    @id @default(cuid())
+  name     String
+  order    Int       @default(0)
+  contacts Contact[]
+  deals    Deal[]
+}
+
+/// Uma oportunidade/negócio ligada a um contato.
+model Deal {
+  id        String         @id @default(cuid())
+  title     String
+  valueCents Int           @default(0)
+  contactId String
+  contact   Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  stageId   String?
+  stage     PipelineStage? @relation(fields: [stageId], references: [id])
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+/// Configuração única do assistente de IA (linha única id="default").
+model AiConfig {
+  id           String  @id @default("default")
+  systemPrompt String
+  autoReply    Boolean @default(false) // padrão global para novas conversas
+  model        String  @default("claude-sonnet-4-5")
+}

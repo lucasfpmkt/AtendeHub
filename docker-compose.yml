@@ -1,0 +1,42 @@
+# Deploy em VPS "cru" (sem Coolify). Inclui o proxy Caddy com HTTPS automático.
+# Se você usa Coolify, NÃO use este compose — veja DEPLOY.md (seção Coolify),
+# porque o Coolify já tem proxy e HTTPS próprios.
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - SERVE_CLIENT=1
+      - DATABASE_URL=file:/data/atendehub.db
+      - WA_AUTH_DIR=/data/auth_info
+      - APP_PASSWORD=${APP_PASSWORD}
+      - APP_SECRET=${APP_SECRET}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-claude-sonnet-4-5}
+    volumes:
+      - atendehub-data:/data
+    expose:
+      - "3001"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Domínio real → HTTPS automático. Sem domínio, use ":80" (HTTP no IP).
+      - DOMAIN=${DOMAIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  atendehub-data:
+  caddy-data:
+  caddy-config:
