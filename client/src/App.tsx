@@ -76,7 +76,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          Atende<span>Hub</span>
+          <img src="/logo.png" alt="LawHub" />
+          Law<span>Hub</span>
         </div>
         <div className={`status-pill ${connected ? 'connected' : ''}`}>
           <span className="dot" />
@@ -95,7 +96,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             </button>
           ))}
         </nav>
-        <button onClick={logout} style={{ marginTop: 24, width: '100%' }}>
+        <div className="spacer" />
+        <button onClick={logout} className="ghost" style={{ width: '100%' }}>
           Sair
         </button>
       </aside>

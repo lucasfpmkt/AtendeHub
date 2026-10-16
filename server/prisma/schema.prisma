@@ -1,4 +1,4 @@
-// Modelo de dados do AtendeHub.
+// Modelo de dados do LawHub.
 // SQLite por padrão; para Postgres troque o provider e a DATABASE_URL.
 
 generator client {
@@ -14,12 +14,12 @@ datasource db {
 /// de um número ainda desconhecido.
 model Contact {
   id            String         @id @default(cuid())
-  waJid         String         @unique // ex: 5585999999999@s.whatsapp.net
+  waJid         String         @unique
   phone         String
   name          String?
   avatarUrl     String?
   notes         String?
-  tags          String         @default("") // CSV simples; vire tabela se precisar
+  tags          String         @default("")
   stageId       String?
   stage         PipelineStage? @relation(fields: [stageId], references: [id])
   conversations Conversation[]
@@ -28,58 +28,81 @@ model Contact {
   updatedAt     DateTime       @updatedAt
 }
 
-/// Uma conversa (thread) com um contato por um canal.
 model Conversation {
-  id         String    @id @default(cuid())
-  contactId  String
-  contact    Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  channel    String    @default("whatsapp")
-  status     String    @default("open") // open | pending | closed
-  aiEnabled  Boolean   @default(false)  // auto-resposta por IA ligada nesta conversa
-  lastMessageAt DateTime @default(now())
-  messages   Message[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  contactId     String
+  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channel       String    @default("whatsapp")
+  status        String    @default("open")
+  aiEnabled     Boolean   @default(false)
+  lastMessageAt DateTime  @default(now())
+  messages      Message[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
-/// Uma mensagem dentro de uma conversa.
 model Message {
   id             String       @id @default(cuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  direction      String       // in | out
-  author         String       // contact | agent | ai
+  direction      String
+  author         String
   body           String
   waMessageId    String?
   createdAt      DateTime     @default(now())
 }
 
-/// Colunas do funil (kanban).
+/// Um funil de vendas. Pode haver vários (Funil Padrão, Rescisão, etc.).
+model Funnel {
+  id        String          @id @default(cuid())
+  name      String
+  order     Int             @default(0)
+  stages    PipelineStage[]
+  deals     Deal[]
+  createdAt DateTime        @default(now())
+}
+
+/// Etapa (coluna) de um funil, com cor própria.
 model PipelineStage {
   id       String    @id @default(cuid())
   name     String
+  color    String    @default("#b71312")
   order    Int       @default(0)
+  funnelId String?
+  funnel   Funnel?   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
   contacts Contact[]
   deals    Deal[]
 }
 
-/// Uma oportunidade/negócio ligada a um contato.
+/// Uma oportunidade/negócio ligada a um contato e a uma etapa de um funil.
 model Deal {
-  id        String         @id @default(cuid())
-  title     String
-  valueCents Int           @default(0)
-  contactId String
-  contact   Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  stageId   String?
-  stage     PipelineStage? @relation(fields: [stageId], references: [id])
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id          String         @id @default(cuid())
+  title       String
+  valueCents  Int            @default(0)
+  source      String? // origem do lead (ex.: WhatsApp, Indicação, Anúncio)
+  responsavel String? // responsável pelo atendimento
+  tags        String         @default("")
+  contactId   String?
+  contact     Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  funnelId    String?
+  funnel      Funnel?        @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  stageId     String?
+  stage       PipelineStage? @relation(fields: [stageId], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 }
 
-/// Configuração única do assistente de IA (linha única id="default").
+/// Catálogo de etiquetas coloridas (usadas em contatos e negócios).
+model Tag {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String @default("#b71312")
+}
+
+/// Configuração única do assistente de IA.
 model AiConfig {
   id           String  @id @default("default")
   systemPrompt String
-  autoReply    Boolean @default(false) // padrão global para novas conversas
+  autoReply    Boolean @default(false)
   model        String  @default("claude-sonnet-4-5")
 }

@@ -8,6 +8,7 @@ import { env } from './env.js';
 import { setIO } from './realtime.js';
 import { requireAuth, verifyToken } from './auth.js';
 import { startWhatsApp, getStatus } from './whatsapp/session.js';
+import { ensureCrmSeed } from './services/crmSeed.js';
 import { authRouter } from './routes/auth.js';
 import { whatsappRouter } from './routes/whatsapp.js';
 import { crmRouter } from './routes/crm.js';
@@ -57,9 +58,10 @@ io.on('connection', (socket) => {
   socket.emit('wa:status', { type: 'wa:status', ...getStatus() });
 });
 
-server.listen(env.port, () => {
-  console.log(`\n  AtendeHub API  →  http://localhost:${env.port}`);
+server.listen(env.port, async () => {
+  console.log(`\n  LawHub API  →  http://localhost:${env.port}`);
   if (env.serveClient) console.log('  Servindo frontend compilado (client/dist)');
   console.log('');
+  await ensureCrmSeed();
   void startWhatsApp();
 });

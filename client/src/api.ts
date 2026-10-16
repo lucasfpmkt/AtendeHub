@@ -86,11 +86,42 @@ export interface Conversation {
   messages?: Message[];
 }
 
-export interface Stage {
+export interface Funnel {
   id: string;
   name: string;
   order: number;
-  deals: { id: string; title: string; valueCents: number; contact: Contact }[];
+}
+
+export interface Deal {
+  id: string;
+  title: string;
+  valueCents: number;
+  source?: string | null;
+  responsavel?: string | null;
+  tags: string;
+  stageId?: string | null;
+  funnelId?: string | null;
+  contact?: Contact | null;
+  createdAt: string;
+}
+
+export interface Stage {
+  id: string;
+  name: string;
+  color: string;
+  order: number;
+  deals: Deal[];
+}
+
+export interface Board {
+  funnel: Funnel;
+  stages: Stage[];
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
 }
 
 export const api = {
@@ -123,12 +154,44 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // Pipeline
-  stages: () => req<Stage[]>('/stages'),
-  addStage: (name: string) =>
-    req<Stage>('/stages', { method: 'POST', body: JSON.stringify({ name }) }),
-  moveDeal: (id: string, stageId: string) =>
-    req(`/deals/${id}`, { method: 'PATCH', body: JSON.stringify({ stageId }) }),
+  // Funis
+  funnels: () => req<Funnel[]>('/funnels'),
+  addFunnel: (name: string) =>
+    req<Funnel>('/funnels', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameFunnel: (id: string, name: string) =>
+    req<Funnel>(`/funnels/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteFunnel: (id: string) => req(`/funnels/${id}`, { method: 'DELETE' }),
+  board: (funnelId: string) => req<Board>(`/funnels/${funnelId}/board`),
+  exportFunnel: async (funnelId: string): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(`/api/funnels/${funnelId}/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('falha ao exportar');
+    return res.blob();
+  },
+
+  // Etapas
+  addStage: (funnelId: string, name: string, color: string) =>
+    req<Stage>(`/funnels/${funnelId}/stages`, {
+      method: 'POST',
+      body: JSON.stringify({ name, color }),
+    }),
+  updateStage: (id: string, data: { name?: string; color?: string; order?: number }) =>
+    req<Stage>(`/stages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteStage: (id: string) => req(`/stages/${id}`, { method: 'DELETE' }),
+
+  // Negócios
+  addDeal: (data: Partial<Deal> & { funnelId: string }) =>
+    req<Deal>('/deals', { method: 'POST', body: JSON.stringify(data) }),
+  updateDeal: (id: string, data: Partial<Deal>) =>
+    req<Deal>(`/deals/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteDeal: (id: string) => req(`/deals/${id}`, { method: 'DELETE' }),
+
+  // Etiquetas
+  tags: () => req<Tag[]>('/tags'),
+  addTag: (name: string, color: string) =>
+    req<Tag>('/tags', { method: 'POST', body: JSON.stringify({ name, color }) }),
 
   // IA
   aiConfig: () =>
