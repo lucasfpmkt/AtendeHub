@@ -13,6 +13,7 @@ import { authRouter } from './routes/auth.js';
 import { whatsappRouter } from './routes/whatsapp.js';
 import { crmRouter } from './routes/crm.js';
 import { aiRouter } from './routes/ai.js';
+import { agentsRouter } from './routes/agents.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +29,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/whatsapp', requireAuth, whatsappRouter);
 app.use('/api', requireAuth, crmRouter);
 app.use('/api/ai', requireAuth, aiRouter);
+app.use('/api/agents', requireAuth, agentsRouter);
 
 // Em produção, serve o frontend compilado (SPA) a partir de client/dist.
 if (env.serveClient) {

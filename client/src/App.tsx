@@ -6,16 +6,18 @@ import { Connect } from './pages/Connect';
 import { Inbox } from './pages/Inbox';
 import { Contacts } from './pages/Contacts';
 import { Pipeline } from './pages/Pipeline';
+import { Agents } from './pages/Agents';
 import { Settings } from './pages/Settings';
 
-type Tab = 'connect' | 'inbox' | 'contacts' | 'pipeline' | 'settings';
+type Tab = 'connect' | 'inbox' | 'agents' | 'contacts' | 'pipeline' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'inbox', label: '💬 Atendimentos' },
+  { id: 'agents', label: '🤖 Agentes IA' },
   { id: 'contacts', label: '👥 Contatos (CRM)' },
   { id: 'pipeline', label: '📊 Funil' },
   { id: 'connect', label: '🔌 Conexão' },
-  { id: 'settings', label: '⚙️ IA & Ajustes' },
+  { id: 'settings', label: '⚙️ Ajustes' },
 ];
 
 export function App() {
@@ -77,7 +79,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       <aside className="sidebar">
         <div className="brand">
           <img src="/logo.png" alt="LawHub" />
-          Law<span>Hub</span>
+          <span className="wordmark">Law<b>Hub</b></span>
         </div>
         <div className={`status-pill ${connected ? 'connected' : ''}`}>
           <span className="dot" />
@@ -105,6 +107,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       <main className="main">
         {tab === 'connect' && <Connect status={waStatus} me={me} />}
         {tab === 'inbox' && <Inbox connected={connected} />}
+        {tab === 'agents' && <Agents />}
         {tab === 'contacts' && <Contacts />}
         {tab === 'pipeline' && <Pipeline />}
         {tab === 'settings' && <Settings />}

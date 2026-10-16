@@ -29,16 +29,33 @@ model Contact {
 }
 
 model Conversation {
-  id            String    @id @default(cuid())
-  contactId     String
-  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  channel       String    @default("whatsapp")
-  status        String    @default("open")
-  aiEnabled     Boolean   @default(false)
-  lastMessageAt DateTime  @default(now())
-  messages      Message[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  contactId       String
+  contact         Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channel         String    @default("whatsapp")
+  status          String    @default("open")
+  aiEnabled       Boolean   @default(false)
+  assignedAgentId String? // agente que está conduzindo a conversa
+  lastMessageAt   DateTime  @default(now())
+  messages        Message[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+/// Um agente de IA. Pode ser de triagem (recebe tudo e roteia) ou de tema
+/// (conduz o atendimento seguindo seu diretório/roteiro).
+model Agent {
+  id           String   @id @default(cuid())
+  name         String
+  type         String   @default("theme") // triage | theme
+  description  String   @default("") // tema do agente, usado pela triagem
+  script       String   @default("") // o "diretório" / roteiro
+  triggers     String   @default("") // palavras-gatilho (CSV)
+  active       Boolean  @default(true)
+  delaySeconds Int      @default(15)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Message {

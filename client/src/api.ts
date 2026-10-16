@@ -124,6 +124,18 @@ export interface Tag {
   color: string;
 }
 
+export interface Agent {
+  id: string;
+  name: string;
+  type: 'triage' | 'theme';
+  description: string;
+  script: string;
+  triggers: string;
+  active: boolean;
+  delaySeconds: number;
+  order?: number;
+}
+
 export const api = {
   // WhatsApp
   waStatus: () => req<{ status: string; me?: string; qr: string | null }>('/whatsapp/status'),
@@ -192,6 +204,14 @@ export const api = {
   tags: () => req<Tag[]>('/tags'),
   addTag: (name: string, color: string) =>
     req<Tag>('/tags', { method: 'POST', body: JSON.stringify({ name, color }) }),
+
+  // Agentes
+  agents: () => req<{ agents: Agent[]; providerConnected: boolean }>('/agents'),
+  addAgent: (data: Partial<Agent>) =>
+    req<Agent>('/agents', { method: 'POST', body: JSON.stringify(data) }),
+  updateAgent: (id: string, data: Partial<Agent>) =>
+    req<Agent>(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteAgent: (id: string) => req(`/agents/${id}`, { method: 'DELETE' }),
 
   // IA
   aiConfig: () =>

@@ -32,7 +32,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
       <form className="card" style={{ width: 340 }} onSubmit={submit}>
         <div className="brand" style={{ marginBottom: 16 }}>
           <img src="/logo.png" alt="LawHub" />
-          Law<span>Hub</span>
+          <span className="wordmark">Law<b>Hub</b></span>
         </div>
         <label className="muted">Senha de acesso</label>
         <input

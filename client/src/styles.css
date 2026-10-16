@@ -18,8 +18,8 @@
   --out: #fdeaea;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
   --shadow: 0 4px 16px rgba(16, 24, 40, 0.08);
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-sm: 10px;
 }
 
 * { box-sizing: border-box; }
@@ -39,23 +39,23 @@ button {
   border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--text);
-  border-radius: var(--radius-sm);
-  padding: 8px 14px;
-  font-weight: 500;
-  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-weight: 600;
+  transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, transform 0.08s ease;
 }
-button:hover { background: var(--surface-2); }
+button:hover { background: var(--surface-2); border-color: var(--border-strong); }
+button:active { transform: translateY(0.5px); }
 button.primary {
   background: var(--primary);
   color: #fff;
   border-color: transparent;
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 8px rgba(183, 19, 18, 0.28);
 }
-button.primary:hover { background: var(--primary-hover); }
-button.ghost { border-color: transparent; background: transparent; }
+button.primary:hover { background: var(--primary-hover); box-shadow: 0 4px 14px rgba(183, 19, 18, 0.34); }
+button.ghost { border-color: transparent; background: transparent; box-shadow: none; }
 button.ghost:hover { background: var(--surface-3); }
-button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+button:disabled { opacity: 0.5; cursor: default; box-shadow: none; transform: none; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -81,9 +81,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   display: flex;
   flex-direction: column;
 }
-.brand { display: flex; align-items: center; gap: 9px; font-size: 21px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 6px; }
-.brand img { width: 30px; height: 30px; border-radius: 7px; display: block; }
-.brand span { color: var(--primary); }
+.brand { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+.brand img { width: 32px; height: 32px; border-radius: 8px; display: block; }
+.brand .wordmark { font-size: 22px; font-weight: 800; letter-spacing: -0.045em; color: var(--text); }
+.brand .wordmark b { color: var(--primary); font-weight: 800; }
 .status-pill { font-size: 12.5px; color: var(--muted); margin-bottom: 22px; display: flex; align-items: center; gap: 7px; }
 .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #c2c7cf; box-shadow: 0 0 0 3px #eceef1; }
 .status-pill.connected { color: var(--success); }
@@ -94,7 +95,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   width: 100%; text-align: left;
   background: transparent; border-color: transparent;
   color: var(--text-2); font-weight: 500;
-  padding: 9px 11px;
+  padding: 10px 12px; border-radius: 10px;
 }
 .nav button:hover { background: var(--surface-3); }
 .nav button.active { background: var(--primary-tint); color: var(--primary); font-weight: 600; }
@@ -178,8 +179,35 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* ----- Segmented control ----- */
 .segmented { display: inline-flex; background: var(--surface-3); border-radius: var(--radius-sm); padding: 3px; gap: 2px; }
-.segmented button { border: none; background: transparent; padding: 6px 14px; font-size: 13.5px; }
+.segmented button { border: none; background: transparent; padding: 6px 14px; font-size: 13.5px; border-radius: 8px; box-shadow: none; }
 .segmented button.active { background: var(--surface); box-shadow: var(--shadow-sm); color: var(--primary); font-weight: 600; }
+
+/* ----- Banner ----- */
+.banner { display: flex; gap: 10px; align-items: flex-start; background: #fff8e6; border: 1px solid #f3e1a8; color: #7a5b00; border-radius: var(--radius); padding: 12px 14px; font-size: 13.5px; margin-bottom: 18px; }
+.banner.ok { background: var(--success-tint); border-color: #bfe6cf; color: #156e3d; }
+
+/* ----- Agents ----- */
+.agent-group { margin-bottom: 26px; }
+.agent-group > .label { font-size: 12.5px; color: var(--muted); font-weight: 600; margin: 0 2px 10px; }
+.agent-group > .label b { color: var(--text-2); }
+.agent-list { display: flex; flex-direction: column; gap: 10px; }
+.agent-card { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
+.agent-card .ava { width: 42px; height: 42px; border-radius: 11px; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; font-size: 20px; flex-shrink: 0; }
+.agent-card .info { flex: 1; min-width: 0; }
+.agent-card .info .nm { font-weight: 650; font-size: 15px; }
+.agent-card .info .ds { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-card .trig { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.switch { width: 42px; height: 24px; border-radius: 999px; border: none; background: #cdd2da; position: relative; padding: 0; transition: background 0.15s; flex-shrink: 0; }
+.switch.on { background: var(--success); }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: var(--shadow-sm); }
+.switch.on::after { transform: translateX(18px); }
+
+/* delay chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { padding: 6px 12px; font-size: 13px; border-radius: 999px; }
+.chips button.active { background: var(--primary); color: #fff; border-color: transparent; }
+.script-area { min-height: 260px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.5; resize: vertical; }
+.modal.wide { max-width: 640px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
