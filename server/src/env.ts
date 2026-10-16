@@ -4,7 +4,7 @@ export const env = {
   port: Number(process.env.PORT ?? 3001),
   clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
-  aiModel: process.env.AI_MODEL ?? 'claude-sonnet-4-5',
+  aiModel: process.env.AI_MODEL ?? 'claude-haiku-5-5',
   aiSystemPrompt:
     process.env.AI_SYSTEM_PROMPT ??
     'Você é um assistente de atendimento ao cliente educado, objetivo e em português do Brasil.',

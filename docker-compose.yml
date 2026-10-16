@@ -14,7 +14,7 @@ services:
       - APP_PASSWORD=${APP_PASSWORD}
       - APP_SECRET=${APP_SECRET}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - AI_MODEL=${AI_MODEL:-claude-sonnet-4-5}
+      - AI_MODEL=${AI_MODEL:-claude-haiku-5-5}
     volumes:
       - atendehub-data:/data
     expose:
