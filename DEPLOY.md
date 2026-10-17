@@ -1,5 +1,24 @@
 # Deploy do AtendeHub na sua VPS
 
+## Atualizando para a versão multi-cliente (leia antes)
+
+1. **Faça backup do banco** antes do deploy. O arquivo fica no volume `/data`
+   (`/data/atendehub.db`). Ex.: `cp /data/atendehub.db /data/atendehub-backup.db`.
+2. Confira que o painel (Easypanel/Coolify) faz o build da branch **main** e
+   **reconstrói a imagem** (Rebuild/Redeploy). Se a tela continuar igual à
+   antiga, o deploy não pegou o último commit.
+3. Na primeira subida, o servidor:
+   - cria o cliente **Law Mídias** (#1001) e move para ele todos os dados que já
+     existem (contatos, conversas, agentes, funis…);
+   - mantém a sessão do WhatsApp atual (não precisa ler QR de novo);
+   - cria o **administrador**: login `admin` e a senha de `ADMIN_PASSWORD`
+     (ou, se vazia, a mesma `APP_PASSWORD` de antes).
+4. Entre como admin → escolha o cliente → em **Clientes** crie os logins dos
+   outros escritórios. Cada um conecta o próprio WhatsApp em **Conexão**.
+
+Variáveis novas (opcionais): `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
+`DEFAULT_WORKSPACE_NAME`, `ALLOW_SIGNUP` (`0` esconde o "Criar conta").
+
 Dois caminhos. Como sua VPS já roda **Coolify**, use o **Caminho A**.
 
 Antes de tudo, gere os segredos (rode no seu PC ou na VPS):
@@ -35,6 +54,9 @@ git push -u origin main
 ```
 SERVE_CLIENT=1
 APP_PASSWORD=<sua-senha-forte>
+ADMIN_EMAIL=admin
+ADMIN_PASSWORD=<senha-do-admin>
+ALLOW_SIGNUP=1
 APP_SECRET=<hex-gerado-com-openssl>
 DATABASE_URL=file:/data/atendehub.db
 WA_AUTH_DIR=/data/auth_info

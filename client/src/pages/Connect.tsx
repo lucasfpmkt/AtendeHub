@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { socket } from '../socket';
+import { Icon } from '../icons';
 
 export function Connect({ status, me }: { status: string; me?: string }) {
   const [qr, setQr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
 
   useEffect(() => {
     api.waStatus().then((s) => setQr(s.qr));
@@ -34,50 +36,91 @@ export function Connect({ status, me }: { status: string; me?: string }) {
     try {
       await api.waLogout();
       setQr(null);
+      setConfirm(false);
     } finally {
       setBusy(false);
     }
   };
 
+  const number = me ? me.split(':')[0].split('@')[0] : '';
+
   return (
     <div className="page">
-      <h1 className="h1">Conexão com o WhatsApp</h1>
-
-      {status === 'connected' ? (
-        <div className="card qr-wrap">
-          <p>✅ Número conectado{me ? `: ${me.split(':')[0].split('@')[0]}` : ''}.</p>
-          <button onClick={logout} disabled={busy}>
-            Desconectar número
-          </button>
+      <div className="page-head">
+        <div>
+          <h1 className="h1">Conexão WhatsApp</h1>
+          <p className="sub">Cada escritório conecta o próprio número. Os agentes respondem por ele.</p>
         </div>
-      ) : (
-        <div className="card qr-wrap">
-          {qr ? (
-            <>
-              <img src={qr} alt="QR code do WhatsApp" />
-              <p className="muted">
-                Abra o WhatsApp no celular → Aparelhos conectados → Conectar um
-                aparelho, e escaneie este código.
+      </div>
+
+      <div className="card connect-card">
+        {status === 'connected' ? (
+          <>
+            <span className="connect-ico ok">
+              <Icon name="wifi" size={26} />
+            </span>
+            <div>
+              <h3 className="card-title" style={{ margin: 0 }}>
+                Número conectado
+              </h3>
+              <p className="mono" style={{ marginTop: 4 }}>
+                +{number}
               </p>
-            </>
-          ) : (
-            <>
-              <p className="muted">
-                Clique abaixo para gerar o QR code e vincular um número.
+            </div>
+            <button onClick={() => setConfirm(true)} disabled={busy}>
+              Desconectar número
+            </button>
+          </>
+        ) : qr ? (
+          <>
+            <img src={qr} alt="QR code do WhatsApp" className="qr" />
+            <ol className="steps">
+              <li>Abra o WhatsApp no celular do escritório.</li>
+              <li>
+                Toque em <b>Aparelhos conectados</b> e depois em <b>Conectar um aparelho</b>.
+              </li>
+              <li>Aponte a câmera para este código.</li>
+            </ol>
+          </>
+        ) : (
+          <>
+            <span className="connect-ico">
+              <Icon name="wifi" size={26} />
+            </span>
+            <div>
+              <h3 className="card-title" style={{ margin: 0 }}>
+                {status === 'connecting' ? 'Conectando…' : 'Nenhum número conectado'}
+              </h3>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                Gere o QR code e leia com o WhatsApp do escritório.
               </p>
-              <button className="primary" onClick={connect} disabled={busy}>
-                {busy ? 'Gerando…' : 'Gerar QR code'}
+            </div>
+            <button className="primary" onClick={connect} disabled={busy || status === 'connecting'}>
+              {busy ? 'Gerando…' : 'Gerar QR code'}
+            </button>
+          </>
+        )}
+      </div>
+
+      <p className="muted small" style={{ marginTop: 14, maxWidth: 620 }}>
+        A conexão por QR usa o protocolo do WhatsApp Web e não é oficial. Ela contraria os termos do WhatsApp e pode
+        levar ao bloqueio do número. Para uso em escala, o caminho é a WhatsApp Business Cloud API.
+      </p>
+
+      {confirm && (
+        <div className="modal-backdrop" onClick={() => setConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Desconectar +{number}?</h3>
+            <p className="muted">Os agentes param de responder até você ler um novo QR code.</p>
+            <div className="modal-actions">
+              <button onClick={() => setConfirm(false)}>Cancelar</button>
+              <button className="danger" onClick={logout} disabled={busy}>
+                Desconectar
               </button>
-            </>
-          )}
+            </div>
+          </div>
         </div>
       )}
-
-      <p className="muted" style={{ marginTop: 16, maxWidth: 560, fontSize: 13 }}>
-        ⚠️ A conexão por QR usa o protocolo do WhatsApp Web e não é oficial:
-        contraria os termos do WhatsApp e pode levar ao bloqueio do número. Para
-        produção séria, avalie migrar para a WhatsApp Business Cloud API.
-      </p>
     </div>
   );
 }

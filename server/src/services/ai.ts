@@ -1,87 +1,60 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../db.js';
 import { env, aiEnabled } from '../env.js';
-import { normalizeTurns } from './llm.js';
+import { complete } from './llm.js';
 
-const client = aiEnabled ? new Anthropic({ apiKey: env.anthropicKey }) : null;
-
-async function getConfig() {
-  const cfg = await prisma.aiConfig.upsert({
-    where: { id: 'default' },
+/** Configuração de IA do cliente (id = workspaceId). */
+async function getConfig(ws: string) {
+  return prisma.aiConfig.upsert({
+    where: { id: ws },
     update: {},
-    create: {
-      id: 'default',
-      systemPrompt: env.aiSystemPrompt,
-      model: env.aiModel,
-      autoReply: false,
-    },
+    create: { id: ws, systemPrompt: env.aiSystemPrompt, model: env.aiModel, autoReply: false },
   });
-  return cfg;
 }
 
 /**
- * Gera uma resposta sugerida para a conversa, usando o histórico recente
- * como contexto. Sem ANTHROPIC_API_KEY, devolve um rascunho-stub para que
- * o produto rode ponta a ponta mesmo sem provedor configurado.
+ * Rascunho de resposta para a conversa (botão de IA no chat), usando o
+ * histórico recente. Sem ANTHROPIC_API_KEY devolve um texto de exemplo.
  */
-export async function generateReply(conversationId: string): Promise<string> {
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
+export async function generateReply(ws: string, conversationId: string): Promise<string> {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId: ws },
     include: {
       contact: true,
-      messages: { orderBy: { createdAt: 'asc' }, take: 20 },
+      messages: { where: { author: { not: 'system' } }, orderBy: { createdAt: 'desc' }, take: 20 },
     },
   });
   if (!conversation) throw new Error('Conversa não encontrada');
 
-  const cfg = await getConfig();
-
-  if (!client) {
-    const last = conversation.messages.at(-1)?.body ?? '';
-    return `[rascunho sem IA] Recebi sua mensagem: "${last.slice(0, 80)}". ` +
-      `Configure ANTHROPIC_API_KEY no .env para respostas geradas de verdade.`;
-  }
-
-  const history = conversation.messages
-    .filter((m: { author: string }) => m.author !== 'system')
-    .map((m: { direction: string; body: string }) => ({
+  const cfg = await getConfig(ws);
+  const history = conversation.messages.reverse().map((m) => ({
     role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',
     content: m.body,
   }));
 
-  // Garante que a conversa termine com uma fala do cliente.
-  if (history.length === 0 || history.at(-1)?.role !== 'user') {
-    history.push({ role: 'user', content: '(cliente aguardando resposta)' });
+  if (!aiEnabled) {
+    const last = history.filter((h) => h.role === 'user').at(-1)?.content ?? '';
+    return (
+      `[rascunho sem IA] Recebi sua mensagem: "${last.slice(0, 80)}". ` +
+      'Configure ANTHROPIC_API_KEY no servidor para respostas geradas de verdade.'
+    );
   }
 
-  const resp = await client.messages.create({
-    model: cfg.model || env.aiModel,
-    max_tokens: 500,
+  const text = await complete({
     system:
       `${cfg.systemPrompt}\n\n` +
       `Cliente: ${conversation.contact.name ?? conversation.contact.phone}. ` +
-      `Responda de forma breve e útil, pronta para enviar no WhatsApp.`,
-    messages: normalizeTurns(history),
+      'Responda de forma breve e útil, pronta para enviar no WhatsApp.',
+    messages: history,
+    maxTokens: 500,
   });
-
-  const text = resp.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
-
   return text || 'Desculpe, não consegui gerar uma resposta agora.';
 }
 
-export async function getAiConfig() {
-  return getConfig();
+export async function getAiConfig(ws: string) {
+  return getConfig(ws);
 }
 
-export async function updateAiConfig(data: {
-  systemPrompt?: string;
-  autoReply?: boolean;
-  model?: string;
-}) {
-  await getConfig();
-  return prisma.aiConfig.update({ where: { id: 'default' }, data });
+export async function updateAiConfig(ws: string, data: { systemPrompt?: string; autoReply?: boolean }) {
+  await getConfig(ws);
+  return prisma.aiConfig.update({ where: { id: ws }, data });
 }

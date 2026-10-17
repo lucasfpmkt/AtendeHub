@@ -1,30 +1,48 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { prisma } from '../db.js';
+import { wsOf } from '../auth.js';
 
-/** Tarefas, Agenda, Mensagens rápidas, Automação por palavras e Dashboard. */
+/** Tarefas, Agenda, Mensagens rápidas, Automação por palavras e Dashboard — por cliente. */
 export const workRouter = Router();
 
 const pick = (body: Record<string, unknown>, keys: string[]) =>
   Object.fromEntries(keys.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
 
+const notFound = (res: Response) => res.status(404).json({ error: 'não encontrado' });
+
+/** Atualiza só se o registro for do cliente; devolve o registro ou 404. */
+async function scopedUpdate(
+  req: Request,
+  res: Response,
+  model: 'task' | 'event' | 'keywordRule',
+  data: Record<string, unknown>,
+) {
+  const ws = wsOf(req);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const delegate = prisma[model] as any;
+  const r = await delegate.updateMany({ where: { id: req.params.id, workspaceId: ws }, data });
+  if (r.count === 0) return notFound(res);
+  res.json(await delegate.findFirst({ where: { id: req.params.id, workspaceId: ws } }));
+}
+
 /* ------------------------------ Tarefas ------------------------------ */
 
 const TASK_KEYS = ['title', 'status', 'priority', 'responsavel', 'dueDate'];
 
-workRouter.get('/tasks', async (_req, res) => {
-  res.json(await prisma.task.findMany({ orderBy: [{ status: 'asc' }, { dueDate: 'asc' }] }));
+workRouter.get('/tasks', async (req, res) => {
+  res.json(
+    await prisma.task.findMany({ where: { workspaceId: wsOf(req) }, orderBy: [{ status: 'asc' }, { dueDate: 'asc' }] }),
+  );
 });
 workRouter.post('/tasks', async (req, res) => {
   const data = pick(req.body ?? {}, TASK_KEYS);
   if (!String(data.title ?? '').trim()) return res.status(400).json({ error: 'título obrigatório' });
-  res.json(await prisma.task.create({ data: data as { title: string } }));
+  res.json(await prisma.task.create({ data: { ...(data as { title: string }), workspaceId: wsOf(req) } }));
 });
-workRouter.patch('/tasks/:id', async (req, res) => {
-  res.json(await prisma.task.update({ where: { id: req.params.id }, data: pick(req.body ?? {}, TASK_KEYS) }));
-});
+workRouter.patch('/tasks/:id', (req, res) => scopedUpdate(req, res, 'task', pick(req.body ?? {}, TASK_KEYS)));
 workRouter.delete('/tasks/:id', async (req, res) => {
-  await prisma.task.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  const r = await prisma.task.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  res.json({ ok: r.count > 0 });
 });
 
 /* ------------------------------- Agenda ------------------------------ */
@@ -36,7 +54,7 @@ workRouter.get('/events', async (req, res) => {
   const to = String(req.query.to ?? '');
   res.json(
     await prisma.event.findMany({
-      where: from && to ? { date: { gte: from, lte: to } } : undefined,
+      where: { workspaceId: wsOf(req), ...(from && to ? { date: { gte: from, lte: to } } : {}) },
       orderBy: [{ date: 'asc' }, { start: 'asc' }],
     }),
   );
@@ -47,57 +65,59 @@ workRouter.post('/events', async (req, res) => {
     return res.status(400).json({ error: 'título, data, início e fim são obrigatórios' });
   }
   if (d.end <= d.start) return res.status(400).json({ error: 'o fim precisa ser depois do início' });
-  res.json(await prisma.event.create({ data: d as { title: string; date: string; start: string; end: string } }));
+  res.json(
+    await prisma.event.create({
+      data: { ...(d as { title: string; date: string; start: string; end: string }), workspaceId: wsOf(req) },
+    }),
+  );
 });
-workRouter.patch('/events/:id', async (req, res) => {
-  res.json(await prisma.event.update({ where: { id: req.params.id }, data: pick(req.body ?? {}, EVENT_KEYS) }));
-});
+workRouter.patch('/events/:id', (req, res) => scopedUpdate(req, res, 'event', pick(req.body ?? {}, EVENT_KEYS)));
 workRouter.delete('/events/:id', async (req, res) => {
-  await prisma.event.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  const r = await prisma.event.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  res.json({ ok: r.count > 0 });
 });
 
 /* -------------------------- Mensagens rápidas ------------------------ */
 
-workRouter.get('/quick-replies', async (_req, res) => {
-  res.json(await prisma.quickReply.findMany({ orderBy: { shortcut: 'asc' } }));
+workRouter.get('/quick-replies', async (req, res) => {
+  res.json(await prisma.quickReply.findMany({ where: { workspaceId: wsOf(req) }, orderBy: { shortcut: 'asc' } }));
 });
 workRouter.post('/quick-replies', async (req, res) => {
+  const ws = wsOf(req);
   let shortcut = String(req.body?.shortcut ?? '').trim();
   const text = String(req.body?.text ?? '').trim();
   if (!shortcut || !text) return res.status(400).json({ error: 'atalho e texto são obrigatórios' });
   if (!shortcut.startsWith('/')) shortcut = `/${shortcut}`;
   res.json(
-    await prisma.quickReply.upsert({ where: { shortcut }, update: { text }, create: { shortcut, text } }),
+    await prisma.quickReply.upsert({
+      where: { workspaceId_shortcut: { workspaceId: ws, shortcut } },
+      update: { text },
+      create: { workspaceId: ws, shortcut, text },
+    }),
   );
 });
 workRouter.delete('/quick-replies/:id', async (req, res) => {
-  await prisma.quickReply.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  const r = await prisma.quickReply.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  res.json({ ok: r.count > 0 });
 });
 
 /* ----------------------- Automação por palavras ---------------------- */
 
-workRouter.get('/keyword-rules', async (_req, res) => {
-  res.json(await prisma.keywordRule.findMany({ orderBy: { createdAt: 'asc' } }));
+workRouter.get('/keyword-rules', async (req, res) => {
+  res.json(await prisma.keywordRule.findMany({ where: { workspaceId: wsOf(req) }, orderBy: { createdAt: 'asc' } }));
 });
 workRouter.post('/keyword-rules', async (req, res) => {
   const keyword = String(req.body?.keyword ?? '').trim();
   const reply = String(req.body?.reply ?? '').trim();
   if (!keyword || !reply) return res.status(400).json({ error: 'palavra e resposta são obrigatórias' });
-  res.json(await prisma.keywordRule.create({ data: { keyword, reply } }));
+  res.json(await prisma.keywordRule.create({ data: { keyword, reply, workspaceId: wsOf(req) } }));
 });
-workRouter.patch('/keyword-rules/:id', async (req, res) => {
-  res.json(
-    await prisma.keywordRule.update({
-      where: { id: req.params.id },
-      data: pick(req.body ?? {}, ['keyword', 'reply', 'active']),
-    }),
-  );
-});
+workRouter.patch('/keyword-rules/:id', (req, res) =>
+  scopedUpdate(req, res, 'keywordRule', pick(req.body ?? {}, ['keyword', 'reply', 'active'])),
+);
 workRouter.delete('/keyword-rules/:id', async (req, res) => {
-  await prisma.keywordRule.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
+  const r = await prisma.keywordRule.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  res.json({ ok: r.count > 0 });
 });
 
 /* ------------------------------ Dashboard ---------------------------- */
@@ -107,18 +127,27 @@ const isoDay = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 workRouter.get('/dashboard', async (req, res) => {
+  const ws = wsOf(req);
   const days = Math.min(90, Math.max(7, Number(req.query.days) || 7));
   const since = new Date();
   since.setHours(0, 0, 0, 0);
   since.setDate(since.getDate() - (days - 1));
 
   const [contacts, deals, convs, tasksOpen, agents, funnels] = await Promise.all([
-    prisma.contact.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
-    prisma.deal.findMany({ include: { stage: true } }),
-    prisma.conversation.findMany({ select: { status: true, aiEnabled: true, unread: true, assignedAgentId: true } }),
-    prisma.task.count({ where: { status: { not: 'done' } } }),
-    prisma.agent.findMany({ select: { id: true, name: true, active: true, type: true }, orderBy: [{ type: 'asc' }, { order: 'asc' }] }),
+    prisma.contact.findMany({ where: { workspaceId: ws, createdAt: { gte: since } }, select: { createdAt: true } }),
+    prisma.deal.findMany({ where: { workspaceId: ws }, select: { valueCents: true } }),
+    prisma.conversation.findMany({
+      where: { workspaceId: ws },
+      select: { status: true, aiEnabled: true, unread: true, assignedAgentId: true },
+    }),
+    prisma.task.count({ where: { workspaceId: ws, status: { not: 'done' } } }),
+    prisma.agent.findMany({
+      where: { workspaceId: ws },
+      select: { id: true, name: true, active: true, type: true },
+      orderBy: [{ type: 'asc' }, { order: 'asc' }],
+    }),
     prisma.funnel.findMany({
+      where: { workspaceId: ws },
       orderBy: { order: 'asc' },
       include: { stages: { orderBy: { order: 'asc' }, include: { _count: { select: { deals: true } } } } },
     }),
@@ -135,11 +164,6 @@ workRouter.get('/dashboard', async (req, res) => {
     if (row) row.count++;
   }
 
-  const byAgent = agents.map((a) => ({
-    ...a,
-    conversations: convs.filter((c) => c.assignedAgentId === a.id && c.status !== 'closed').length,
-  }));
-
   res.json({
     perDay,
     totals: {
@@ -151,7 +175,10 @@ workRouter.get('/dashboard', async (req, res) => {
       deals: deals.length,
       pipelineCents: deals.reduce((s, d) => s + d.valueCents, 0),
     },
-    agents: byAgent,
+    agents: agents.map((a) => ({
+      ...a,
+      conversations: convs.filter((c) => c.assignedAgentId === a.id && c.status !== 'closed').length,
+    })),
     funnels: funnels.map((f) => ({
       id: f.id,
       name: f.name,

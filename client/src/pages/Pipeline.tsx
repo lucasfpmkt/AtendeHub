@@ -8,6 +8,10 @@ import {
   type Tag,
   type Contact,
 } from '../api';
+import { Icon } from '../icons';
+
+const AV = ['#3b82f6', '#8b5cf6', '#0ea5e9', '#14b8a6', '#f59e0b', '#ec4899', '#64748b'];
+const avatarColor = (s: string) => AV[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
 
 const BRL = (cents: number) =>
   (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -99,8 +103,8 @@ export function Pipeline() {
             {f.name}
           </div>
         ))}
-        <button className="ghost" style={{ width: '100%', marginTop: 8 }} onClick={addFunnel}>
-          + Novo funil
+        <button className="ghost" style={{ width: '100%', marginTop: 8, justifyContent: 'flex-start' }} onClick={addFunnel}>
+          <Icon name="plus" size={16} /> Novo funil
         </button>
       </aside>
 
@@ -122,13 +126,17 @@ export function Pipeline() {
                 Lista
               </button>
             </div>
-            <button onClick={exportCsv}>Exportar</button>
-            <button onClick={() => setStageModalOpen(true)}>+ Etapa</button>
+            <button onClick={exportCsv}>
+              <Icon name="share" size={16} /> Exportar
+            </button>
+            <button onClick={() => setStageModalOpen(true)}>
+              <Icon name="plus" size={16} /> Etapa
+            </button>
             <button
               className="primary"
               onClick={() => setDealModal({ deal: null, stageId: board?.stages[0]?.id ?? '' })}
             >
-              + Nova negociação
+              <Icon name="plus" size={16} /> Nova
             </button>
           </div>
         </div>
@@ -264,8 +272,8 @@ function KanbanColumn({
         <span className="name">{stage.name}</span>
         <span className="count">{stage.deals.length}</span>
         {sum > 0 && <span className="sum">{BRL(sum)}</span>}
-        <button className="ghost" title="Excluir etapa" style={{ padding: '2px 6px' }} onClick={onDeleteStage}>
-          ×
+        <button className="icon-btn" title="Excluir etapa" aria-label="Excluir etapa" onClick={onDeleteStage}>
+          <Icon name="x" size={15} />
         </button>
       </div>
       <div className="column-body">
@@ -277,17 +285,35 @@ function KanbanColumn({
             onDragStart={() => onDragStartDeal(d.id)}
             onClick={() => onOpenDeal(d)}
           >
-            <div className="title">
-              <span>{d.title}</span>
-              {d.valueCents > 0 && <span className="value">{BRL(d.valueCents)}</span>}
+            <div className="deal-top">
+              <span className="avatar" style={{ background: avatarColor(d.contact?.name || d.title) }}>
+                {(d.contact?.name || d.title).trim()[0]?.toUpperCase() ?? '?'}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="title">
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {d.contact?.name || d.title}
+                  </span>
+                  <span className="value">{BRL(d.valueCents)}</span>
+                </div>
+                <div className="meta">
+                  {d.contact?.phone && (
+                    <span className="mono">
+                      <Icon name="phone" size={12} /> +{d.contact.phone}
+                    </span>
+                  )}
+                  {d.contact?.name && d.title !== d.contact.name && <span>{d.title}</span>}
+                </div>
+              </div>
             </div>
-            <div className="meta">
-              {d.contact && <span>{d.contact.name || d.contact.phone}</span>}
-              {(d.source || d.responsavel) && (
-                <span>
-                  {[d.source, d.responsavel].filter(Boolean).join(' · ')}
-                </span>
-              )}
+            <div className="deal-foot">
+              <span>
+                <Icon name="date" size={13} /> {new Date(d.createdAt).toLocaleDateString('pt-BR')}
+              </span>
+              <span>
+                <Icon name="user" size={13} /> {d.responsavel || 'Sem responsável'}
+              </span>
+              {d.contact && <span className="pill wa">WA</span>}
             </div>
             {d.tags && (
               <div className="tags">
@@ -306,8 +332,8 @@ function KanbanColumn({
           </div>
         ))}
         {stage.deals.length === 0 && <div className="empty-col">Arraste cards para cá</div>}
-        <button className="ghost" style={{ fontSize: 13 }} onClick={onNewDeal}>
-          + negócio
+        <button className="ghost sm" onClick={onNewDeal}>
+          <Icon name="plus" size={14} /> Negócio
         </button>
       </div>
     </div>

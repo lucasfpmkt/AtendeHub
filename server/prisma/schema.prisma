@@ -1,4 +1,5 @@
-// Modelo de dados do LawHub.
+// Modelo de dados do LawHub (multi-cliente).
+// Cada cliente é um Workspace; todo dado de atendimento tem workspaceId.
 // SQLite por padrão; para Postgres troque o provider e a DATABASE_URL.
 
 generator client {
@@ -10,11 +11,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Um cliente do LawHub (escritório). Tem o próprio WhatsApp, agentes e CRM.
+model Workspace {
+  id         String   @id @default(cuid())
+  code       Int      @default(0) // número curto exibido (#1001)
+  name       String
+  plan       String   @default("MENSAL") // MENSAL | CLIENTE | TESTE
+  expiresAt  String? // YYYY-MM-DD (vencimento do plano)
+  active     Boolean  @default(true)
+  legacyAuth Boolean  @default(false) // usa a pasta de sessão WhatsApp antiga
+  users      User[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// Pessoa que entra no painel. admin vê todos os clientes; user vê só o seu.
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         String    @default("user") // admin | user
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+}
+
 /// Um contato do CRM. Criado automaticamente quando chega uma mensagem
 /// de um número ainda desconhecido.
 model Contact {
   id            String         @id @default(cuid())
-  waJid         String         @unique
+  workspaceId String?
+  waJid         String
   phone         String
   name          String?
   avatarUrl     String?
@@ -26,10 +55,14 @@ model Contact {
   deals         Deal[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+
+  @@unique([workspaceId, waJid])
+  @@index([workspaceId])
 }
 
 model Conversation {
   id              String    @id @default(cuid())
+  workspaceId String?
   contactId       String
   contact         Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   channel         String    @default("whatsapp")
@@ -47,6 +80,7 @@ model Conversation {
 /// (conduz o atendimento seguindo seu diretório/roteiro).
 model Agent {
   id           String   @id @default(cuid())
+  workspaceId String?
   name         String
   type         String   @default("theme") // triage | theme
   description  String   @default("") // tema do agente, usado pela triagem
@@ -76,6 +110,7 @@ model AgentHistory {
 /// Tarefa da equipe.
 model Task {
   id          String   @id @default(cuid())
+  workspaceId String?
   title       String
   status      String   @default("todo") // todo | doing | done
   priority    String   @default("Média") // Alta | Média | Baixa
@@ -88,6 +123,7 @@ model Task {
 /// Compromisso da agenda.
 model Event {
   id        String   @id @default(cuid())
+  workspaceId String?
   title     String
   date      String // YYYY-MM-DD
   start     String // HH:MM
@@ -100,14 +136,18 @@ model Event {
 /// Mensagem rápida: digite o atalho (ex.: /docs) no chat.
 model QuickReply {
   id        String   @id @default(cuid())
-  shortcut  String   @unique
+  workspaceId String?
+  shortcut  String
   text      String
   createdAt DateTime @default(now())
+
+  @@unique([workspaceId, shortcut])
 }
 
 /// Resposta automática por palavra-chave (só em conversas sem IA atendendo).
 model KeywordRule {
   id        String   @id @default(cuid())
+  workspaceId String?
   keyword   String
   reply     String
   active    Boolean  @default(true)
@@ -128,6 +168,7 @@ model Message {
 /// Um funil de vendas. Pode haver vários (Funil Padrão, Rescisão, etc.).
 model Funnel {
   id        String          @id @default(cuid())
+  workspaceId String?
   name      String
   order     Int             @default(0)
   stages    PipelineStage[]
@@ -138,6 +179,7 @@ model Funnel {
 /// Etapa (coluna) de um funil, com cor própria.
 model PipelineStage {
   id       String    @id @default(cuid())
+  workspaceId String?
   name     String
   color    String    @default("#b71312")
   order    Int       @default(0)
@@ -150,6 +192,7 @@ model PipelineStage {
 /// Uma oportunidade/negócio ligada a um contato e a uma etapa de um funil.
 model Deal {
   id          String         @id @default(cuid())
+  workspaceId String?
   title       String
   valueCents  Int            @default(0)
   source      String? // origem do lead (ex.: WhatsApp, Indicação, Anúncio)
@@ -168,11 +211,14 @@ model Deal {
 /// Catálogo de etiquetas coloridas (usadas em contatos e negócios).
 model Tag {
   id    String @id @default(cuid())
-  name  String @unique
+  workspaceId String?
+  name  String
   color String @default("#b71312")
+
+  @@unique([workspaceId, name])
 }
 
-/// Configuração única do assistente de IA.
+/// Configuração do assistente de IA — uma por cliente (id = workspaceId).
 model AiConfig {
   id           String  @id @default("default")
   systemPrompt String

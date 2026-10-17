@@ -46,44 +46,46 @@ async function historyOf(conversationId: string): Promise<ChatTurn[]> {
 }
 
 /** Nota interna na conversa: aparece para a equipe, não vai para o WhatsApp nem para a IA. */
-export async function systemNote(conversationId: string, body: string) {
+export async function systemNote(ws: string, conversationId: string, body: string) {
   const message = await prisma.message.create({
     data: { conversationId, direction: 'out', author: 'system', body },
   });
-  emit({ type: 'message:new', conversationId, message });
+  emit(ws, { type: 'message:new', conversationId, message });
 }
 
 /** Processa uma mensagem recebida do WhatsApp. */
 export async function handleInboundMessage(params: {
+  workspaceId: string;
   waJid: string;
   pushName?: string;
   body: string;
   waMessageId?: string;
   sendText: SendText;
 }) {
-  const { waJid, pushName, body, waMessageId, sendText } = params;
+  const { workspaceId: ws, waJid, pushName, body, waMessageId, sendText } = params;
   if (!body?.trim()) return;
 
   const phone = phoneFromJid(waJid);
 
   const contact = await prisma.contact.upsert({
-    where: { waJid },
+    where: { workspaceId_waJid: { workspaceId: ws, waJid } },
     update: { name: pushName || undefined },
-    create: { waJid, phone, name: pushName || null },
+    create: { workspaceId: ws, waJid, phone, name: pushName || null },
   });
 
   let conversation = await prisma.conversation.findFirst({
-    where: { contactId: contact.id, status: { not: 'closed' } },
+    where: { workspaceId: ws, contactId: contact.id, status: { not: 'closed' } },
     orderBy: { lastMessageAt: 'desc' },
   });
 
   let startedBy: Agent | null = null;
   if (!conversation) {
     // Conversa nova: a triagem só assume se passar pela porta de entrada (gatilhos).
-    const triage = await getActiveTriage();
-    const start = triage ? await shouldTriageStart(triage, body) : false;
+    const triage = await getActiveTriage(ws);
+    const start = triage ? await shouldTriageStart(ws, triage, body) : false;
     conversation = await prisma.conversation.create({
       data: {
+        workspaceId: ws,
         contactId: contact.id,
         aiEnabled: start,
         assignedAgentId: start ? triage!.id : null,
@@ -101,18 +103,18 @@ export async function handleInboundMessage(params: {
     data: { lastMessageAt: new Date(), status: 'open', unread: { increment: 1 } },
   });
 
-  emit({ type: 'message:new', conversationId: conversation.id, message });
-  emit({ type: 'conversation:update', conversation });
-  if (startedBy) await systemNote(conversation.id, `${startedBy.name} assumiu o atendimento.`);
+  emit(ws, { type: 'message:new', conversationId: conversation.id, message });
+  emit(ws, { type: 'conversation:update', conversation });
+  if (startedBy) await systemNote(ws, conversation.id, `${startedBy.name} assumiu o atendimento.`);
 
   if (!conversation.aiEnabled) {
     // Sem IA: respostas automáticas por palavra-chave.
-    const rules = await prisma.keywordRule.findMany({ where: { active: true } });
+    const rules = await prisma.keywordRule.findMany({ where: { workspaceId: ws, active: true } });
     const lower = body.toLowerCase();
     const rule = rules.find((r) => r.keyword.trim() && lower.includes(r.keyword.trim().toLowerCase()));
     if (rule) {
       try {
-        await deliver(conversation.id, rule.reply, sendText);
+        await deliver(ws, conversation.id, rule.reply, sendText);
       } catch (err) {
         console.error('[automação] falha ao responder palavra-chave:', err);
       }
@@ -121,28 +123,28 @@ export async function handleInboundMessage(params: {
   }
 
   // Agenda a resposta da IA respeitando o delay do agente.
-  const agent = (await getAgent(conversation.assignedAgentId)) ?? (await getActiveTriage());
-  schedule(conversation.id, sendText, Math.max(1, agent?.delaySeconds ?? 8) * 1000, 0);
+  const agent = (await getAgent(ws, conversation.assignedAgentId)) ?? (await getActiveTriage(ws));
+  schedule(ws, conversation.id, sendText, Math.max(1, agent?.delaySeconds ?? 8) * 1000, 0);
 }
 
-function schedule(conversationId: string, sendText: SendText, delayMs: number, hop: number) {
+function schedule(ws: string, conversationId: string, sendText: SendText, delayMs: number, hop: number) {
   cancelPendingReply(conversationId);
   pending.set(
     conversationId,
     setTimeout(() => {
       pending.delete(conversationId);
-      void respondWithAI(conversationId, sendText, hop);
+      void respondWithAI(ws, conversationId, sendText, hop);
     }, delayMs),
   );
 }
 
-async function respondWithAI(conversationId: string, sendText: SendText, hop: number) {
+async function respondWithAI(ws: string, conversationId: string, sendText: SendText, hop: number) {
   try {
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
 
-    let agent = await getAgent(conversation.assignedAgentId);
-    if (!agent || !agent.active) agent = await getActiveTriage();
+    let agent = await getAgent(ws, conversation.assignedAgentId);
+    if (!agent || !agent.active) agent = await getActiveTriage(ws);
     if (!agent) return; // nenhum agente ativo
 
     const history = await historyOf(conversationId);
@@ -151,28 +153,28 @@ async function respondWithAI(conversationId: string, sendText: SendText, hop: nu
     if (hop === 0 && history[history.length - 1].role !== 'user') return;
 
     const { text, action } = llmReady ? await runAgent(agent, history) : offlineReply(agent, history);
-    if (text) await deliver(conversationId, text, sendText);
+    if (text) await deliver(ws, conversationId, text, sendText);
 
     if (action?.type === 'deactivate') {
       const updated = await prisma.conversation.update({
         where: { id: conversationId },
         data: { aiEnabled: false },
       });
-      emit({ type: 'conversation:update', conversation: updated });
-      await systemNote(conversationId, `${agent.name} encerrou a parte automática. A conversa está com a equipe.`);
+      emit(ws, { type: 'conversation:update', conversation: updated });
+      await systemNote(ws, conversationId, `${agent.name} encerrou a parte automática. A conversa está com a equipe.`);
       return;
     }
 
     let target: Agent | null = null;
     if (action?.type === 'transfer') {
-      target = await findAgentByName(action.agentName);
+      target = await findAgentByName(ws, action.agentName);
       if (!target) {
-        await systemNote(conversationId, `O roteiro pediu transferência para “${action.agentName}”, mas esse agente não existe ou está inativo.`);
+        await systemNote(ws, conversationId, `O roteiro pediu transferência para “${action.agentName}”, mas esse agente não existe ou está inativo.`);
         return;
       }
     } else if (agent.type === 'triage' && !scriptHasActions(agent)) {
       // Roteiro sem ações explícitas: mantém o roteamento automático por gatilho/IA.
-      const themeAgents = await getActiveThemeAgents();
+      const themeAgents = await getActiveThemeAgents(ws);
       const lastUser = [...history].reverse().find((h) => h.role === 'user');
       target = await decideTarget(lastUser?.content ?? '', themeAgents, history);
     }
@@ -182,22 +184,23 @@ async function respondWithAI(conversationId: string, sendText: SendText, hop: nu
         where: { id: conversationId },
         data: { assignedAgentId: target.id, aiEnabled: true },
       });
-      emit({ type: 'conversation:update', conversation: updated });
-      await systemNote(conversationId, `Transferido de ${agent.name} para ${target.name}.`);
+      emit(ws, { type: 'conversation:update', conversation: updated });
+      await systemNote(ws, conversationId, `Transferido de ${agent.name} para ${target.name}.`);
       await logAgent(target.id, 'Recebeu uma conversa transferida');
       // O agente de tema continua o atendimento logo em seguida (no máximo 2 saltos).
-      if (hop < 2) schedule(conversationId, sendText, 3000, hop + 1);
+      if (hop < 2) schedule(ws, conversationId, sendText, 3000, hop + 1);
     }
   } catch (err) {
     console.error('[agentes] falha ao responder:', err);
     await systemNote(
+      ws,
       conversationId,
       `A IA não conseguiu responder (${(err as Error).message}). Verifique a chave e o modelo em Ajustes ou responda manualmente.`,
     ).catch(() => {});
   }
 }
 
-async function deliver(conversationId: string, text: string, sendText: SendText) {
+async function deliver(ws: string, conversationId: string, text: string, sendText: SendText) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: { contact: true },
@@ -211,5 +214,5 @@ async function deliver(conversationId: string, text: string, sendText: SendText)
     where: { id: conversationId },
     data: { lastMessageAt: new Date() },
   });
-  emit({ type: 'message:new', conversationId, message: outMsg });
+  emit(ws, { type: 'message:new', conversationId, message: outMsg });
 }

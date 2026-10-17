@@ -11,6 +11,13 @@ export const env = {
 
   // Autenticação (single-operator). Em produção, defina os dois.
   appPassword: process.env.APP_PASSWORD ?? 'admin',
+  // Conta de administrador criada na primeira subida (vê todos os clientes).
+  adminEmail: (process.env.ADMIN_EMAIL ?? 'admin').trim().toLowerCase(),
+  adminPassword: process.env.ADMIN_PASSWORD ?? process.env.APP_PASSWORD ?? 'admin',
+  // Nome do cliente que recebe os dados já existentes (instalação antiga).
+  defaultWorkspaceName: process.env.DEFAULT_WORKSPACE_NAME ?? 'Law Mídias',
+  // "0" desliga o botão "Criar conta" da tela de login.
+  allowSignup: process.env.ALLOW_SIGNUP !== '0',
   appSecret: process.env.APP_SECRET ?? 'dev-secret-troque-em-producao',
 
   // Quando "1", o backend também serve o frontend compilado (client/dist).
