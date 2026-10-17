@@ -72,7 +72,7 @@ export interface Message {
   id: string;
   conversationId: string;
   direction: 'in' | 'out';
-  author: 'contact' | 'agent' | 'ai';
+  author: 'contact' | 'agent' | 'ai' | 'system';
   body: string;
   createdAt: string;
 }
@@ -82,6 +82,8 @@ export interface Conversation {
   contact: Contact;
   status: string;
   aiEnabled: boolean;
+  assignedAgentId?: string | null;
+  unread: number;
   lastMessageAt: string;
   messages?: Message[];
 }
@@ -131,9 +133,73 @@ export interface Agent {
   description: string;
   script: string;
   triggers: string;
+  regras: string;
+  faq: FaqItem[];
+  signatureOn: boolean;
+  signature: string;
   active: boolean;
   delaySeconds: number;
   order?: number;
+}
+
+export interface FaqItem {
+  q: string;
+  a: string;
+}
+
+export interface AgentHistoryItem {
+  id: string;
+  action: string;
+  createdAt: string;
+}
+
+export type AgentAction = { type: 'transfer'; agentName: string } | { type: 'deactivate' } | null;
+
+export interface Task {
+  id: string;
+  title: string;
+  status: 'todo' | 'doing' | 'done';
+  priority: 'Alta' | 'Média' | 'Baixa';
+  responsavel?: string | null;
+  dueDate?: string | null;
+}
+
+export interface CalEvent {
+  id: string;
+  title: string;
+  date: string;
+  start: string;
+  end: string;
+  kind: 'meet' | 'int';
+  notes?: string | null;
+}
+
+export interface QuickReply {
+  id: string;
+  shortcut: string;
+  text: string;
+}
+
+export interface KeywordRule {
+  id: string;
+  keyword: string;
+  reply: string;
+  active: boolean;
+}
+
+export interface DashboardData {
+  perDay: { date: string; count: number }[];
+  totals: {
+    newContacts: number;
+    openConversations: number;
+    aiConversations: number;
+    unread: number;
+    tasksOpen: number;
+    deals: number;
+    pipelineCents: number;
+  };
+  agents: { id: string; name: string; active: boolean; type: string; conversations: number }[];
+  funnels: { id: string; name: string; stages: { id: string; name: string; color: string; deals: number }[] }[];
 }
 
 export const api = {
@@ -155,6 +221,9 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ aiEnabled }),
     }),
+  setConversation: (id: string, data: { status?: string; assignedAgentId?: string | null; aiEnabled?: boolean }) =>
+    req<Conversation>(`/conversations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  markRead: (id: string) => req(`/conversations/${id}/read`, { method: 'POST' }),
   draft: (id: string) =>
     req<{ text: string }>(`/ai/draft/${id}`, { method: 'POST' }),
 
@@ -212,6 +281,43 @@ export const api = {
   updateAgent: (id: string, data: Partial<Agent>) =>
     req<Agent>(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAgent: (id: string) => req(`/agents/${id}`, { method: 'DELETE' }),
+  agentHistory: (id: string) => req<AgentHistoryItem[]>(`/agents/${id}/history`),
+  testAgent: (id: string, agent: Partial<Agent>, messages: { from: 'lead' | 'agent'; text: string }[]) =>
+    req<{ text: string; action: AgentAction }>(`/agents/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ agent, messages }),
+    }),
+  copilot: (script: string, request: string) =>
+    req<{ script: string }>('/agents/copilot', { method: 'POST', body: JSON.stringify({ script, request }) }),
+
+  // Tarefas
+  tasks: () => req<Task[]>('/tasks'),
+  addTask: (data: Partial<Task>) => req<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateTask: (id: string, data: Partial<Task>) =>
+    req<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTask: (id: string) => req(`/tasks/${id}`, { method: 'DELETE' }),
+
+  // Agenda
+  events: (from: string, to: string) => req<CalEvent[]>(`/events?from=${from}&to=${to}`),
+  addEvent: (data: Partial<CalEvent>) => req<CalEvent>('/events', { method: 'POST', body: JSON.stringify(data) }),
+  updateEvent: (id: string, data: Partial<CalEvent>) =>
+    req<CalEvent>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEvent: (id: string) => req(`/events/${id}`, { method: 'DELETE' }),
+
+  // Automações
+  quickReplies: () => req<QuickReply[]>('/quick-replies'),
+  addQuickReply: (shortcut: string, text: string) =>
+    req<QuickReply>('/quick-replies', { method: 'POST', body: JSON.stringify({ shortcut, text }) }),
+  deleteQuickReply: (id: string) => req(`/quick-replies/${id}`, { method: 'DELETE' }),
+  keywordRules: () => req<KeywordRule[]>('/keyword-rules'),
+  addKeywordRule: (keyword: string, reply: string) =>
+    req<KeywordRule>('/keyword-rules', { method: 'POST', body: JSON.stringify({ keyword, reply }) }),
+  updateKeywordRule: (id: string, data: Partial<KeywordRule>) =>
+    req<KeywordRule>(`/keyword-rules/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteKeywordRule: (id: string) => req(`/keyword-rules/${id}`, { method: 'DELETE' }),
+
+  // Dashboard
+  dashboard: (days = 7) => req<DashboardData>(`/dashboard?days=${days}`),
 
   // IA
   aiConfig: () =>
