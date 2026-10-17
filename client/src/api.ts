@@ -47,15 +47,57 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function login(password: string): Promise<void> {
-  const res = await fetch('/api/auth/login', {
+export type Role = 'admin' | 'user';
+export interface SessionUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+}
+export interface WorkspaceInfo {
+  id: string;
+  code: number;
+  name: string;
+  plan: string;
+  expiresAt: string | null;
+  active: boolean;
+}
+export interface AdminWorkspace extends WorkspaceInfo {
+  createdAt: string;
+  users: { id: string; name: string; email: string; role: Role; lastLoginAt: string | null }[];
+  whatsapp: string;
+  contacts: number;
+  openConversations: number;
+  agents: number;
+}
+type AuthResult = { token: string; user: SessionUser; workspace: WorkspaceInfo };
+
+async function postPublic<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`/api${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error('Senha incorreta');
-  const { token } = (await res.json()) as { token: string };
-  setToken(token);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data as T;
+}
+
+export async function login(email: string, password: string): Promise<AuthResult> {
+  const r = await postPublic<AuthResult>('/auth/login', { email, password });
+  setToken(r.token);
+  return r;
+}
+
+export async function signup(data: { name: string; company: string; email: string; password: string }): Promise<AuthResult> {
+  const r = await postPublic<AuthResult>('/auth/signup', data);
+  setToken(r.token);
+  return r;
+}
+
+export async function authOptions(): Promise<{ allowSignup: boolean }> {
+  const res = await fetch('/api/auth/options');
+  return res.ok ? res.json() : { allowSignup: false };
 }
 
 export interface Contact {
@@ -326,4 +368,30 @@ export const api = {
     ),
   updateAiConfig: (data: { systemPrompt?: string; autoReply?: boolean }) =>
     req('/ai/config', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Sessão / clientes
+  me: () => req<{ user: SessionUser; workspace: WorkspaceInfo }>('/auth/me'),
+  changePassword: (current: string, next: string) =>
+    req('/auth/password', { method: 'POST', body: JSON.stringify({ current, next }) }),
+  switchWorkspace: async (workspaceId: string) => {
+    const r = await req<{ token: string; workspace: WorkspaceInfo }>('/auth/switch', {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId }),
+    });
+    setToken(r.token);
+    return r.workspace;
+  },
+  adminWorkspaces: () => req<AdminWorkspace[]>('/admin/workspaces'),
+  adminCreateWorkspace: (data: {
+    name: string;
+    plan: string;
+    expiresAt: string | null;
+    userName: string;
+    email: string;
+    password: string;
+  }) => req<WorkspaceInfo>('/admin/workspaces', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateWorkspace: (id: string, data: Partial<Pick<WorkspaceInfo, 'name' | 'plan' | 'expiresAt' | 'active'>>) =>
+    req<WorkspaceInfo>(`/admin/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  adminSetPassword: (userId: string, password: string) =>
+    req(`/admin/users/${userId}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
 };

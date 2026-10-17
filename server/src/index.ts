@@ -5,10 +5,11 @@ import express from 'express';
 import cors from 'cors';
 import { Server as IOServer } from 'socket.io';
 import { env } from './env.js';
-import { setIO } from './realtime.js';
-import { requireAuth, verifyToken } from './auth.js';
-import { startWhatsApp, getStatus } from './whatsapp/session.js';
-import { ensureCrmSeed } from './services/crmSeed.js';
+import { setIO, roomOf } from './realtime.js';
+import { requireAuth, requireAdmin, verifyToken } from './auth.js';
+import { getStatus, startSavedSessions } from './whatsapp/session.js';
+import { ensureTenancy } from './services/tenancy.js';
+import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { whatsappRouter } from './routes/whatsapp.js';
 import { crmRouter } from './routes/crm.js';
@@ -31,6 +32,7 @@ app.use('/api/whatsapp', requireAuth, whatsappRouter);
 app.use('/api', requireAuth, crmRouter);
 app.use('/api/ai', requireAuth, aiRouter);
 app.use('/api/agents', requireAuth, agentsRouter);
+app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 app.use('/api', requireAuth, workRouter);
 
 // Em produção, serve o frontend compilado (SPA) a partir de client/dist.
@@ -51,21 +53,25 @@ const io = new IOServer(server, {
 });
 setIO(io);
 
-// Socket.io só aceita conexões com token válido.
+// Socket.io só aceita conexões com token válido; cada conexão entra na sala
+// do cliente (workspace) do token, então só recebe eventos dele.
 io.use((socket, next) => {
-  const token = socket.handshake.auth?.token as string | undefined;
-  if (verifyToken(token)) return next();
-  next(new Error('não autenticado'));
+  const info = verifyToken(socket.handshake.auth?.token as string | undefined);
+  if (!info) return next(new Error('não autenticado'));
+  socket.data.ws = info.ws;
+  next();
 });
 
 io.on('connection', (socket) => {
-  socket.emit('wa:status', { type: 'wa:status', ...getStatus() });
+  const ws = socket.data.ws as string;
+  socket.join(roomOf(ws));
+  socket.emit('wa:status', { type: 'wa:status', ...getStatus(ws) });
 });
 
 server.listen(env.port, async () => {
   console.log(`\n  LawHub API  →  http://localhost:${env.port}`);
   if (env.serveClient) console.log('  Servindo frontend compilado (client/dist)');
   console.log('');
-  await ensureCrmSeed();
-  void startWhatsApp();
+  await ensureTenancy();
+  await startSavedSessions();
 });

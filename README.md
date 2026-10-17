@@ -8,6 +8,18 @@ Produto construído do zero — não é cópia de nenhum serviço existente.
 - **CRM**: contatos criados automaticamente, tags, anotações.
 - **Funil**: kanban de oportunidades com arrastar-e-soltar.
 
+## Vários clientes (multi-workspace)
+
+- Cada escritório é um **cliente** com login próprio (e-mail e senha), o
+  próprio **WhatsApp**, agentes, CRM, tarefas e agenda. Um cliente nunca vê os
+  dados de outro.
+- **Administrador**: vê todos os clientes, troca entre eles ("Selecionar
+  workspace"), cria logins, define plano/vencimento, desativa acesso e
+  redefine senhas (menu **Clientes**).
+- **Usuário**: vê só o escritório dele. Pode **criar conta** na tela de login
+  (começa com 7 dias de teste) e trocar a própria senha em Configurações.
+- Conta desativada ou com plano vencido não consegue entrar.
+
 ## Agentes IA — como o fluxo funciona
 
 - **Porta de entrada:** a triagem só assume conversas novas cuja mensagem contém

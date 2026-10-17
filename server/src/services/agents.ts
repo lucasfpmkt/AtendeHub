@@ -29,17 +29,17 @@ export function parseFaq(raw: string | null | undefined): FaqItem[] {
   }
 }
 
-export async function getActiveTriage(): Promise<Agent | null> {
-  return prisma.agent.findFirst({ where: { type: 'triage', active: true }, orderBy: { order: 'asc' } });
+export async function getActiveTriage(ws: string): Promise<Agent | null> {
+  return prisma.agent.findFirst({ where: { workspaceId: ws, type: 'triage', active: true }, orderBy: { order: 'asc' } });
 }
 
-export async function getActiveThemeAgents(): Promise<Agent[]> {
-  return prisma.agent.findMany({ where: { type: 'theme', active: true }, orderBy: { order: 'asc' } });
+export async function getActiveThemeAgents(ws: string): Promise<Agent[]> {
+  return prisma.agent.findMany({ where: { workspaceId: ws, type: 'theme', active: true }, orderBy: { order: 'asc' } });
 }
 
-export async function getAgent(id: string | null | undefined): Promise<Agent | null> {
+export async function getAgent(ws: string, id: string | null | undefined): Promise<Agent | null> {
   if (!id) return null;
-  return prisma.agent.findUnique({ where: { id } });
+  return prisma.agent.findFirst({ where: { id, workspaceId: ws } });
 }
 
 export function normalize(s: string): string {
@@ -73,15 +73,15 @@ export function matchByTriggers(text: string, agents: Agent[]): Agent | null {
  * conversas cuja mensagem bate com algum gatilho dela ou dos agentes de tema.
  * Triagem sem gatilhos atende todas as conversas novas (comportamento antigo).
  */
-export async function shouldTriageStart(triage: Agent, text: string): Promise<boolean> {
+export async function shouldTriageStart(ws: string, triage: Agent, text: string): Promise<boolean> {
   if (splitTriggers(triage.triggers).length === 0) return true;
   if (matchByTriggers(text, [triage])) return true;
-  return Boolean(matchByTriggers(text, await getActiveThemeAgents()));
+  return Boolean(matchByTriggers(text, await getActiveThemeAgents(ws)));
 }
 
-export async function findAgentByName(name: string): Promise<Agent | null> {
+export async function findAgentByName(ws: string, name: string): Promise<Agent | null> {
   const target = normalize(name);
-  const agents = await prisma.agent.findMany({ where: { active: true } });
+  const agents = await prisma.agent.findMany({ where: { workspaceId: ws, active: true } });
   return (
     agents.find((a) => normalize(a.name) === target) ??
     agents.find((a) => normalize(a.name).includes(target) || target.includes(normalize(a.name))) ??

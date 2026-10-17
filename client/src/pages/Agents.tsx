@@ -87,13 +87,125 @@ Desativar: agente`,
   },
 ];
 
-export function Agents() {
+type Section = 'agents' | 'models';
+
+/** Módulo "LawHub IA": submenu à esquerda (como na Guimoo) + conteúdo. */
+export function AgentsModule({ number }: { number?: string }) {
+  const [sec, setSec] = useState<Section>('agents');
+  const [collapsed, setCollapsed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className={`split ${collapsed || editing ? 'collapsed' : ''}`}>
+      <aside className="subnav">
+        <div className="subnav-hero">
+          <span className="ico">
+            <Icon name="bot" />
+          </span>
+          <span>
+            <b>LawHub IA</b>
+            <small>{number ? `Conectado em +${number}` : 'Agentes de atendimento'}</small>
+          </span>
+        </div>
+        <div className="subnav-grp">Agentes</div>
+        <button className={sec === 'agents' ? 'active' : ''} onClick={() => setSec('agents')}>
+          <Icon name="bot" size={17} /> Agentes
+        </button>
+        <button className={sec === 'models' ? 'active' : ''} onClick={() => setSec('models')}>
+          <Icon name="doc" size={17} /> Modelos
+        </button>
+        <div className="subnav-sep" />
+        <div className="subnav-grp">Como funciona</div>
+        <p className="sub" style={{ padding: '0 10px', lineHeight: 1.5 }}>
+          O agente principal atende a conversa nova. Ele transfere para um secundário com{' '}
+          <code>⚡ Ação: Transferir para agente</code>.
+        </p>
+      </aside>
+      <div className="split-main">
+        {!editing && (
+          <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)} aria-label={collapsed ? 'Abrir menu' : 'Recolher menu'}>
+            <Icon name={collapsed ? 'right' : 'left'} size={16} />
+          </button>
+        )}
+        {sec === 'agents' ? (
+          <Agents number={number} onEditingChange={setEditing} />
+        ) : (
+          <Models
+            onUse={() => {
+              setSec('agents');
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Galeria de modelos de roteiro. */
+function Models({ onUse }: { onUse: () => void }) {
+  const [busy, setBusy] = useState<number | null>(null);
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1 className="h1">Modelos</h1>
+          <p className="sub">Comece um agente a partir de um roteiro pronto no formato Passo / Situação / Mensagem / Ação.</p>
+        </div>
+      </div>
+      <div className="integ-grid">
+        {MODELOS.map((m, i) => (
+          <div key={m.name} className="card integ-card">
+            <div className="row between">
+              <span className="botmark">
+                <Icon name="bot" />
+              </span>
+              <span className={`pill ${m.type === 'triage' ? 'primary' : 'ai'}`}>{m.type === 'triage' ? 'Principal' : 'Secundário'}</span>
+            </div>
+            <b>{m.name}</b>
+            <span className="muted small">{m.description}</span>
+            <div className="integ-foot row between">
+              <span>{m.script.split('◆').length - 1} passos</span>
+              <button
+                className="soft"
+                disabled={busy !== null}
+                onClick={async () => {
+                  setBusy(i);
+                  await api.addAgent({
+                    name: m.name,
+                    type: m.type,
+                    description: m.description,
+                    script: m.script,
+                    regras: REGRAS_PADRAO,
+                    delaySeconds: 15,
+                    active: false,
+                  });
+                  setBusy(null);
+                  onUse();
+                }}
+              >
+                <Icon name="plus" size={14} /> Usar modelo
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="hint" style={{ marginTop: 14 }}>
+        O agente criado a partir de um modelo começa <b>inativo</b>, para você revisar o roteiro antes de ligar.
+      </p>
+    </div>
+  );
+}
+
+const REGRAS_PADRAO =
+  '📌 Faça 1 pergunta por mensagem.\n📌 Nunca diga que é uma IA.\n📌 Linguagem simples, no máximo 2 frases por mensagem.';
+
+function Agents({ number, onEditingChange }: { number?: string; onEditingChange: (v: boolean) => void }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [connected, setConnected] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [linking, setLinking] = useState<Agent | null>(null);
 
   const load = () =>
     api.agents().then((r) => {
@@ -104,6 +216,8 @@ export function Agents() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => onEditingChange(Boolean(editingId)), [editingId, onEditingChange]);
 
   if (editingId) {
     return (
@@ -133,7 +247,7 @@ export function Agents() {
         <thead>
           <tr>
             <th>Agente</th>
-            <th>{kind === 'theme' ? 'Tema' : 'Entrada'}</th>
+            <th>Conexão</th>
             <th>Gatilhos</th>
             <th style={{ textAlign: 'right' }}>Ações</th>
           </tr>
@@ -143,7 +257,7 @@ export function Agents() {
             <tr>
               <td colSpan={4} className="muted">
                 {kind === 'triage'
-                  ? 'Nenhuma triagem ativa. Sem ela, nenhuma conversa nova é atendida pela IA.'
+                  ? 'Nenhum agente principal ativo. Sem ele, a IA não atende conversas novas.'
                   : 'Nenhum agente aqui.'}
               </td>
             </tr>
@@ -153,35 +267,44 @@ export function Agents() {
             return (
               <tr key={a.id} className="clickable" onClick={() => setEditingId(a.id)}>
                 <td>
-                  <span className="row" style={{ gap: 10 }}>
+                  <span className="row" style={{ gap: 12 }}>
                     <span className={`botmark ${a.active ? '' : 'off'}`}>
-                      <Icon name="bot" />
+                      <Icon name="bot" size={18} />
                     </span>
-                    <strong>{a.name}</strong>
+                    <span style={{ fontWeight: 500 }}>{a.name}</span>
                   </span>
                 </td>
-                <td className="muted small" style={{ maxWidth: 340 }}>
-                  {a.type === 'triage'
-                    ? n > 0
-                      ? 'Só conversas com gatilho'
-                      : 'Todas as conversas novas'
-                    : a.description || <em>Recebe transferência</em>}
-                </td>
                 <td>
+                  {a.type === 'triage' && a.active ? (
+                    <span className="conn">
+                      <Icon name="wifi" size={14} /> {number ? `+${number}` : 'WhatsApp da conexão'}
+                    </span>
+                  ) : (
+                    <em className="muted small">{a.active ? 'Recebe transferência' : 'Desligado'}</em>
+                  )}
+                </td>
+                <td style={{ fontWeight: 500 }}>
                   {n} gatilho{n === 1 ? '' : 's'}
                 </td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className={`icon-btn ${a.active ? 'ok' : ''}`}
-                    onClick={() => toggle(a)}
-                    aria-label={a.active ? 'Desativar agente' : 'Ativar agente'}
-                    title={a.active ? 'Desativar' : 'Ativar'}
-                  >
-                    <Icon name="power" />
-                  </button>
-                  <button className="icon-btn" onClick={() => setConfirmDel(a)} aria-label="Excluir agente" title="Excluir">
-                    <Icon name="x" />
-                  </button>
+                  <span className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
+                    {a.active && (
+                      <button className="soft" onClick={() => setLinking(a)}>
+                        <Icon name="link" size={14} /> {a.type === 'triage' ? 'Conexão' : 'Vincular'}
+                      </button>
+                    )}
+                    <button
+                      className={`icon-btn ${a.active ? 'ok' : ''}`}
+                      onClick={() => toggle(a)}
+                      aria-label={a.active ? 'Desativar agente' : 'Ativar agente'}
+                      title={a.active ? 'Desativar' : 'Ativar'}
+                    >
+                      <Icon name="power" />
+                    </button>
+                    <button className="icon-btn" onClick={() => setConfirmDel(a)} aria-label="Excluir agente" title="Excluir">
+                      <Icon name="x" />
+                    </button>
+                  </span>
                 </td>
               </tr>
             );
@@ -196,7 +319,7 @@ export function Agents() {
       <div className="page-head">
         <div>
           <h1 className="h1">Agentes IA</h1>
-          <p className="sub">Crie agentes com roteiro de atendimento e deixe a IA conduzir pelo WhatsApp.</p>
+          <p className="sub">Crie um agente com roteiro de atendimento e vincule a uma conexão WhatsApp.</p>
         </div>
         <button className="primary" onClick={() => setCreating(true)}>
           <Icon name="plus" /> Novo agente
@@ -213,17 +336,17 @@ export function Agents() {
       )}
 
       <div className="sec-h">
-        Triagem <small>({triage.length}) — recebe a conversa nova e direciona</small>
+        Agentes principais <small>({triage.length}) — com conexão vinculada</small>
       </div>
       <Table list={triage} kind="triage" />
 
       <div className="sec-h">
-        Agentes de tema <small>({themes.length}) — recebem a transferência</small>
+        Agentes secundários <small>({themes.length}) — recebem transferência</small>
       </div>
       <Table list={themes} kind="theme" />
 
-      <button className="ghost sec-toggle" onClick={() => setShowInactive((v) => !v)}>
-        <Icon name={showInactive ? 'chev' : 'right'} size={14} /> Inativos ({inactive.length})
+      <button className="sec-toggle" onClick={() => setShowInactive((v) => !v)}>
+        <Icon name={showInactive ? 'chev' : 'right'} size={14} /> Inativos <small className="muted">({inactive.length})</small>
       </button>
       {showInactive && <Table list={inactive} kind="inactive" />}
 
@@ -235,6 +358,51 @@ export function Agents() {
             load().then(() => setEditingId(a.id));
           }}
         />
+      )}
+
+      {linking && (
+        <div className="modal-backdrop" onClick={() => setLinking(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            {linking.type === 'triage' ? (
+              <>
+                <h3>Conexão do agente</h3>
+                <p className="muted">
+                  <b>{linking.name}</b> é o agente principal: atende as conversas novas do WhatsApp{' '}
+                  {number ? <span className="mono">+{number}</span> : '(nenhum número conectado agora)'}.
+                </p>
+                <div className="modal-actions">
+                  <button className="primary" onClick={() => setLinking(null)}>
+                    Entendi
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>Vincular “{linking.name}” à conexão?</h3>
+                <p className="muted">
+                  Ele passa a ser o agente principal e atende as conversas novas. O principal atual vira secundário e
+                  continua recebendo transferências.
+                </p>
+                <div className="modal-actions">
+                  <button onClick={() => setLinking(null)}>Cancelar</button>
+                  <button
+                    className="primary"
+                    onClick={async () => {
+                      for (const t of agents.filter((x) => x.type === 'triage' && x.id !== linking.id)) {
+                        await api.updateAgent(t.id, { type: 'theme' });
+                      }
+                      await api.updateAgent(linking.id, { type: 'triage', active: true });
+                      setLinking(null);
+                      load();
+                    }}
+                  >
+                    <Icon name="link" size={15} /> Vincular
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {confirmDel && (
@@ -266,6 +434,8 @@ function NewAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [name, setName] = useState('');
   const [modelo, setModelo] = useState<number>(-1);
   const [type, setType] = useState<Agent['type']>('theme');
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState('');
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form
@@ -274,16 +444,25 @@ function NewAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         onSubmit={async (e) => {
           e.preventDefault();
           if (!name.trim()) return;
+          let imported: Partial<Agent> = {};
+          if (code.trim()) {
+            try {
+              imported = JSON.parse(code);
+            } catch {
+              setErr('O código colado não é válido. Copie de novo em Compartilhar, no agente de origem.');
+              return;
+            }
+          }
           const m = MODELOS[modelo];
           onCreated(
             await api.addAgent({
-              name: name.trim(),
-              type,
               description: m?.description ?? '',
               script: m?.script ?? '',
-              regras:
-                '📌 Faça 1 pergunta por mensagem.\n📌 Nunca diga que é uma IA.\n📌 Linguagem simples, no máximo 2 frases por mensagem.',
+              regras: REGRAS_PADRAO,
               delaySeconds: 15,
+              ...imported,
+              name: name.trim(),
+              type,
               active: true,
             }),
           );
@@ -297,8 +476,8 @@ function NewAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <div className="field">
           <label htmlFor="na-type">Tipo</label>
           <select id="na-type" value={type} onChange={(e) => setType(e.target.value as Agent['type'])}>
-            <option value="triage">Triagem — recebe a conversa nova e direciona</option>
-            <option value="theme">Tema — recebe a transferência</option>
+            <option value="triage">Principal — atende a conversa nova e direciona</option>
+            <option value="theme">Secundário — recebe transferência</option>
           </select>
         </div>
         <div className="field">
@@ -320,6 +499,19 @@ function NewAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             ))}
           </select>
         </div>
+        <div className="field">
+          <label htmlFor="na-code">Importar de outro agente (opcional)</label>
+          <textarea
+            id="na-code"
+            rows={2}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="Cole aqui o código copiado em Compartilhar"
+            className="mono"
+            style={{ fontSize: 12 }}
+          />
+        </div>
+        {err && <div className="alert">{err}</div>}
         <div className="modal-actions">
           <button type="button" onClick={onClose}>
             Cancelar
@@ -335,7 +527,8 @@ function NewAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 /* Editor                                                                     */
 /* ========================================================================== */
 
-type EdTab = 'roteiro' | 'regras' | 'faq';
+type EdTab = 'roteiro' | 'regras' | 'faq' | 'integ';
+const FONT_SIZES = [13, 14.5, 16, 18];
 type RightMode = 'config' | 'test' | 'copilot' | 'history';
 
 function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[]; onClose: () => void }) {
@@ -347,6 +540,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   const [trig, setTrig] = useState('');
   const [toast, setToast] = useState('');
   const [confirmClose, setConfirmClose] = useState(false);
+  const [fs, setFs] = useState(() => Number(localStorage.getItem('lawhub.editorFont')) || 14.5);
 
   useEffect(() => {
     const found = allAgents.find((x) => x.id === id);
@@ -417,6 +611,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
               ['roteiro', 'list', 'Roteiro'],
               ['regras', 'shield', 'Regras'],
               ['faq', 'help', 'FAQ'],
+              ['integ', 'plug', 'Integrações'],
             ] as const
           ).map(([k, ic, l]) => (
             <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
@@ -437,13 +632,37 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
         <div className="ed-body">
           {tab === 'roteiro' && (
             <>
-              <p className="hint">
-                Passo a passo do atendimento. Use <code>⚡ Ação: Transferir para agente: Nome</code> para passar a
-                conversa a outro agente e <code>⚡ Ação: Desativar: agente</code> para devolver à equipe.
-                {a.type === 'triage' &&
-                  ' Se a triagem não usar essas ações, o sistema escolhe o agente de tema pelos gatilhos e pela descrição de cada um.'}
-              </p>
-              <textarea className="script" value={a.script} onChange={(e) => set('script', e.target.value)} spellCheck />
+              <div className="ed-tools">
+                <p className="hint">
+                  Dica: use <code>⚡ Ação: Transferir para agente: Nome</code> para passar a conversa a outro agente e{' '}
+                  <code>⚡ Ação: Desativar: agente</code> para devolver à equipe.
+                  {a.type === 'triage' &&
+                    ' Sem essas ações, o sistema escolhe o agente secundário pelos gatilhos e pela descrição de cada um.'}
+                </p>
+                <div className="fs-ctl" role="group" aria-label="Tamanho da letra">
+                  {FONT_SIZES.map((v, i) => (
+                    <button
+                      key={v}
+                      className={fs === v ? 'active' : ''}
+                      style={{ fontSize: 11 + i * 2 }}
+                      onClick={() => {
+                        setFs(v);
+                        localStorage.setItem('lawhub.editorFont', String(v));
+                      }}
+                      aria-label={`Letra ${i + 1}`}
+                    >
+                      A
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                className="script"
+                style={{ fontSize: fs }}
+                value={a.script}
+                onChange={(e) => set('script', e.target.value)}
+                spellCheck
+              />
             </>
           )}
           {tab === 'regras' && (
@@ -452,7 +671,12 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                 Regras gerais de comportamento (tom de voz, o que nunca dizer, critérios de qualificação). Valem para a
                 conversa inteira.
               </p>
-              <textarea className="script short" value={a.regras} onChange={(e) => set('regras', e.target.value)} />
+              <textarea
+                className="script short"
+                style={{ fontSize: fs }}
+                value={a.regras}
+                onChange={(e) => set('regras', e.target.value)}
+              />
             </>
           )}
           {tab === 'faq' && (
@@ -500,6 +724,36 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
               </div>
             </>
           )}
+          {tab === 'integ' && (
+            <>
+              <div className="eyebrow" style={{ color: 'var(--g-500)' }}>
+                Integrações
+              </div>
+              <p className="hint">
+                Conecte ferramentas uma vez e escolha o que <b>este agente</b> usa na conversa: assinatura de contrato,
+                cobrança e agenda.
+              </p>
+              <div className="integ-grid">
+                {[
+                  ['Assinatura digital', 'ZapSign ou ClickSign: o agente gera o contrato e envia o link na conversa.', '#2563eb', 'Z'],
+                  ['Cobranças', 'Pix e boleto gerados durante a conversa (Asaas).', '#0d9488', '$'],
+                  ['Agenda', 'O agente consulta horários livres e marca a reunião em Agendas.', '#7c3aed', '◷'],
+                ].map(([n, d, c, m]) => (
+                  <div key={n} className="card integ-card">
+                    <div className="row between">
+                      <span className="integ-mark" style={{ background: c }}>
+                        {m}
+                      </span>
+                      <span className="pill">Em breve</span>
+                    </div>
+                    <b>{n}</b>
+                    <span className="muted small">{d}</span>
+                    <div className="integ-foot">Ainda não disponível neste agente</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -541,14 +795,15 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                 <span className="botmark">
                   <Icon name="bot" />
                 </span>
-                <input value={a.name} onChange={(e) => set('name', e.target.value)} style={{ fontWeight: 700 }} aria-label="Nome do agente" />
+                <input value={a.name} onChange={(e) => set('name', e.target.value)} style={{ fontWeight: 600 }} aria-label="Nome do agente" />
+                <span className="agent-id">#{a.id.slice(-4).toUpperCase()}</span>
                 <span className={`pill ${a.active ? 'ok' : ''}`}>{a.active ? 'Ativo' : 'Inativo'}</span>
               </div>
               <label className="field-sm">
                 <span>Tipo</span>
                 <select value={a.type} onChange={(e) => set('type', e.target.value as Agent['type'])}>
-                  <option value="triage">Triagem — recebe a conversa nova e direciona</option>
-                  <option value="theme">Tema — recebe a transferência</option>
+                  <option value="triage">Principal (atende a conversa nova)</option>
+                  <option value="theme">Secundário (recebe transferência)</option>
                 </select>
               </label>
               {a.type === 'theme' && (
@@ -641,6 +896,48 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                   <Switch on={a.signatureOn} onChange={(v) => set('signatureOn', v)} label="Assinar mensagens" />
                 </label>
                 <input value={a.signature} onChange={(e) => set('signature', e.target.value)} placeholder="— Equipe do escritório" />
+              </>,
+            )}
+            {acc(
+              'aud',
+              'mic',
+              'Áudio',
+              <span className="muted small">
+                Responder com áudio (voz) ainda não está disponível. Por enquanto o agente responde em texto.
+              </span>,
+            )}
+            {acc(
+              'shr',
+              'share',
+              'Compartilhar',
+              <>
+                <span className="muted small">
+                  Copie a configuração e cole em “Importar de outro agente” ao criar um agente, em qualquer cliente.
+                </span>
+                <button
+                  className="sm"
+                  style={{ alignSelf: 'flex-start' }}
+                  onClick={async () => {
+                    const code = JSON.stringify({
+                      description: a.description,
+                      script: a.script,
+                      triggers: a.triggers,
+                      regras: a.regras,
+                      faq: a.faq,
+                      delaySeconds: a.delaySeconds,
+                      signatureOn: a.signatureOn,
+                      signature: a.signature,
+                    });
+                    try {
+                      await navigator.clipboard.writeText(code);
+                      setToast('Configuração copiada');
+                    } catch {
+                      setToast('Não foi possível copiar automaticamente');
+                    }
+                  }}
+                >
+                  <Icon name="copy" size={14} /> Copiar configuração
+                </button>
               </>,
             )}
           </>

@@ -8,11 +8,11 @@ const DEFAULT_STAGES = [
   { name: 'Perdido', color: '#b71312' },
 ];
 
-/** Cria um funil com um conjunto de etapas padrão. */
-export async function createFunnelWithDefaults(name: string) {
-  const count = await prisma.funnel.count();
+/** Cria um funil (no cliente indicado) com um conjunto de etapas padrão. */
+export async function createFunnelWithDefaults(workspaceId: string, name: string) {
+  const count = await prisma.funnel.count({ where: { workspaceId } });
   const funnel = await prisma.funnel.create({
-    data: { name, order: count },
+    data: { name, order: count, workspaceId },
   });
   await prisma.pipelineStage.createMany({
     data: DEFAULT_STAGES.map((s, i) => ({
@@ -20,15 +20,8 @@ export async function createFunnelWithDefaults(name: string) {
       color: s.color,
       order: i,
       funnelId: funnel.id,
+      workspaceId,
     })),
   });
   return funnel;
-}
-
-/** Garante que exista ao menos um funil (chamado no start do servidor). */
-export async function ensureCrmSeed() {
-  const funnels = await prisma.funnel.count();
-  if (funnels === 0) {
-    await createFunnelWithDefaults('Funil Padrão');
-  }
 }

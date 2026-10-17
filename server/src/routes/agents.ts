@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { complete, llmReady, type ChatTurn } from '../services/llm.js';
+import { wsOf } from '../auth.js';
 import { logAgent, offlineReply, runAgent, type Agent } from '../services/agents.js';
 
 export const agentsRouter = Router();
@@ -47,24 +48,28 @@ const out = (a: Agent & Record<string, unknown>) => {
   return { ...a, faq };
 };
 
-agentsRouter.get('/', async (_req, res) => {
-  const agents = await prisma.agent.findMany({ orderBy: [{ type: 'asc' }, { order: 'asc' }] });
+agentsRouter.get('/', async (req, res) => {
+  const agents = await prisma.agent.findMany({
+    where: { workspaceId: wsOf(req) },
+    orderBy: [{ type: 'asc' }, { order: 'asc' }],
+  });
   res.json({ agents: agents.map(out), providerConnected: llmReady });
 });
 
 agentsRouter.post('/', async (req, res) => {
   const data = toData(req.body ?? {});
   if (!String(data.name ?? '').trim()) return res.status(400).json({ error: 'nome obrigatório' });
-  const count = await prisma.agent.count();
+  const ws = wsOf(req);
+  const count = await prisma.agent.count({ where: { workspaceId: ws } });
   const agent = await prisma.agent.create({
-    data: { ...(data as { name: string }), order: count },
+    data: { ...(data as { name: string }), order: count, workspaceId: ws },
   });
   await logAgent(agent.id, 'Criou o agente');
   res.json(out(agent));
 });
 
 agentsRouter.patch('/:id', async (req, res) => {
-  const before = await prisma.agent.findUnique({ where: { id: req.params.id } });
+  const before = await prisma.agent.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } });
   if (!before) return res.status(404).json({ error: 'agente não encontrado' });
   const data = toData(req.body ?? {});
   const agent = await prisma.agent.update({ where: { id: before.id }, data });
@@ -74,13 +79,23 @@ agentsRouter.patch('/:id', async (req, res) => {
 });
 
 agentsRouter.delete('/:id', async (req, res) => {
+  const ws = wsOf(req);
+  if (!(await prisma.agent.findFirst({ where: { id: req.params.id, workspaceId: ws } }))) {
+    return res.status(404).json({ error: 'agente não encontrado' });
+  }
   // Conversas conduzidas por ele ficam sem agente (voltam para a triagem/equipe).
-  await prisma.conversation.updateMany({ where: { assignedAgentId: req.params.id }, data: { assignedAgentId: null } });
+  await prisma.conversation.updateMany({
+    where: { workspaceId: ws, assignedAgentId: req.params.id },
+    data: { assignedAgentId: null },
+  });
   await prisma.agent.delete({ where: { id: req.params.id } });
   res.json({ ok: true });
 });
 
 agentsRouter.get('/:id/history', async (req, res) => {
+  if (!(await prisma.agent.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } }))) {
+    return res.status(404).json({ error: 'agente não encontrado' });
+  }
   const items = await prisma.agentHistory.findMany({
     where: { agentId: req.params.id },
     orderBy: { createdAt: 'desc' },
@@ -94,7 +109,7 @@ agentsRouter.get('/:id/history', async (req, res) => {
  * pode trazer roteiro/regras/FAQ ainda não salvos). Nada é gravado nem enviado.
  */
 agentsRouter.post('/:id/test', async (req, res) => {
-  const saved = await prisma.agent.findUnique({ where: { id: req.params.id } });
+  const saved = await prisma.agent.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } });
   if (!saved) return res.status(404).json({ error: 'agente não encontrado' });
   const draft = { ...saved, ...toData(req.body?.agent ?? {}) } as Agent;
   const history: ChatTurn[] = (Array.isArray(req.body?.messages) ? req.body.messages : []).map(
