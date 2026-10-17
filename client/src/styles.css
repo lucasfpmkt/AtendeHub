@@ -600,3 +600,11 @@ svg.chart text { fill: var(--g-400); font-size: 11px; font-family: var(--font); 
 .tile { white-space: normal; min-width: 0; }
 .tile > span:last-child { min-width: 0; }
 .duo > * { min-width: 0; }
+
+/* busca da lista de conversas: altura fixa (não cresce na coluna) */
+.conv-list > .conv-search { flex: none; margin: 12px 12px 8px; min-height: 38px; }
+.conv-search { min-width: 0; }
+.conv-search input { min-height: 34px; }
+
+/* código de pareamento do WhatsApp */
+.pair-code { font-size: 34px; font-weight: 700; letter-spacing: 0.12em; padding: 14px 20px; border: 1px dashed var(--g-300); border-radius: 12px; background: var(--g-50); color: var(--g-900); }

@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { hashPassword } from '../auth.js';
+import { clearAccessCache, hashPassword } from '../auth.js';
 import { createWorkspace } from '../services/tenancy.js';
-import { getStatus } from '../whatsapp/session.js';
+import { dropSession, getStatus } from '../whatsapp/session.js';
 
 /** Painel do administrador: todos os clientes (workspaces) e seus acessos. */
 export const adminRouter = Router();
@@ -69,6 +69,7 @@ adminRouter.patch('/workspaces/:id', async (req, res) => {
       active: typeof active === 'boolean' ? active : undefined,
     },
   });
+  clearAccessCache();
   res.json(ws);
 });
 
@@ -77,5 +78,44 @@ adminRouter.post('/users/:id/password', async (req, res) => {
   const password = String(req.body?.password ?? '');
   if (password.length < 8) return res.status(400).json({ error: 'A senha precisa ter pelo menos 8 caracteres.' });
   await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash: hashPassword(password) } });
+  res.json({ ok: true });
+});
+
+/**
+ * Exclui um cliente de vez: WhatsApp, logins e todos os dados dele.
+ * Exige o nome digitado; não deixa apagar o cliente aberto nem o que
+ * contém uma conta de administrador.
+ */
+adminRouter.delete('/workspaces/:id', async (req, res) => {
+  const ws = await prisma.workspace.findUnique({ where: { id: req.params.id }, include: { users: true } });
+  if (!ws) return res.status(404).json({ error: 'cliente não encontrado' });
+  if (String(req.body?.confirmName ?? '').trim() !== ws.name) {
+    return res.status(400).json({ error: 'Digite o nome do cliente exatamente como aparece para confirmar.' });
+  }
+  if (ws.id === req.auth!.ws) {
+    return res.status(400).json({ error: 'Você está dentro deste cliente. Abra outro cliente antes de excluí-lo.' });
+  }
+  if (ws.users.some((u) => u.role === 'admin')) {
+    return res.status(400).json({ error: 'Este cliente tem uma conta de administrador e não pode ser excluído.' });
+  }
+
+  await dropSession(ws.id);
+  const where = { workspaceId: ws.id };
+  await prisma.$transaction([
+    prisma.deal.deleteMany({ where }),
+    prisma.conversation.deleteMany({ where }), // mensagens vão junto (cascade)
+    prisma.contact.deleteMany({ where }),
+    prisma.pipelineStage.deleteMany({ where }),
+    prisma.funnel.deleteMany({ where }),
+    prisma.agent.deleteMany({ where }), // histórico vai junto (cascade)
+    prisma.task.deleteMany({ where }),
+    prisma.event.deleteMany({ where }),
+    prisma.quickReply.deleteMany({ where }),
+    prisma.keywordRule.deleteMany({ where }),
+    prisma.tag.deleteMany({ where }),
+    prisma.aiConfig.deleteMany({ where: { id: ws.id } }),
+    prisma.workspace.delete({ where: { id: ws.id } }), // logins vão junto (cascade)
+  ]);
+  clearAccessCache();
   res.json({ ok: true });
 });

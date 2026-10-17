@@ -6,7 +6,7 @@ import cors from 'cors';
 import { Server as IOServer } from 'socket.io';
 import { env } from './env.js';
 import { setIO, roomOf } from './realtime.js';
-import { requireAuth, requireAdmin, verifyToken } from './auth.js';
+import { accessStillValid, requireAuth, requireAdmin, verifyToken } from './auth.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { ensureTenancy } from './services/tenancy.js';
 import { adminRouter } from './routes/admin.js';
@@ -55,9 +55,9 @@ setIO(io);
 
 // Socket.io só aceita conexões com token válido; cada conexão entra na sala
 // do cliente (workspace) do token, então só recebe eventos dele.
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const info = verifyToken(socket.handshake.auth?.token as string | undefined);
-  if (!info) return next(new Error('não autenticado'));
+  if (!info || !(await accessStillValid(info).catch(() => false))) return next(new Error('não autenticado'));
   socket.data.ws = info.ws;
   next();
 });

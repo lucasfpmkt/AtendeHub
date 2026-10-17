@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { env } from './env.js';
+import { prisma } from './db.js';
 
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
 
@@ -66,11 +67,44 @@ export function checkPasswordHash(password: string, stored: string): boolean {
 
 /* ----------------------------- middlewares ---------------------------- */
 
-/** Exige um Bearer token válido e preenche req.auth. */
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+/**
+ * Confere no banco se o acesso ainda vale: o usuário existe, o cliente aberto
+ * existe e, para usuário comum, é o cliente dele, ativo e dentro do prazo.
+ * Resultado guardado por 15 s para não consultar o banco a cada requisição.
+ */
+const accessCache = new Map<string, { ok: boolean; at: number }>();
+export async function accessStillValid(info: AuthInfo): Promise<boolean> {
+  const key = `${info.uid}:${info.ws}:${info.role}`;
+  const hit = accessCache.get(key);
+  if (hit && Date.now() - hit.at < 15_000) return hit.ok;
+  const [user, ws] = await Promise.all([
+    prisma.user.findUnique({ where: { id: info.uid }, select: { role: true, workspaceId: true } }),
+    prisma.workspace.findUnique({ where: { id: info.ws }, select: { active: true, expiresAt: true } }),
+  ]);
+  const today = new Date().toISOString().slice(0, 10);
+  let ok = Boolean(user && ws && user.role === info.role);
+  if (ok && info.role !== 'admin') {
+    ok = user!.workspaceId === info.ws && ws!.active && !(ws!.expiresAt && ws!.expiresAt < today);
+  }
+  accessCache.set(key, { ok, at: Date.now() });
+  return ok;
+}
+
+/** Esquece o cache (ex.: logo depois de desativar ou excluir um cliente). */
+export function clearAccessCache() {
+  accessCache.clear();
+}
+
+/** Exige um Bearer token válido, com acesso ainda liberado, e preenche req.auth. */
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization ?? '';
   const info = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : '');
   if (!info) return res.status(401).json({ error: 'não autenticado' });
+  try {
+    if (!(await accessStillValid(info))) return res.status(401).json({ error: 'Acesso encerrado. Entre novamente.' });
+  } catch (err) {
+    return next(err);
+  }
   req.auth = info;
   next();
 }
