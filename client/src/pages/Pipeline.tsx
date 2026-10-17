@@ -28,6 +28,7 @@ export function Pipeline() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
   const [dragDeal, setDragDeal] = useState<string | null>(null);
+  const [dragStage, setDragStage] = useState<string | null>(null);
   const [dropStage, setDropStage] = useState<string | null>(null);
   const [dealModal, setDealModal] = useState<{ deal: Deal | null; stageId: string } | null>(null);
   const [stageModalOpen, setStageModalOpen] = useState(false);
@@ -69,11 +70,35 @@ export function Pipeline() {
     setActiveId(f.id);
   };
 
-  const onDrop = async (stageId: string) => {
+  const onDrop = async (targetStageId: string) => {
     setDropStage(null);
+    // Reordenar colunas: soltou o cabeçalho de uma etapa sobre outra.
+    if (dragStage) {
+      const src = dragStage;
+      setDragStage(null);
+      if (src !== targetStageId) await reorderStage(src, targetStageId);
+      return;
+    }
+    // Mover negócio entre etapas.
     if (!dragDeal) return;
+    const deal = dragDeal;
     setDragDeal(null);
-    await api.updateDeal(dragDeal, { stageId });
+    await api.updateDeal(deal, { stageId: targetStageId });
+    refresh();
+  };
+
+  const reorderStage = async (sourceId: string, targetId: string) => {
+    if (!board) return;
+    const stages = [...board.stages];
+    const from = stages.findIndex((s) => s.id === sourceId);
+    const to = stages.findIndex((s) => s.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [moved] = stages.splice(from, 1);
+    stages.splice(to, 0, moved);
+    setBoard({ ...board, stages }); // atualização otimista (mostra na hora)
+    await Promise.all(
+      stages.map((s, i) => (s.order === i ? null : api.updateStage(s.id, { order: i }))),
+    );
     refresh();
   };
 
@@ -151,6 +176,7 @@ export function Pipeline() {
                 isDropTarget={dropStage === stage.id}
                 onDragOverCol={() => setDropStage(stage.id)}
                 onDrop={() => onDrop(stage.id)}
+                onDragStartStage={() => setDragStage(stage.id)}
                 onDragStartDeal={setDragDeal}
                 onOpenDeal={(d) => setDealModal({ deal: d, stageId: stage.id })}
                 onNewDeal={() => setDealModal({ deal: null, stageId: stage.id })}
@@ -242,6 +268,7 @@ function KanbanColumn({
   isDropTarget,
   onDragOverCol,
   onDrop,
+  onDragStartStage,
   onDragStartDeal,
   onOpenDeal,
   onNewDeal,
@@ -252,6 +279,7 @@ function KanbanColumn({
   isDropTarget: boolean;
   onDragOverCol: () => void;
   onDrop: () => void;
+  onDragStartStage: () => void;
   onDragStartDeal: (id: string) => void;
   onOpenDeal: (d: Deal) => void;
   onNewDeal: () => void;
@@ -267,7 +295,16 @@ function KanbanColumn({
       }}
       onDrop={onDrop}
     >
-      <div className="column-head">
+      <div
+        className="column-head"
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          onDragStartStage();
+        }}
+        title="Arraste para reordenar esta etapa"
+        style={{ cursor: 'grab' }}
+      >
         <span className="dot" style={{ background: stage.color }} />
         <span className="name">{stage.name}</span>
         <span className="count">{stage.deals.length}</span>

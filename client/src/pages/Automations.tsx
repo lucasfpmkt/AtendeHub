@@ -54,9 +54,16 @@ function QuickReplies() {
           load();
         }}
       >
-        <div className="row">
+        <div className="row" style={{ alignItems: 'flex-start' }}>
           <input className="mono" value={shortcut} onChange={(e) => setShortcut(e.target.value)} style={{ maxWidth: 160 }} aria-label="Atalho" />
-          <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Texto da mensagem" aria-label="Texto" />
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Texto da mensagem (Enter cria uma nova linha)"
+            aria-label="Texto"
+            rows={4}
+            style={{ flex: 1, resize: 'vertical' }}
+          />
           <button className="primary">
             <Icon name="plus" /> Adicionar
           </button>
@@ -82,7 +89,7 @@ function QuickReplies() {
             {items.map((x) => (
               <tr key={x.id}>
                 <td className="mono accent">{x.shortcut}</td>
-                <td>{x.text}</td>
+                <td style={{ whiteSpace: 'pre-wrap' }}>{x.text}</td>
                 <td style={{ textAlign: 'right' }}>
                   <button
                     className="icon-btn"
@@ -135,9 +142,16 @@ function Keywords() {
           load();
         }}
       >
-        <div className="row">
+        <div className="row" style={{ alignItems: 'flex-start' }}>
           <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Palavra-chave (ex.: horário)" style={{ maxWidth: 220 }} aria-label="Palavra-chave" />
-          <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Resposta automática" aria-label="Resposta" />
+          <textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder="Resposta automática (Enter cria uma nova linha; deixe uma linha em branco para separar parágrafos)"
+            aria-label="Resposta"
+            rows={4}
+            style={{ flex: 1, resize: 'vertical' }}
+          />
           <button className="primary">
             <Icon name="plus" /> Adicionar
           </button>
@@ -166,7 +180,7 @@ function Keywords() {
                 <td>
                   <span className="pill primary">{x.keyword}</span>
                 </td>
-                <td>{x.reply}</td>
+                <td style={{ whiteSpace: 'pre-wrap' }}>{x.reply}</td>
                 <td>
                   <Switch
                     on={x.active}
