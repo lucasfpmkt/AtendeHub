@@ -246,8 +246,13 @@ export interface DashboardData {
 
 export const api = {
   // WhatsApp
-  waStatus: () => req<{ status: string; me?: string; qr: string | null }>('/whatsapp/status'),
-  waConnect: () => req('/whatsapp/connect', { method: 'POST' }),
+  waStatus: () =>
+    req<{ status: string; me?: string; qr: string | null; pairCode: string | null }>('/whatsapp/status'),
+  waConnect: (phone?: string) =>
+    req<{ status: string; qr: string | null; pairCode: string | null }>('/whatsapp/connect', {
+      method: 'POST',
+      body: JSON.stringify(phone ? { phone } : {}),
+    }),
   waLogout: () => req('/whatsapp/logout', { method: 'POST' }),
 
   // Conversas / mensagens
@@ -392,6 +397,8 @@ export const api = {
   }) => req<WorkspaceInfo>('/admin/workspaces', { method: 'POST', body: JSON.stringify(data) }),
   adminUpdateWorkspace: (id: string, data: Partial<Pick<WorkspaceInfo, 'name' | 'plan' | 'expiresAt' | 'active'>>) =>
     req<WorkspaceInfo>(`/admin/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  adminDeleteWorkspace: (id: string, confirmName: string) =>
+    req(`/admin/workspaces/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
   adminSetPassword: (userId: string, password: string) =>
     req(`/admin/users/${userId}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
 };

@@ -17,6 +17,7 @@ export function Clients({ currentId }: { currentId: string }) {
   const [list, setList] = useState<AdminWorkspace[]>([]);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<AdminWorkspace | null>(null);
+  const [removing, setRemoving] = useState<AdminWorkspace | null>(null);
   const [q, setQ] = useState('');
 
   const load = () => api.adminWorkspaces().then(setList);
@@ -109,6 +110,21 @@ export function Clients({ currentId }: { currentId: string }) {
                         Editar
                       </button>
                       <button
+                        className="icon-btn"
+                        aria-label={`Excluir ${w.name}`}
+                        title={
+                          w.id === currentId
+                            ? 'Abra outro cliente para excluir este'
+                            : w.users.some((u) => u.role === 'admin')
+                              ? 'Cliente do administrador não pode ser excluído'
+                              : 'Excluir cliente'
+                        }
+                        disabled={w.id === currentId || w.users.some((u) => u.role === 'admin')}
+                        onClick={() => setRemoving(w)}
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                      <button
                         className="sm"
                         disabled={w.id === currentId}
                         onClick={async () => {
@@ -128,6 +144,16 @@ export function Clients({ currentId }: { currentId: string }) {
         </table>
       </div>
 
+      {removing && (
+        <DeleteModal
+          client={removing}
+          onClose={() => setRemoving(null)}
+          onDeleted={() => {
+            setRemoving(null);
+            load();
+          }}
+        />
+      )}
       {creating && (
         <ClientModal
           onClose={() => setCreating(false)}
@@ -272,6 +298,58 @@ function ClientModal({ client, onClose, onSaved }: { client?: AdminWorkspace; on
           </button>
           <button className="primary" disabled={busy}>
             {busy ? 'Salvando…' : isNew ? 'Criar cliente' : 'Salvar'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DeleteModal({ client, onClose, onDeleted }: { client: AdminWorkspace; onClose: () => void; onDeleted: () => void }) {
+  const [typed, setTyped] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const matches = typed.trim() === client.name;
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!matches) return;
+          setBusy(true);
+          setErr('');
+          try {
+            await api.adminDeleteWorkspace(client.id, typed.trim());
+            onDeleted();
+          } catch (x) {
+            setErr((x as Error).message);
+            setBusy(false);
+          }
+        }}
+      >
+        <h3>Excluir {client.name}?</h3>
+        <p className="muted">
+          Isso apaga de vez os logins, o WhatsApp conectado, contatos ({client.contacts}), conversas, agentes, funis,
+          tarefas e agenda deste cliente. Não dá para desfazer.
+        </p>
+        <p className="muted small" style={{ marginTop: 6 }}>
+          Para manter os dados, prefira desligar o <b>Acesso</b>.
+        </p>
+        <div className="field" style={{ marginTop: 14 }}>
+          <label htmlFor="del-name">
+            Digite <b>{client.name}</b> para confirmar
+          </label>
+          <input id="del-name" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus autoComplete="off" />
+        </div>
+        {err && <div className="alert">{err}</div>}
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="danger" disabled={!matches || busy}>
+            {busy ? 'Excluindo…' : 'Excluir cliente'}
           </button>
         </div>
       </form>

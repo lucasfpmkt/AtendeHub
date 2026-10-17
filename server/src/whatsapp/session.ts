@@ -27,6 +27,9 @@ type Session = {
   me?: string;
   qr: string | null;
   starting: boolean;
+  /** Conexão por código: número informado e código de 8 caracteres gerado. */
+  pairPhone?: string;
+  pairCode?: string | null;
 };
 const sessions = new Map<string, Session>();
 
@@ -50,7 +53,12 @@ async function authDirOf(ws: string): Promise<string> {
 
 export function getStatus(ws: string) {
   const s = sessionOf(ws);
-  return { status: s.status, me: s.me, qr: s.status === 'qr' ? s.qr : null };
+  return {
+    status: s.status,
+    me: s.me,
+    qr: s.status === 'qr' ? s.qr : null,
+    pairCode: s.status === 'qr' ? (s.pairCode ?? null) : null,
+  };
 }
 
 function setStatus(ws: string, next: WaStatus) {
@@ -59,9 +67,41 @@ function setStatus(ws: string, next: WaStatus) {
   emit(ws, { type: 'wa:status', status: next, me: s.me });
 }
 
-/** Abre (ou reabre) a conexão do cliente. Idempotente. */
-export async function startWhatsApp(ws: string) {
+/** Só dígitos, com DDI (ex.: 5521999990000). Devolve null se inválido. */
+export function normalizePhone(raw: string): string | null {
+  const d = raw.replace(/\D/g, '');
+  return d.length >= 10 && d.length <= 15 ? d : null;
+}
+
+/** Pede ao WhatsApp o código de pareamento para o número informado. */
+async function requestPair(ws: string, s: Session) {
+  if (!s.sock || !s.pairPhone || s.pairCode) return;
+  try {
+    const code = await s.sock.requestPairingCode(s.pairPhone);
+    s.pairCode = code;
+    emit(ws, { type: 'wa:pair', code });
+  } catch (err) {
+    console.error(`[wa:${ws}] falha ao gerar código de pareamento:`, err);
+    s.pairPhone = undefined;
+    emit(ws, { type: 'wa:pair', code: null, error: 'O WhatsApp não gerou o código. Aguarde alguns minutos e tente de novo.' });
+  }
+}
+
+/**
+ * Abre (ou reabre) a conexão do cliente. Idempotente.
+ * Com `phone`, conecta por código (digitado no celular) em vez de QR.
+ */
+export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
   const s = sessionOf(ws);
+  if (opts.phone) {
+    s.pairPhone = opts.phone;
+    s.pairCode = null;
+    // Socket já aberto aguardando leitura: pede o código nele mesmo.
+    if (s.status === 'qr' && s.sock) {
+      await requestPair(ws, s);
+      return;
+    }
+  }
   if (s.starting || s.status === 'connected' || s.status === 'connecting') return;
   s.starting = true;
   setStatus(ws, 'connecting');
@@ -88,11 +128,15 @@ export async function startWhatsApp(ws: string) {
         s.qr = await QRCode.toDataURL(qr);
         setStatus(ws, 'qr');
         emit(ws, { type: 'wa:qr', dataUrl: s.qr });
+        // Socket pronto: se o usuário pediu conexão por código, gera agora (uma vez).
+        if (s.pairPhone && !s.pairCode) await requestPair(ws, s);
       }
 
       if (connection === 'open') {
         s.me = sock.user?.id;
         s.qr = null;
+        s.pairPhone = undefined;
+        s.pairCode = null;
         setStatus(ws, 'connected');
       }
 
@@ -102,6 +146,7 @@ export async function startWhatsApp(ws: string) {
         s.me = undefined;
         s.sock = null;
         s.starting = false;
+        s.pairCode = null;
         setStatus(ws, 'disconnected');
         if (!loggedOut) setTimeout(() => void startWhatsApp(ws), 2000); // queda de rede etc.
       }
@@ -163,8 +208,16 @@ export async function logoutWhatsApp(ws: string) {
   s.sock = null;
   s.me = undefined;
   s.qr = null;
+  s.pairPhone = undefined;
+  s.pairCode = null;
   setStatus(ws, 'disconnected');
   await rm(await authDirOf(ws), { recursive: true, force: true });
+}
+
+/** Encerra a conexão e esquece a sessão (usado ao excluir um cliente). */
+export async function dropSession(ws: string) {
+  await logoutWhatsApp(ws);
+  sessions.delete(ws);
 }
 
 /** Envia mensagem a partir de uma conversa do CRM (usado pelas rotas). */

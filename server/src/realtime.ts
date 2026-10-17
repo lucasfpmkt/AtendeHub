@@ -15,6 +15,7 @@ export type WaStatus = 'disconnected' | 'connecting' | 'qr' | 'connected';
 
 export type RealtimeEvent =
   | { type: 'wa:qr'; dataUrl: string }
+  | { type: 'wa:pair'; code: string | null; error?: string }
   | { type: 'wa:status'; status: WaStatus; me?: string }
   | { type: 'message:new'; conversationId: string; message: unknown }
   | { type: 'conversation:update'; conversation: unknown };
