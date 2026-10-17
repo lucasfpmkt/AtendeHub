@@ -3,6 +3,7 @@ import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { sendFromConversation } from '../whatsapp/session.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
+import { cancelPendingReply, systemNote } from '../services/inbound.js';
 
 export const crmRouter = Router();
 
@@ -32,7 +33,10 @@ crmRouter.patch('/contacts/:id', async (req, res) => {
 crmRouter.get('/conversations', async (_req, res) => {
   const conversations = await prisma.conversation.findMany({
     orderBy: { lastMessageAt: 'desc' },
-    include: { contact: true, messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    include: {
+      contact: true,
+      messages: { where: { author: { not: 'system' } }, orderBy: { createdAt: 'desc' }, take: 1 },
+    },
   });
   res.json(conversations);
 });
@@ -50,6 +54,14 @@ crmRouter.post('/conversations/:id/messages', async (req, res) => {
   if (!text) return res.status(400).json({ error: 'texto vazio' });
   try {
     const message = await sendFromConversation(req.params.id, text);
+    // Quando alguém da equipe responde, a IA para nesta conversa (evita os dois falando).
+    const conv = await prisma.conversation.findUnique({ where: { id: req.params.id } });
+    if (conv?.aiEnabled) {
+      cancelPendingReply(conv.id);
+      const updated = await prisma.conversation.update({ where: { id: conv.id }, data: { aiEnabled: false } });
+      emit({ type: 'conversation:update', conversation: updated });
+      await systemNote(conv.id, 'A equipe assumiu a conversa. A IA foi pausada.');
+    }
     res.json(message);
   } catch (err) {
     res.status(409).json({ error: (err as Error).message });
@@ -57,12 +69,26 @@ crmRouter.post('/conversations/:id/messages', async (req, res) => {
 });
 
 crmRouter.patch('/conversations/:id', async (req, res) => {
-  const { aiEnabled, status } = req.body ?? {};
+  const { aiEnabled, status, assignedAgentId } = req.body ?? {};
   const conversation = await prisma.conversation.update({
     where: { id: req.params.id },
-    data: { aiEnabled, status },
+    data: {
+      aiEnabled,
+      status,
+      // Escolher um agente manualmente já devolve a conversa para a IA; null desvincula.
+      ...(assignedAgentId !== undefined
+        ? { assignedAgentId: assignedAgentId || null, aiEnabled: aiEnabled ?? Boolean(assignedAgentId) }
+        : {}),
+    },
   });
+  if (conversation.aiEnabled === false) cancelPendingReply(conversation.id);
   emit({ type: 'conversation:update', conversation });
+  res.json(conversation);
+});
+
+// Zera o contador de não lidas ao abrir a conversa.
+crmRouter.post('/conversations/:id/read', async (req, res) => {
+  const conversation = await prisma.conversation.update({ where: { id: req.params.id }, data: { unread: 0 } });
   res.json(conversation);
 });
 

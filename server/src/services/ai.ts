@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../db.js';
 import { env, aiEnabled } from '../env.js';
+import { normalizeTurns } from './llm.js';
 
 const client = aiEnabled ? new Anthropic({ apiKey: env.anthropicKey }) : null;
 
@@ -41,7 +42,9 @@ export async function generateReply(conversationId: string): Promise<string> {
       `Configure ANTHROPIC_API_KEY no .env para respostas geradas de verdade.`;
   }
 
-  const history = conversation.messages.map((m: { direction: string; body: string }) => ({
+  const history = conversation.messages
+    .filter((m: { author: string }) => m.author !== 'system')
+    .map((m: { direction: string; body: string }) => ({
     role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',
     content: m.body,
   }));
@@ -58,7 +61,7 @@ export async function generateReply(conversationId: string): Promise<string> {
       `${cfg.systemPrompt}\n\n` +
       `Cliente: ${conversation.contact.name ?? conversation.contact.phone}. ` +
       `Responda de forma breve e útil, pronta para enviar no WhatsApp.`,
-    messages: history,
+    messages: normalizeTurns(history),
   });
 
   const text = resp.content

@@ -1,12 +1,19 @@
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import type { ChatTurn } from './llm.js';
+import { llmReady } from './llm.js';
 import {
   decideTarget,
+  findAgentByName,
   getActiveThemeAgents,
   getActiveTriage,
   getAgent,
+  logAgent,
+  offlineReply,
   runAgent,
+  scriptHasActions,
+  shouldTriageStart,
+  type Agent,
 } from './agents.js';
 
 function phoneFromJid(jid: string): string {
@@ -19,16 +26,31 @@ type SendText = (jid: string, text: string) => Promise<void>;
 // antes de a IA responder. Uma nova mensagem reinicia o contador.
 const pending = new Map<string, NodeJS.Timeout>();
 
+/** Cancela uma resposta agendada (ex.: um humano assumiu a conversa). */
+export function cancelPendingReply(conversationId: string) {
+  const t = pending.get(conversationId);
+  if (t) clearTimeout(t);
+  pending.delete(conversationId);
+}
+
 async function historyOf(conversationId: string): Promise<ChatTurn[]> {
   const msgs = await prisma.message.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: 'asc' },
+    where: { conversationId, author: { not: 'system' } },
+    orderBy: { createdAt: 'desc' },
     take: 40,
   });
-  return msgs.map((m: { direction: string; body: string }) => ({
+  return msgs.reverse().map((m: { direction: string; body: string }) => ({
     role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',
     content: m.body,
   }));
+}
+
+/** Nota interna na conversa: aparece para a equipe, não vai para o WhatsApp nem para a IA. */
+export async function systemNote(conversationId: string, body: string) {
+  const message = await prisma.message.create({
+    data: { conversationId, direction: 'out', author: 'system', body },
+  });
+  emit({ type: 'message:new', conversationId, message });
 }
 
 /** Processa uma mensagem recebida do WhatsApp. */
@@ -55,86 +77,133 @@ export async function handleInboundMessage(params: {
     orderBy: { lastMessageAt: 'desc' },
   });
 
+  let startedBy: Agent | null = null;
   if (!conversation) {
-    // Conversa nova: se houver triagem ativa, liga a IA e atribui a ela.
+    // Conversa nova: a triagem só assume se passar pela porta de entrada (gatilhos).
     const triage = await getActiveTriage();
+    const start = triage ? await shouldTriageStart(triage, body) : false;
     conversation = await prisma.conversation.create({
       data: {
         contactId: contact.id,
-        aiEnabled: Boolean(triage),
-        assignedAgentId: triage?.id ?? null,
+        aiEnabled: start,
+        assignedAgentId: start ? triage!.id : null,
       },
     });
+    if (start) startedBy = triage;
   }
 
   const message = await prisma.message.create({
     data: { conversationId: conversation.id, direction: 'in', author: 'contact', body, waMessageId },
   });
 
-  await prisma.conversation.update({
+  conversation = await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: new Date(), status: 'open' },
+    data: { lastMessageAt: new Date(), status: 'open', unread: { increment: 1 } },
   });
 
   emit({ type: 'message:new', conversationId: conversation.id, message });
   emit({ type: 'conversation:update', conversation });
+  if (startedBy) await systemNote(conversation.id, `${startedBy.name} assumiu o atendimento.`);
 
-  if (!conversation.aiEnabled) return;
+  if (!conversation.aiEnabled) {
+    // Sem IA: respostas automáticas por palavra-chave.
+    const rules = await prisma.keywordRule.findMany({ where: { active: true } });
+    const lower = body.toLowerCase();
+    const rule = rules.find((r) => r.keyword.trim() && lower.includes(r.keyword.trim().toLowerCase()));
+    if (rule) {
+      try {
+        await deliver(conversation.id, rule.reply, sendText);
+      } catch (err) {
+        console.error('[automação] falha ao responder palavra-chave:', err);
+      }
+    }
+    return;
+  }
 
   // Agenda a resposta da IA respeitando o delay do agente.
-  const agent = await getAgent(conversation.assignedAgentId) ?? (await getActiveTriage());
-  const delayMs = Math.max(1, agent?.delaySeconds ?? 8) * 1000;
-  const convId = conversation.id;
-  const existing = pending.get(convId);
-  if (existing) clearTimeout(existing);
+  const agent = (await getAgent(conversation.assignedAgentId)) ?? (await getActiveTriage());
+  schedule(conversation.id, sendText, Math.max(1, agent?.delaySeconds ?? 8) * 1000, 0);
+}
+
+function schedule(conversationId: string, sendText: SendText, delayMs: number, hop: number) {
+  cancelPendingReply(conversationId);
   pending.set(
-    convId,
+    conversationId,
     setTimeout(() => {
-      pending.delete(convId);
-      void respondWithAI(convId, sendText).catch((err) =>
-        console.error('[agentes] falha ao responder:', err),
-      );
+      pending.delete(conversationId);
+      void respondWithAI(conversationId, sendText, hop);
     }, delayMs),
   );
 }
 
-async function respondWithAI(conversationId: string, sendText: SendText) {
-  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
-  if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
+async function respondWithAI(conversationId: string, sendText: SendText, hop: number) {
+  try {
+    const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
 
-  let agent = await getAgent(conversation.assignedAgentId);
-  if (!agent) agent = await getActiveTriage();
-  if (!agent) return; // nenhum agente ativo
+    let agent = await getAgent(conversation.assignedAgentId);
+    if (!agent || !agent.active) agent = await getActiveTriage();
+    if (!agent) return; // nenhum agente ativo
 
-  const history = await historyOf(conversationId);
-  if (history.length === 0 || history[history.length - 1].role !== 'user') return;
+    const history = await historyOf(conversationId);
+    if (history.length === 0) return;
+    // Na 1ª resposta após transferência, o novo agente fala mesmo sem nova mensagem do cliente.
+    if (hop === 0 && history[history.length - 1].role !== 'user') return;
 
-  const reply = await runAgent(agent, history);
-  await deliver(conversationId, conversation.contactId, reply, sendText);
+    const { text, action } = llmReady ? await runAgent(agent, history) : offlineReply(agent, history);
+    if (text) await deliver(conversationId, text, sendText);
 
-  // Se quem respondeu foi a triagem, decide para quem transferir.
-  if (agent.type === 'triage') {
-    const themeAgents = await getActiveThemeAgents();
-    const lastUser = [...history].reverse().find((h) => h.role === 'user');
-    const target = await decideTarget(lastUser?.content ?? '', themeAgents, history);
-    if (target) {
-      await prisma.conversation.update({
+    if (action?.type === 'deactivate') {
+      const updated = await prisma.conversation.update({
         where: { id: conversationId },
-        data: { assignedAgentId: target.id },
+        data: { aiEnabled: false },
       });
+      emit({ type: 'conversation:update', conversation: updated });
+      await systemNote(conversationId, `${agent.name} encerrou a parte automática. A conversa está com a equipe.`);
+      return;
     }
+
+    let target: Agent | null = null;
+    if (action?.type === 'transfer') {
+      target = await findAgentByName(action.agentName);
+      if (!target) {
+        await systemNote(conversationId, `O roteiro pediu transferência para “${action.agentName}”, mas esse agente não existe ou está inativo.`);
+        return;
+      }
+    } else if (agent.type === 'triage' && !scriptHasActions(agent)) {
+      // Roteiro sem ações explícitas: mantém o roteamento automático por gatilho/IA.
+      const themeAgents = await getActiveThemeAgents();
+      const lastUser = [...history].reverse().find((h) => h.role === 'user');
+      target = await decideTarget(lastUser?.content ?? '', themeAgents, history);
+    }
+
+    if (target && target.id !== agent.id) {
+      const updated = await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { assignedAgentId: target.id, aiEnabled: true },
+      });
+      emit({ type: 'conversation:update', conversation: updated });
+      await systemNote(conversationId, `Transferido de ${agent.name} para ${target.name}.`);
+      await logAgent(target.id, 'Recebeu uma conversa transferida');
+      // O agente de tema continua o atendimento logo em seguida (no máximo 2 saltos).
+      if (hop < 2) schedule(conversationId, sendText, 3000, hop + 1);
+    }
+  } catch (err) {
+    console.error('[agentes] falha ao responder:', err);
+    await systemNote(
+      conversationId,
+      `A IA não conseguiu responder (${(err as Error).message}). Verifique a chave e o modelo em Ajustes ou responda manualmente.`,
+    ).catch(() => {});
   }
 }
 
-async function deliver(
-  conversationId: string,
-  contactId: string,
-  text: string,
-  sendText: SendText,
-) {
-  const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-  if (!contact) return;
-  await sendText(contact.waJid, text);
+async function deliver(conversationId: string, text: string, sendText: SendText) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: { contact: true },
+  });
+  if (!conversation) return;
+  await sendText(conversation.contact.waJid, text);
   const outMsg = await prisma.message.create({
     data: { conversationId, direction: 'out', author: 'ai', body: text },
   });

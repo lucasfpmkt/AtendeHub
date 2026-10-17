@@ -8,6 +8,28 @@ Produto construído do zero — não é cópia de nenhum serviço existente.
 - **CRM**: contatos criados automaticamente, tags, anotações.
 - **Funil**: kanban de oportunidades com arrastar-e-soltar.
 
+## Agentes IA — como o fluxo funciona
+
+- **Porta de entrada:** a triagem só assume conversas novas cuja mensagem contém
+  um gatilho dela ou de um agente de tema. Triagem **sem** gatilhos atende todas
+  as conversas novas.
+- **Delay:** o agente espera o lead parar de digitar antes de responder.
+- **Ações no roteiro** (formato Guimoo), executadas pelo servidor:
+  - `⚡ Ação: Transferir para agente: Nome` → a conversa passa para esse agente,
+    que responde em seguida.
+  - `⚡ Ação: Desativar: agente` → a IA para e a conversa fica com a equipe.
+  - Triagem sem essas ações continua usando o roteamento automático
+    (gatilhos dos agentes de tema → IA pela descrição do tema).
+- **Equipe assumiu:** quando alguém responde manualmente, a IA pausa naquela
+  conversa ("Devolver para IA" reativa).
+- **Erros da IA** aparecem como nota na conversa, para a equipe ver.
+- **Editor:** Roteiro, Regras, FAQ, gatilhos, delay, assinatura, Histórico,
+  **Testar** (simula com transferências, sem usar o WhatsApp) e **Copiloto**.
+- Gatilhos são separados por vírgula: evite vírgulas dentro de um gatilho.
+
+Outras telas: Início, Dashboard, Conversas (abas, não lidas, `/atalhos`),
+Tarefas, Agenda e Automações (mensagens rápidas e respostas por palavra-chave).
+
 ---
 
 ## ⚠️ Aviso importante sobre o WhatsApp via QR

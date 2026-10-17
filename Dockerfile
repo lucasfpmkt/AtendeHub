@@ -13,6 +13,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 ENV SERVE_CLIENT=1
+# Fuso do escritório: o "hoje" do dashboard segue o horário de Brasília.
+ENV TZ=America/Sao_Paulo
 # Mantém node_modules (inclui tsx e o CLI do Prisma usados no start).
 COPY --from=build /app /app
 EXPOSE 3001

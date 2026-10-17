@@ -36,6 +36,7 @@ model Conversation {
   status          String    @default("open")
   aiEnabled       Boolean   @default(false)
   assignedAgentId String? // agente que está conduzindo a conversa
+  unread          Int       @default(0) // mensagens recebidas ainda não lidas pela equipe
   lastMessageAt   DateTime  @default(now())
   messages        Message[]
   createdAt       DateTime  @default(now())
@@ -51,11 +52,66 @@ model Agent {
   description  String   @default("") // tema do agente, usado pela triagem
   script       String   @default("") // o "diretório" / roteiro
   triggers     String   @default("") // palavras-gatilho (CSV)
+  regras       String   @default("") // regras gerais de comportamento (tom, o que nunca dizer…)
+  faq          String   @default("[]") // JSON: { q, a }[] — dúvidas fora do roteiro
+  signatureOn  Boolean  @default(false)
+  signature    String   @default("")
   active       Boolean  @default(true)
   delaySeconds Int      @default(15)
   order        Int      @default(0)
+  history      AgentHistory[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+/// Quem mudou o quê em cada agente.
+model AgentHistory {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  action    String
+  createdAt DateTime @default(now())
+}
+
+/// Tarefa da equipe.
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  status      String   @default("todo") // todo | doing | done
+  priority    String   @default("Média") // Alta | Média | Baixa
+  responsavel String?
+  dueDate     String? // YYYY-MM-DD
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Compromisso da agenda.
+model Event {
+  id        String   @id @default(cuid())
+  title     String
+  date      String // YYYY-MM-DD
+  start     String // HH:MM
+  end       String // HH:MM
+  kind      String   @default("meet") // meet (com cliente) | int (interna)
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+/// Mensagem rápida: digite o atalho (ex.: /docs) no chat.
+model QuickReply {
+  id        String   @id @default(cuid())
+  shortcut  String   @unique
+  text      String
+  createdAt DateTime @default(now())
+}
+
+/// Resposta automática por palavra-chave (só em conversas sem IA atendendo).
+model KeywordRule {
+  id        String   @id @default(cuid())
+  keyword   String
+  reply     String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
 
 model Message {
