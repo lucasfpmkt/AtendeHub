@@ -48,6 +48,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type Role = 'admin' | 'user';
+export interface AiProvider {
+  id: string;
+  label: string;
+  kind: 'anthropic' | 'openai';
+  baseUrl: string;
+  defaultModel: string;
+  models: string[];
+  keyHint: string;
+  keyUrl: string;
+}
 export interface SessionUser {
   id: string;
   name: string;
@@ -368,11 +378,26 @@ export const api = {
 
   // IA
   aiConfig: () =>
-    req<{ systemPrompt: string; autoReply: boolean; model: string; providerConnected: boolean }>(
-      '/ai/config',
-    ),
-  updateAiConfig: (data: { systemPrompt?: string; autoReply?: boolean }) =>
-    req('/ai/config', { method: 'PATCH', body: JSON.stringify(data) }),
+    req<{
+      systemPrompt: string;
+      autoReply: boolean;
+      model: string;
+      provider: string;
+      baseUrl: string;
+      hasKey: boolean;
+      providerConnected: boolean;
+      providers: AiProvider[];
+    }>('/ai/config'),
+  updateAiConfig: (data: {
+    systemPrompt?: string;
+    autoReply?: boolean;
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    clearKey?: boolean;
+  }) => req<{ providerConnected: boolean; hasKey: boolean; provider: string; model: string }>('/ai/config', { method: 'PATCH', body: JSON.stringify(data) }),
+  testAi: () => req<{ ok: boolean; provider?: string; model?: string; sample?: string; error?: string }>('/ai/config/test', { method: 'POST' }),
 
   // Sessão / clientes
   me: () => req<{ user: SessionUser; workspace: WorkspaceInfo }>('/auth/me'),

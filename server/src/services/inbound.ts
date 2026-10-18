@@ -1,7 +1,7 @@
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import type { ChatTurn } from './llm.js';
-import { llmReady } from './llm.js';
+import { resolveLlm } from './llm.js';
 import {
   decideTarget,
   findAgentByName,
@@ -206,7 +206,8 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     // Na 1ª resposta após transferência, o novo agente fala mesmo sem nova mensagem do cliente.
     if (hop === 0 && history[history.length - 1].role !== 'user') return;
 
-    const { text, actions } = llmReady ? await runAgent(agent, history) : offlineReply(agent, history);
+    const llm = await resolveLlm(ws);
+    const { text, actions } = llm.ready ? await runAgent(agent, history, llm) : offlineReply(agent, history);
     if (text) await deliver(ws, conversationId, text, sendText);
 
     // Ações de CRM pedidas pelo roteiro (podem vir junto com a mensagem).
@@ -238,7 +239,7 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
       // Roteiro sem ações explícitas: mantém o roteamento automático por gatilho/IA.
       const themeAgents = await getActiveThemeAgents(ws);
       const lastUser = [...history].reverse().find((h) => h.role === 'user');
-      target = await decideTarget(lastUser?.content ?? '', themeAgents, history);
+      target = await decideTarget(lastUser?.content ?? '', themeAgents, history, llm);
     }
 
     if (target && target.id !== agent.id) {

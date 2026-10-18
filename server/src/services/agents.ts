@@ -1,5 +1,5 @@
 import { prisma } from '../db.js';
-import { complete, llmReady, type ChatTurn } from './llm.js';
+import type { ChatTurn, Llm } from './llm.js';
 
 export type Agent = {
   id: string;
@@ -95,8 +95,8 @@ export function scriptHasActions(agent: Agent): boolean {
 }
 
 /** Usa a IA para escolher o agente de tema mais adequado (ou nenhum). */
-export async function classifyByAI(themeAgents: Agent[], history: ChatTurn[]): Promise<Agent | null> {
-  if (!llmReady || themeAgents.length === 0) return null;
+export async function classifyByAI(themeAgents: Agent[], history: ChatTurn[], llm: Llm): Promise<Agent | null> {
+  if (!llm.ready || themeAgents.length === 0) return null;
   const catalogo = themeAgents
     .map((a, i) => `${i + 1}. id=${a.id} | ${a.name}: ${a.description || '(sem descrição)'}`)
     .join('\n');
@@ -107,7 +107,7 @@ export async function classifyByAI(themeAgents: Agent[], history: ChatTurn[]): P
     'Não explique.\n\nAgentes disponíveis:\n' +
     catalogo;
   try {
-    const out = await complete({ system, messages: history, maxTokens: 40 });
+    const out = await llm.complete({ system, messages: history, maxTokens: 40 });
     const pick = out.trim().toLowerCase();
     if (pick.includes('none')) return null;
     return themeAgents.find((a) => pick.includes(a.id.toLowerCase())) ?? null;
@@ -117,10 +117,10 @@ export async function classifyByAI(themeAgents: Agent[], history: ChatTurn[]): P
 }
 
 /** Decide o agente de destino: primeiro gatilhos, depois IA. */
-export async function decideTarget(text: string, themeAgents: Agent[], history: ChatTurn[]): Promise<Agent | null> {
+export async function decideTarget(text: string, themeAgents: Agent[], history: ChatTurn[], llm: Llm): Promise<Agent | null> {
   const byTrigger = matchByTriggers(text, themeAgents);
   if (byTrigger) return byTrigger;
-  return classifyByAI(themeAgents, history);
+  return classifyByAI(themeAgents, history, llm);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -175,8 +175,8 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
 }
 
 /** Gera a resposta de um agente seguindo seu roteiro. */
-export async function runAgent(agent: Agent, history: ChatTurn[]): Promise<AgentReply> {
-  const raw = await complete({ system: buildSystemPrompt(agent), messages: history, maxTokens: 700 });
+export async function runAgent(agent: Agent, history: ChatTurn[], llm: Llm): Promise<AgentReply> {
+  const raw = await llm.complete({ system: buildSystemPrompt(agent), messages: history, maxTokens: 700 });
   return parseReply(agent, raw);
 }
 
