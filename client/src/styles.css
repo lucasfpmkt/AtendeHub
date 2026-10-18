@@ -395,14 +395,14 @@ button.conv-item.active { background: var(--p-50); box-shadow: inset 3px 0 0 var
 .conv-top .time { margin-left: auto; font-size: 11px; color: var(--g-400); flex: none; }
 .conv-top .preview { flex: 1; font-size: 12.5px; color: var(--g-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { margin-left: auto; background: var(--ok); color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 0 6px; line-height: 18px; min-width: 18px; text-align: center; flex: none; }
-.chat { display: flex; flex-direction: column; height: 100%; background: #efeae2; min-width: 0; }
+.chat { display: flex; flex-direction: column; height: 100%; background: #efeae2; min-width: 0; min-height: 0; }
 .chat-header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--g-0); border-bottom: 1px solid var(--g-200); flex-wrap: wrap; }
 .chat-actions { margin-left: auto; flex-wrap: wrap; }
 .agent-select { width: auto; min-height: 30px; padding: 4px 8px; font-size: 13px; }
 button.ai-on { background: var(--ai-50); border-color: var(--ai-100); color: var(--ai-600); }
 button.ai-on:hover { background: var(--ai-100); }
 .icon-btn.back { display: none; }
-.msgs { flex: 1; overflow: auto; padding: 18px; display: flex; flex-direction: column; gap: 6px; }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 6px; }
 .bubble { max-width: 68%; padding: 7px 10px 6px; border-radius: 10px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13); }
 .bubble.in { background: #fff; align-self: flex-start; border-top-left-radius: 2px; }
 .bubble.out { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 2px; }
