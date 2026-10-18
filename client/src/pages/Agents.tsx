@@ -1226,13 +1226,13 @@ function HistoryPanel({ id, onBack }: { id: string; onBack: () => void }) {
 
 /* Ações/atalhos do menu "@" no editor do roteiro. Só entram aqui itens que o
    LawHub realmente usa: formatação do roteiro + as 2 ações que o motor executa. */
-type AtAction = { label: string; insert: string; hint: string; caret?: number };
+type AtAction = { label: string; insert: string; icon: string; color: string; group: string; caret?: number };
 const AT_ACTIONS: AtAction[] = [
-  { label: 'Passo', insert: '◆ Passo N — Título\n', hint: 'novo passo do roteiro' },
-  { label: 'Situação', insert: '🚩 Situação: ', hint: 'descreve o momento da conversa' },
-  { label: 'Mensagem', insert: '💬 Mensagem: ""', hint: 'fala enviada ao cliente', caret: -1 },
-  { label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: NOME', hint: 'passa a conversa a outro agente' },
-  { label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', hint: 'devolve o atendimento à equipe' },
+  { group: 'Formatação', label: 'Passo', insert: '◆ Passo N — Título\n', icon: 'list', color: '#475569' },
+  { group: 'Formatação', label: 'Situação', insert: '🚩 Situação: ', icon: 'zap', color: '#2563eb' },
+  { group: 'Formatação', label: 'Mensagem', insert: '💬 Mensagem: ""', icon: 'chat', color: '#16a34a', caret: -1 },
+  { group: 'Ações do agente', label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: NOME', icon: 'flow', color: '#7c3aed' },
+  { group: 'Ações do agente', label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', icon: 'power', color: '#dc2626' },
 ];
 
 function ScriptArea({
@@ -1245,40 +1245,87 @@ function ScriptArea({
   fontSize: number;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const [menu, setMenu] = useState<{ at: number; query: string } | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [menu, setMenu] = useState<{ at: number } | null>(null);
+  const [query, setQuery] = useState('');
   const [idx, setIdx] = useState(0);
 
   const items = useMemo(() => {
-    if (!menu) return [];
-    const q = norm(menu.query);
+    const q = norm(query);
     return AT_ACTIONS.filter((a) => !q || norm(a.label).includes(q));
+  }, [query]);
+
+  // Fecha ao clicar fora do menu.
+  useEffect(() => {
+    if (!menu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setMenu(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
   }, [menu]);
 
-  const detect = (el: HTMLTextAreaElement) => {
+  // Abre quando o caractere antes do cursor é '@' (início da linha ou após espaço).
+  const maybeOpen = (el: HTMLTextAreaElement) => {
     const pos = el.selectionStart ?? 0;
-    const m = el.value.slice(0, pos).match(/@([\p{L}\p{N} ]{0,20})$/u);
-    if (m) {
-      setMenu({ at: pos - m[0].length, query: m[1] });
+    if (/(^|\s)@$/.test(el.value.slice(0, pos))) {
+      setMenu({ at: pos - 1 });
+      setQuery('');
       setIdx(0);
-    } else {
-      setMenu(null);
+      requestAnimationFrame(() => searchRef.current?.focus());
     }
+  };
+
+  const close = () => {
+    setMenu(null);
+    setQuery('');
+    requestAnimationFrame(() => ref.current?.focus());
   };
 
   const choose = (a: AtAction) => {
     const el = ref.current;
     if (!el || !menu) return;
     const base = el.value;
-    const pos = el.selectionStart ?? base.length;
-    const next = base.slice(0, menu.at) + a.insert + base.slice(pos);
+    const next = base.slice(0, menu.at) + a.insert + base.slice(menu.at + 1); // remove o '@'
     onChange(next);
-    setMenu(null);
     const caret = menu.at + a.insert.length + (a.caret ?? 0);
+    setMenu(null);
+    setQuery('');
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(caret, caret);
     });
   };
+
+  const onSearchKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    } else if (items.length === 0) {
+      return;
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIdx((i) => (i + 1) % items.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setIdx((i) => (i - 1 + items.length) % items.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (items[idx]) choose(items[idx]);
+    }
+  };
+
+  // Agrupa mantendo a ordem e o índice global (para o destaque do teclado).
+  const groups: { name: string; list: { a: AtAction; i: number }[] }[] = [];
+  items.forEach((a, i) => {
+    let g = groups.find((x) => x.name === a.group);
+    if (!g) {
+      g = { name: a.group, list: [] };
+      groups.push(g);
+    }
+    g.list.push({ a, i });
+  });
 
   return (
     <div className="script-wrap">
@@ -1290,47 +1337,59 @@ function ScriptArea({
         spellCheck
         onChange={(e) => {
           onChange(e.target.value);
-          detect(e.target); // lê o valor direto do campo (já contém o que foi digitado)
+          maybeOpen(e.target);
         }}
-        onClick={(e) => detect(e.currentTarget)}
-        onKeyUp={(e) => {
-          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) detect(e.currentTarget);
-        }}
-        onKeyDown={(e) => {
-          if (!menu || items.length === 0) return;
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setIdx((i) => (i + 1) % items.length);
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setIdx((i) => (i - 1 + items.length) % items.length);
-          } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            choose(items[idx]);
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            setMenu(null);
-          }
-        }}
-        onBlur={() => setTimeout(() => setMenu(null), 150)}
       />
-      {menu && items.length > 0 && (
-        <div className="at-menu" role="listbox">
-          <div className="at-menu-hd">Ações do roteiro</div>
-          {items.map((a, i) => (
-            <button
-              key={a.label}
-              className={i === idx ? 'active' : ''}
-              onMouseEnter={() => setIdx(i)}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                choose(a);
+      {menu && (
+        <div className="at-menu" role="menu" ref={boxRef}>
+          <div className="at-search">
+            <Icon name="search" size={15} />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setIdx(0);
               }}
-            >
-              <span className="nm">{a.label}</span>
-              <span className="hint">{a.hint}</span>
-            </button>
-          ))}
+              onKeyDown={onSearchKey}
+              placeholder="Buscar ação..."
+              aria-label="Buscar ação"
+            />
+          </div>
+          <div className="at-list">
+            {items.length === 0 && <div className="at-empty">Nada encontrado</div>}
+            {groups.map((g) => (
+              <div key={g.name}>
+                <div className="at-grp-h">{g.name}</div>
+                {g.list.map(({ a, i }) => (
+                  <button
+                    key={a.label}
+                    role="menuitem"
+                    className={`at-item ${i === idx ? 'active' : ''}`}
+                    onMouseEnter={() => setIdx(i)}
+                    onClick={() => choose(a)}
+                  >
+                    <span className="at-ic" style={{ color: a.color, background: `${a.color}1a` }}>
+                      <Icon name={a.icon} size={16} />
+                    </span>
+                    <span className="at-nm">{a.label}</span>
+                    <Icon name="right" size={15} />
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="at-foot">
+            <span>
+              <b>↑↓</b> navegar
+            </span>
+            <span>
+              <b>Enter</b> inserir
+            </span>
+            <span>
+              <b>Esc</b> fechar
+            </span>
+          </div>
         </div>
       )}
     </div>
