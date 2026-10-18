@@ -339,12 +339,36 @@ button.pill { cursor: pointer; }
 .fs-ctl button { min-height: 26px; width: 28px; padding: 0; border: 0; background: transparent; color: var(--g-500); font-weight: 600; }
 .fs-ctl button.active { background: var(--g-0); color: var(--g-900); box-shadow: 0 1px 2px rgba(17, 24, 39, 0.08); }
 textarea.script { flex: 1; min-height: calc(100vh - 190px); line-height: 1.85; border-color: var(--g-200); padding: 16px 18px; }
+/* Só o editor de roteiro (dentro de .script-wrap) usa a camada de destaque. */
+.script-wrap > textarea.script {
+  border: 1px solid transparent; background: transparent;
+  color: transparent; caret-color: var(--g-900);
+  position: relative; z-index: 2; resize: none;
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+.script-wrap > textarea.script::selection { background: rgba(37, 99, 235, 0.22); }
+/* Camada de destaque: fica atrás do texto (que é transparente) e colore as ações. */
+.script-hl {
+  position: absolute; inset: 0; z-index: 1; margin: 0; padding: 16px 18px;
+  border: 1px solid transparent; border-radius: var(--r-ctl);
+  line-height: 1.85; font-family: inherit; color: var(--g-900);
+  white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden;
+  pointer-events: none; background: transparent;
+}
+.script-hl .hl-amark { color: var(--g-400); }
+.script-hl .hl-pill { color: var(--c); background: color-mix(in srgb, var(--c) 15%, transparent); border-radius: 5px; }
+.script-hl .hl-step { color: #334155; }
+.script-hl .hl-sit { color: #2563eb; }
+.script-hl .hl-msg { color: #15803d; }
 textarea.script.short { min-height: 340px; flex: none; }
 
 /* Editor do roteiro com menu "@" */
-.script-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.script-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--g-0); border: 1px solid var(--g-200); border-radius: var(--r-ctl); }
 .script-wrap > textarea.script { flex: 1; min-height: 0; }
-.at-menu { position: absolute; left: 14px; bottom: 14px; width: 320px; background: var(--g-0); border: 1px solid var(--g-200); border-radius: 12px; box-shadow: 0 16px 44px rgba(11, 20, 26, 0.18); z-index: 30; overflow: hidden; }
+.at-menu-wrap { position: absolute; left: 14px; bottom: 14px; z-index: 30; display: flex; align-items: flex-end; gap: 8px; }
+.at-menu { width: 320px; background: var(--g-0); border: 1px solid var(--g-200); border-radius: 12px; box-shadow: 0 16px 44px rgba(11, 20, 26, 0.18); overflow: hidden; }
+.at-menu.at-sub { width: 264px; }
+.at-item.open { background: var(--g-100); }
 .at-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--g-100); color: var(--g-400); }
 .at-search input { border: 0; background: transparent; padding: 0; min-height: 0; box-shadow: none; font-size: 14px; color: var(--g-900); }
 .at-list { max-height: 300px; overflow: auto; padding: 6px; }

@@ -655,7 +655,12 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                   ))}
                 </div>
               </div>
-              <ScriptArea value={a.script} onChange={(v) => set('script', v)} fontSize={fs} />
+              <ScriptArea
+                value={a.script}
+                onChange={(v) => set('script', v)}
+                fontSize={fs}
+                agents={allAgents.filter((x) => x.active && x.id !== id).map((x) => x.name)}
+              />
             </>
           )}
           {tab === 'regras' && (
@@ -1226,44 +1231,103 @@ function HistoryPanel({ id, onBack }: { id: string; onBack: () => void }) {
 
 /* Ações/atalhos do menu "@" no editor do roteiro. Só entram aqui itens que o
    LawHub realmente usa: formatação do roteiro + as 2 ações que o motor executa. */
-type AtAction = { label: string; insert: string; icon: string; color: string; group: string; caret?: number };
+type AtAction = {
+  label: string;
+  insert: string;
+  icon: string;
+  color: string;
+  group: string;
+  caret?: number;
+  pick?: 'agent'; // abre um submenu para escolher o agente de destino
+};
 const AT_ACTIONS: AtAction[] = [
   { group: 'Formatação', label: 'Passo', insert: '◆ Passo N — Título\n', icon: 'list', color: '#475569' },
   { group: 'Formatação', label: 'Situação', insert: '🚩 Situação: ', icon: 'zap', color: '#2563eb' },
   { group: 'Formatação', label: 'Mensagem', insert: '💬 Mensagem: ""', icon: 'chat', color: '#16a34a', caret: -1 },
-  { group: 'Ações do agente', label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: NOME', icon: 'flow', color: '#7c3aed' },
+  { group: 'Ações do agente', label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: ', icon: 'flow', color: '#7c3aed', pick: 'agent' },
   { group: 'Ações do agente', label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', icon: 'power', color: '#dc2626' },
   { group: 'CRM', label: 'Mudar etapa', insert: '⚡ Ação: Mudar etapa: NOME DA ETAPA', icon: 'kanban', color: '#0891b2' },
   { group: 'CRM', label: 'Adicionar etiqueta', insert: '⚡ Ação: Adicionar etiqueta: NOME', icon: 'tag', color: '#b71312' },
   { group: 'CRM', label: 'Notificar equipe', insert: '⚡ Ação: Notificar equipe: MOTIVO', icon: 'users', color: '#ea580c' },
 ];
 
+/** Escape HTML para a camada de destaque. */
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Cor da "pílula" conforme o tipo de ação. */
+function actionColor(content: string): string {
+  const c = content.toLowerCase();
+  if (c.includes('transferir')) return '#7c3aed';
+  if (c.includes('desativar')) return '#dc2626';
+  if (c.includes('etapa')) return '#0891b2';
+  if (c.includes('etiqueta')) return '#b71312';
+  if (c.includes('notificar')) return '#ea580c';
+  return '#7c3aed';
+}
+
+/** Realça o roteiro: ações viram pílulas coloridas, passos/situação/mensagem ganham cor. */
+function highlightScript(value: string): string {
+  const lines = value.split('\n').map((line) => {
+    const act = line.match(/^(\s*)(⚡\s*Ação:\s*)(.*)$/);
+    if (act) {
+      const color = actionColor(act[3]);
+      return (
+        escHtml(act[1]) +
+        `<span class="hl-amark">${escHtml(act[2])}</span>` +
+        `<span class="hl-pill" style="--c:${color}">${escHtml(act[3]) || '&nbsp;'}</span>`
+      );
+    }
+    if (/^\s*◆/.test(line)) return `<span class="hl-step">${escHtml(line)}</span>`;
+    if (/^\s*🚩/.test(line)) return `<span class="hl-sit">${escHtml(line)}</span>`;
+    if (/^\s*💬/.test(line)) return `<span class="hl-msg">${escHtml(line)}</span>`;
+    return escHtml(line) || '&nbsp;';
+  });
+  return lines.join('\n');
+}
+
 function ScriptArea({
   value,
   onChange,
   fontSize,
+  agents = [],
 }: {
   value: string;
   onChange: (v: string) => void;
   fontSize: number;
+  agents?: string[];
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const hlRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const subRef = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState<{ at: number } | null>(null);
   const [query, setQuery] = useState('');
   const [idx, setIdx] = useState(0);
+  // Submenu de seleção (ex.: escolher o agente de destino).
+  const [sub, setSub] = useState<AtAction | null>(null);
+  const [subQuery, setSubQuery] = useState('');
 
   const items = useMemo(() => {
     const q = norm(query);
     return AT_ACTIONS.filter((a) => !q || norm(a.label).includes(q));
   }, [query]);
 
+  const subItems = useMemo(() => {
+    const q = norm(subQuery);
+    return agents.filter((n) => !q || norm(n).includes(q));
+  }, [agents, subQuery]);
+
   // Fecha ao clicar fora do menu.
   useEffect(() => {
     if (!menu) return;
     const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setMenu(null);
+      if (!boxRef.current?.contains(e.target as Node)) {
+        setMenu(null);
+        setSub(null);
+      }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -1275,6 +1339,8 @@ function ScriptArea({
     if (/(^|\s)@$/.test(el.value.slice(0, pos))) {
       setMenu({ at: pos - 1 });
       setQuery('');
+      setSub(null);
+      setSubQuery('');
       setIdx(0);
       requestAnimationFrame(() => searchRef.current?.focus());
     }
@@ -1283,22 +1349,43 @@ function ScriptArea({
   const close = () => {
     setMenu(null);
     setQuery('');
+    setSub(null);
+    setSubQuery('');
     requestAnimationFrame(() => ref.current?.focus());
   };
 
-  const choose = (a: AtAction) => {
+  // Insere um texto no lugar do '@' e posiciona o cursor.
+  const insertAt = (insert: string, caretOffset = 0) => {
     const el = ref.current;
     if (!el || !menu) return;
     const base = el.value;
-    const next = base.slice(0, menu.at) + a.insert + base.slice(menu.at + 1); // remove o '@'
+    const next = base.slice(0, menu.at) + insert + base.slice(menu.at + 1); // remove o '@'
     onChange(next);
-    const caret = menu.at + a.insert.length + (a.caret ?? 0);
+    const caret = menu.at + insert.length + caretOffset;
     setMenu(null);
     setQuery('');
+    setSub(null);
+    setSubQuery('');
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(caret, caret);
     });
+  };
+
+  const choose = (a: AtAction) => {
+    // Ação com seleção (ex.: transferir): abre o submenu em vez de inserir já.
+    if (a.pick === 'agent' && agents.length > 0) {
+      setSub(a);
+      setSubQuery('');
+      requestAnimationFrame(() => subRef.current?.focus());
+      return;
+    }
+    insertAt(a.insert, a.caret ?? 0);
+  };
+
+  const chooseAgent = (name: string) => {
+    if (!sub) return;
+    insertAt(`${sub.insert}${name}`, 0);
   };
 
   const onSearchKey = (e: React.KeyboardEvent) => {
@@ -1319,6 +1406,17 @@ function ScriptArea({
     }
   };
 
+  const onSubKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setSub(null); // volta ao menu principal
+      requestAnimationFrame(() => searchRef.current?.focus());
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (subItems[0]) chooseAgent(subItems[0]);
+    }
+  };
+
   // Agrupa mantendo a ordem e o índice global (para o destaque do teclado).
   const groups: { name: string; list: { a: AtAction; i: number }[] }[] = [];
   items.forEach((a, i) => {
@@ -1332,67 +1430,111 @@ function ScriptArea({
 
   return (
     <div className="script-wrap">
+      <div className="script-hl" ref={hlRef} aria-hidden="true" style={{ fontSize }} dangerouslySetInnerHTML={{ __html: highlightScript(value) + '\n' }} />
       <textarea
         ref={ref}
         className="script"
         style={{ fontSize }}
         value={value}
         spellCheck
+        onScroll={(e) => {
+          if (hlRef.current) {
+            hlRef.current.scrollTop = e.currentTarget.scrollTop;
+            hlRef.current.scrollLeft = e.currentTarget.scrollLeft;
+          }
+        }}
         onChange={(e) => {
           onChange(e.target.value);
           maybeOpen(e.target);
         }}
       />
       {menu && (
-        <div className="at-menu" role="menu" ref={boxRef}>
-          <div className="at-search">
-            <Icon name="search" size={15} />
-            <input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setIdx(0);
-              }}
-              onKeyDown={onSearchKey}
-              placeholder="Buscar ação..."
-              aria-label="Buscar ação"
-            />
+        <div className="at-menu-wrap" ref={boxRef}>
+          <div className="at-menu" role="menu">
+            <div className="at-search">
+              <Icon name="search" size={15} />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setIdx(0);
+                }}
+                onKeyDown={onSearchKey}
+                placeholder="Buscar ação..."
+                aria-label="Buscar ação"
+              />
+            </div>
+            <div className="at-list">
+              {items.length === 0 && <div className="at-empty">Nada encontrado</div>}
+              {groups.map((g) => (
+                <div key={g.name}>
+                  <div className="at-grp-h">{g.name}</div>
+                  {g.list.map(({ a, i }) => (
+                    <button
+                      key={a.label}
+                      role="menuitem"
+                      className={`at-item ${i === idx ? 'active' : ''} ${sub?.label === a.label ? 'open' : ''}`}
+                      onMouseEnter={() => setIdx(i)}
+                      onClick={() => choose(a)}
+                    >
+                      <span className="at-ic" style={{ color: a.color, background: `${a.color}1a` }}>
+                        <Icon name={a.icon} size={16} />
+                      </span>
+                      <span className="at-nm">{a.label}</span>
+                      <Icon name="right" size={15} />
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="at-foot">
+              <span>
+                <b>↑↓</b> navegar
+              </span>
+              <span>
+                <b>Enter</b> inserir
+              </span>
+              <span>
+                <b>Esc</b> fechar
+              </span>
+            </div>
           </div>
-          <div className="at-list">
-            {items.length === 0 && <div className="at-empty">Nada encontrado</div>}
-            {groups.map((g) => (
-              <div key={g.name}>
-                <div className="at-grp-h">{g.name}</div>
-                {g.list.map(({ a, i }) => (
-                  <button
-                    key={a.label}
-                    role="menuitem"
-                    className={`at-item ${i === idx ? 'active' : ''}`}
-                    onMouseEnter={() => setIdx(i)}
-                    onClick={() => choose(a)}
-                  >
-                    <span className="at-ic" style={{ color: a.color, background: `${a.color}1a` }}>
-                      <Icon name={a.icon} size={16} />
+
+          {sub && (
+            <div className="at-menu at-sub" role="menu">
+              <div className="at-search">
+                <Icon name="search" size={15} />
+                <input
+                  ref={subRef}
+                  value={subQuery}
+                  onChange={(e) => setSubQuery(e.target.value)}
+                  onKeyDown={onSubKey}
+                  placeholder="Buscar agente..."
+                  aria-label="Buscar agente"
+                />
+              </div>
+              <div className="at-list">
+                {subItems.length === 0 && <div className="at-empty">Nenhum agente ativo</div>}
+                {subItems.map((name) => (
+                  <button key={name} role="menuitem" className="at-item" onClick={() => chooseAgent(name)}>
+                    <span className="at-ic" style={{ color: '#7c3aed', background: '#7c3aed1a' }}>
+                      <Icon name="flow" size={16} />
                     </span>
-                    <span className="at-nm">{a.label}</span>
-                    <Icon name="right" size={15} />
+                    <span className="at-nm">{name}</span>
                   </button>
                 ))}
               </div>
-            ))}
-          </div>
-          <div className="at-foot">
-            <span>
-              <b>↑↓</b> navegar
-            </span>
-            <span>
-              <b>Enter</b> inserir
-            </span>
-            <span>
-              <b>Esc</b> fechar
-            </span>
-          </div>
+              <div className="at-foot">
+                <span>
+                  <b>Enter</b> inserir
+                </span>
+                <span>
+                  <b>Esc</b> voltar
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
