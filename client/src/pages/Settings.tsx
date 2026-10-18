@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { api, type SessionUser, type WorkspaceInfo } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import { api, type AiProvider, type SessionUser, type WorkspaceInfo } from '../api';
 import { Icon } from '../icons';
 import { getBrand, setBrand, type Brand } from '../prefs';
 
@@ -12,17 +12,75 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
   const [next, setNext] = useState('');
   const [passMsg, setPassMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Provedor de IA
+  const [providers, setProviders] = useState<AiProvider[]>([]);
+  const [provider, setProvider] = useState('anthropic');
+  const [model, setModel] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [hasKey, setHasKey] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const preset = useMemo(() => providers.find((p) => p.id === provider), [providers, provider]);
+
   useEffect(() => {
     api.aiConfig().then((c) => {
       setSystemPrompt(c.systemPrompt);
       setConnected(c.providerConnected);
+      setProviders(c.providers);
+      setProvider(c.provider);
+      setModel(c.model);
+      setBaseUrl(c.baseUrl);
+      setHasKey(c.hasKey);
     });
   }, []);
 
+  const onProvider = (id: string) => {
+    setProvider(id);
+    setTestMsg(null);
+    const p = providers.find((x) => x.id === id);
+    if (p) {
+      setModel(p.defaultModel);
+      setBaseUrl(p.baseUrl);
+    }
+  };
+
   const save = async () => {
-    await api.updateAiConfig({ systemPrompt });
+    setTestMsg(null);
+    const r = await api.updateAiConfig({
+      systemPrompt,
+      provider,
+      model,
+      baseUrl,
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    });
+    setConnected(r.providerConnected);
+    setHasKey(r.hasKey);
+    setApiKey('');
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
+  };
+
+  const disconnect = async () => {
+    const r = await api.updateAiConfig({ clearKey: true });
+    setConnected(r.providerConnected);
+    setHasKey(r.hasKey);
+    setApiKey('');
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const r = await api.testAi();
+      setTestMsg(r.ok ? { ok: true, text: `Conectado · ${r.provider} · ${r.model}` } : { ok: false, text: r.error || 'Falhou' });
+      if (r.ok) setConnected(true);
+    } catch (x) {
+      setTestMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const changePass = async (e: React.FormEvent) => {
@@ -128,21 +186,83 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
             <h3 className="card-title" style={{ margin: 0 }}>
               <Icon name="bot" /> Assistente de IA
             </h3>
-            <span className={`pill ${connected ? 'ok' : 'warn'}`}>{connected ? 'IA conectada' : 'IA não configurada'}</span>
+            <span className={`pill ${connected ? 'ok' : 'warn'}`}>{connected ? 'IA conectada' : 'IA não conectada'}</span>
           </div>
-          {!connected && (
-            <p className="muted small">
-              Defina <code>ANTHROPIC_API_KEY</code> no servidor para os agentes e o rascunho responderem de verdade.
-            </p>
+
+          <p className="muted small">
+            Conecte qualquer IA do mercado: escolha o provedor, cole a chave da API e selecione o modelo. A chave fica salva só para este cliente.
+          </p>
+
+          <div className="duo">
+            <div className="field-sm">
+              <span>Provedor</span>
+              <select value={provider} onChange={(e) => onProvider(e.target.value)}>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field-sm">
+              <span>Modelo</span>
+              <input
+                list="ai-models"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={preset?.defaultModel || 'nome do modelo'}
+              />
+              <datalist id="ai-models">
+                {(preset?.models ?? []).map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
+          {provider === 'custom' && (
+            <div className="field-sm">
+              <span>Endpoint (compatível com OpenAI)</span>
+              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://.../v1" />
+            </div>
           )}
+
           <div className="field-sm">
+            <span>
+              Chave da API{' '}
+              {preset?.keyUrl && (
+                <a href={preset.keyUrl} target="_blank" rel="noreferrer" className="small">
+                  (onde pegar)
+                </a>
+              )}
+            </span>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={hasKey ? '•••••••• (chave salva — deixe em branco para manter)' : preset?.keyHint || 'cole a chave'}
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="primary" onClick={save}>
+              {saved ? 'Salvo' : 'Salvar e conectar'}
+            </button>
+            <button onClick={test} disabled={testing}>
+              {testing ? 'Testando…' : 'Testar conexão'}
+            </button>
+            {hasKey && (
+              <button className="ghost" onClick={disconnect}>
+                Desconectar
+              </button>
+            )}
+            {testMsg && <span className={`small ${testMsg.ok ? 'ok-text' : 'late-text'}`}>{testMsg.text}</span>}
+          </div>
+
+          <div className="field-sm" style={{ marginTop: 6 }}>
             <span>Instrução base do rascunho de resposta (botão ✦ nas conversas sem agente)</span>
             <textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
-          </div>
-          <div className="row">
-            <button className="primary" onClick={save}>
-              {saved ? 'Salvo' : 'Salvar'}
-            </button>
           </div>
         </section>
       </div>

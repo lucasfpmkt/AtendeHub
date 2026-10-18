@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { complete, llmReady, type ChatTurn } from '../services/llm.js';
+import { resolveLlm, type ChatTurn } from '../services/llm.js';
 import { wsOf } from '../auth.js';
 import { logAgent, offlineReply, runAgent, type Agent } from '../services/agents.js';
 
@@ -53,7 +53,8 @@ agentsRouter.get('/', async (req, res) => {
     where: { workspaceId: wsOf(req) },
     orderBy: [{ type: 'asc' }, { order: 'asc' }],
   });
-  res.json({ agents: agents.map(out), providerConnected: llmReady });
+  const llm = await resolveLlm(wsOf(req));
+  res.json({ agents: agents.map(out), providerConnected: llm.ready });
 });
 
 agentsRouter.post('/', async (req, res) => {
@@ -116,7 +117,8 @@ agentsRouter.post('/:id/test', async (req, res) => {
     (m: { from: string; text: string }) => ({ role: m.from === 'lead' ? 'user' : 'assistant', content: String(m.text ?? '') }),
   );
   try {
-    res.json(llmReady ? await runAgent(draft, history) : offlineReply(draft, history));
+    const llm = await resolveLlm(wsOf(req));
+    res.json(llm.ready ? await runAgent(draft, history, llm) : offlineReply(draft, history));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -124,9 +126,10 @@ agentsRouter.post('/:id/test', async (req, res) => {
 
 /** Copiloto: reescreve o roteiro aplicando um pedido em linguagem natural. */
 agentsRouter.post('/copilot', async (req, res) => {
-  if (!llmReady) return res.status(400).json({ error: 'Defina ANTHROPIC_API_KEY para usar o copiloto.' });
+  const llm = await resolveLlm(wsOf(req));
+  if (!llm.ready) return res.status(400).json({ error: 'Conecte um provedor de IA em Ajustes para usar o copiloto.' });
   try {
-    const roteiro = await complete({
+    const roteiro = await llm.complete({
       system:
         'Você ajuda a escrever roteiros de agentes de WhatsApp para escritórios de advocacia. ' +
         'Mantenha o formato do roteiro (◆ Passo N — Título, 🚩 Situação, 💬 Mensagem/Responder com, ⚡ Ação). ' +

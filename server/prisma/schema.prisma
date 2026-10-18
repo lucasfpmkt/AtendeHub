@@ -223,5 +223,8 @@ model AiConfig {
   id           String  @id @default("default")
   systemPrompt String
   autoReply    Boolean @default(false)
-  model        String  @default("claude-sonnet-4-5")
+  model        String  @default("claude-haiku-5-5")
+  provider     String  @default("anthropic") // anthropic | openai | gemini | deepseek | groq | mistral | xai | openrouter | custom
+  apiKey       String  @default("") // chave do provedor escolhido (por cliente)
+  baseUrl      String  @default("") // endpoint (só p/ "custom" ou override)
 }

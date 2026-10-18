@@ -1,6 +1,6 @@
 import { prisma } from '../db.js';
-import { env, aiEnabled } from '../env.js';
-import { complete } from './llm.js';
+import { env } from '../env.js';
+import { resolveLlm } from './llm.js';
 
 /** Configuração de IA do cliente (id = workspaceId). */
 async function getConfig(ws: string) {
@@ -31,15 +31,16 @@ export async function generateReply(ws: string, conversationId: string): Promise
     content: m.body,
   }));
 
-  if (!aiEnabled) {
+  const llm = await resolveLlm(ws);
+  if (!llm.ready) {
     const last = history.filter((h) => h.role === 'user').at(-1)?.content ?? '';
     return (
       `[rascunho sem IA] Recebi sua mensagem: "${last.slice(0, 80)}". ` +
-      'Configure ANTHROPIC_API_KEY no servidor para respostas geradas de verdade.'
+      'Conecte um provedor de IA em Ajustes para respostas geradas de verdade.'
     );
   }
 
-  const text = await complete({
+  const text = await llm.complete({
     system:
       `${cfg.systemPrompt}\n\n` +
       `Cliente: ${conversation.contact.name ?? conversation.contact.phone}. ` +
@@ -54,7 +55,25 @@ export async function getAiConfig(ws: string) {
   return getConfig(ws);
 }
 
-export async function updateAiConfig(ws: string, data: { systemPrompt?: string; autoReply?: boolean }) {
+export type AiConfigPatch = {
+  systemPrompt?: string;
+  autoReply?: boolean;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  apiKey?: string; // só grava quando vier string não-vazia (ou clearKey)
+  clearKey?: boolean;
+};
+
+export async function updateAiConfig(ws: string, data: AiConfigPatch) {
   await getConfig(ws);
-  return prisma.aiConfig.update({ where: { id: ws }, data });
+  const patch: Record<string, unknown> = {};
+  if (typeof data.systemPrompt === 'string') patch.systemPrompt = data.systemPrompt;
+  if (typeof data.autoReply === 'boolean') patch.autoReply = data.autoReply;
+  if (typeof data.provider === 'string') patch.provider = data.provider;
+  if (typeof data.model === 'string') patch.model = data.model;
+  if (typeof data.baseUrl === 'string') patch.baseUrl = data.baseUrl.trim();
+  if (data.clearKey) patch.apiKey = '';
+  else if (typeof data.apiKey === 'string' && data.apiKey.trim()) patch.apiKey = data.apiKey.trim();
+  return prisma.aiConfig.update({ where: { id: ws }, data: patch });
 }
