@@ -116,6 +116,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
       logger,
       printQRInTerminal: false,
       browser: ['LawHub', 'Chrome', '1.0.0'],
+      // Não marca o número como "online" ao conectar: assim o celular continua
+      // recebendo as notificações normais do WhatsApp.
+      markOnlineOnConnect: false,
     });
     s.sock = sock;
 
@@ -153,7 +156,6 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
       for (const m of messages) {
         const jid = m.key.remoteJid;
         if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // ignora grupos/status
@@ -168,6 +170,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
 
         if (m.key.fromMe) {
           // Mensagem enviada pelo próprio número (celular do operador ou o próprio LawHub).
+          // Processa em qualquer tipo (notify/append): o envio pelo celular pode vir como 'append'.
           await recordOutgoingMessage({
             workspaceId: ws,
             waJid: jid,
@@ -176,6 +179,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
           }).catch((err) => console.error(`[wa:${ws}] falha ao gravar mensagem enviada:`, err));
           continue;
         }
+
+        // Mensagens de ENTRADA: só as novas (notify). Ignora sincronização de histórico (append).
+        if (type !== 'notify') continue;
 
         await handleInboundMessage({
           workspaceId: ws,
