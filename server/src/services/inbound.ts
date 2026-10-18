@@ -9,6 +9,7 @@ import {
   getActiveTriage,
   getAgent,
   logAgent,
+  normalize,
   offlineReply,
   runAgent,
   scriptHasActions,
@@ -205,10 +206,17 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     // Na 1ª resposta após transferência, o novo agente fala mesmo sem nova mensagem do cliente.
     if (hop === 0 && history[history.length - 1].role !== 'user') return;
 
-    const { text, action } = llmReady ? await runAgent(agent, history) : offlineReply(agent, history);
+    const { text, actions } = llmReady ? await runAgent(agent, history) : offlineReply(agent, history);
     if (text) await deliver(ws, conversationId, text, sendText);
 
-    if (action?.type === 'deactivate') {
+    // Ações de CRM pedidas pelo roteiro (podem vir junto com a mensagem).
+    for (const act of actions) {
+      if (act.type === 'stage') await applyStage(ws, conversationId, act.name);
+      else if (act.type === 'tag') await applyTag(ws, conversationId, act.name);
+      else if (act.type === 'notify') await applyNotify(ws, conversationId, act.reason);
+    }
+
+    if (actions.some((a) => a.type === 'deactivate')) {
       const updated = await prisma.conversation.update({
         where: { id: conversationId },
         data: { aiEnabled: false },
@@ -219,10 +227,11 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     }
 
     let target: Agent | null = null;
-    if (action?.type === 'transfer') {
-      target = await findAgentByName(ws, action.agentName);
+    const transfer = actions.find((a): a is { type: 'transfer'; agentName: string } => a.type === 'transfer');
+    if (transfer) {
+      target = await findAgentByName(ws, transfer.agentName);
       if (!target) {
-        await systemNote(ws, conversationId, `O roteiro pediu transferência para “${action.agentName}”, mas esse agente não existe ou está inativo.`);
+        await systemNote(ws, conversationId, `O roteiro pediu transferência para “${transfer.agentName}”, mas esse agente não existe ou está inativo.`);
         return;
       }
     } else if (agent.type === 'triage' && !scriptHasActions(agent)) {
@@ -268,4 +277,82 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
     data: { lastMessageAt: new Date() },
   });
   emit(ws, { type: 'message:new', conversationId, message: outMsg });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Ações de CRM executadas pelo agente                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Move o lead para uma etapa do funil (move o negócio existente ou cria um). */
+async function applyStage(ws: string, conversationId: string, stageName: string) {
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { contactId: true },
+  });
+  if (!conv) return;
+
+  const stages = await prisma.pipelineStage.findMany({ where: { workspaceId: ws } });
+  const target =
+    stages.find((s) => normalize(s.name) === normalize(stageName)) ??
+    stages.find((s) => normalize(s.name).includes(normalize(stageName)));
+  if (!target) {
+    await systemNote(ws, conversationId, `Não encontrei a etapa "${stageName}" para mover o lead.`);
+    return;
+  }
+
+  const contact = await prisma.contact.findUnique({ where: { id: conv.contactId } });
+  await prisma.contact.update({ where: { id: conv.contactId }, data: { stageId: target.id } }).catch(() => {});
+
+  const deal = await prisma.deal.findFirst({
+    where: { workspaceId: ws, contactId: conv.contactId, funnelId: target.funnelId ?? undefined },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (deal) {
+    await prisma.deal.update({ where: { id: deal.id }, data: { stageId: target.id } });
+  } else {
+    await prisma.deal.create({
+      data: {
+        workspaceId: ws,
+        title: contact?.name || contact?.phone || 'Lead',
+        contactId: conv.contactId,
+        funnelId: target.funnelId ?? null,
+        stageId: target.id,
+        source: 'WhatsApp',
+      },
+    });
+  }
+  await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
+}
+
+/** Adiciona uma etiqueta ao contato (e ao catálogo de etiquetas, se for nova). */
+async function applyTag(ws: string, conversationId: string, tagName: string) {
+  const name = tagName.trim();
+  if (!name) return;
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { contactId: true },
+  });
+  if (!conv) return;
+
+  const contact = await prisma.contact.findUnique({ where: { id: conv.contactId } });
+  const tags = (contact?.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+  if (!tags.some((t) => normalize(t) === normalize(name))) {
+    tags.push(name);
+    await prisma.contact.update({ where: { id: conv.contactId }, data: { tags: tags.join(', ') } });
+  }
+
+  const exists = await prisma.tag.findFirst({ where: { workspaceId: ws, name } });
+  if (!exists) await prisma.tag.create({ data: { workspaceId: ws, name, color: '#b71312' } }).catch(() => {});
+
+  await systemNote(ws, conversationId, `Etiqueta "${name}" adicionada ao contato.`);
+}
+
+/** Avisa a equipe: nota de sistema + marca a conversa como não lida. */
+async function applyNotify(ws: string, conversationId: string, reason: string) {
+  await systemNote(ws, conversationId, `🔔 Equipe notificada: ${reason.trim() || 'atenção neste atendimento'}`);
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { unread: { increment: 1 } },
+  });
+  emit(ws, { type: 'conversation:update', conversation: updated });
 }

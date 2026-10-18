@@ -1233,6 +1233,9 @@ const AT_ACTIONS: AtAction[] = [
   { group: 'Formatação', label: 'Mensagem', insert: '💬 Mensagem: ""', icon: 'chat', color: '#16a34a', caret: -1 },
   { group: 'Ações do agente', label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: NOME', icon: 'flow', color: '#7c3aed' },
   { group: 'Ações do agente', label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', icon: 'power', color: '#dc2626' },
+  { group: 'CRM', label: 'Mudar etapa', insert: '⚡ Ação: Mudar etapa: NOME DA ETAPA', icon: 'kanban', color: '#0891b2' },
+  { group: 'CRM', label: 'Adicionar etiqueta', insert: '⚡ Ação: Adicionar etiqueta: NOME', icon: 'tag', color: '#b71312' },
+  { group: 'CRM', label: 'Notificar equipe', insert: '⚡ Ação: Notificar equipe: MOTIVO', icon: 'users', color: '#ea580c' },
 ];
 
 function ScriptArea({

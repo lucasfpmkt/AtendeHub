@@ -127,8 +127,13 @@ export async function decideTarget(text: string, themeAgents: Agent[], history: 
 /* Resposta do agente                                                          */
 /* -------------------------------------------------------------------------- */
 
-export type AgentAction = { type: 'transfer'; agentName: string } | { type: 'deactivate' } | null;
-export type AgentReply = { text: string; action: AgentAction };
+export type AgentAction =
+  | { type: 'transfer'; agentName: string }
+  | { type: 'deactivate' }
+  | { type: 'stage'; name: string }
+  | { type: 'tag'; name: string }
+  | { type: 'notify'; reason: string };
+export type AgentReply = { text: string; actions: AgentAction[] };
 
 /** System prompt: roteiro + regras + FAQ + como sinalizar as ações. */
 export function buildSystemPrompt(agent: Agent): string {
@@ -141,10 +146,13 @@ export function buildSystemPrompt(agent: Agent): string {
     'Você está atendendo por WhatsApp. Responda em português do Brasil, de forma natural e humana, mensagens curtas.',
     'Siga o roteiro passo a passo, usando o histórico para saber em que etapa está.',
     'Envie apenas a próxima mensagem do atendimento, sem rótulos, sem marcações de etapa e sem comentários fora do personagem.',
-    'AÇÕES: quando o roteiro mandar executar uma ação, escreva a mensagem prevista e, na ÚLTIMA linha, só o marcador:',
+    'AÇÕES: quando o roteiro mandar executar uma ação, escreva a mensagem prevista e, em linhas separadas no FIM, só os marcadores aplicáveis:',
     '- "Transferir para agente: NOME" → [[TRANSFERIR: NOME]]',
     '- "Desativar: agente" (ou quando o cliente pedir para falar com uma pessoa) → [[DESATIVAR]]',
-    'Nunca escreva "⚡ Ação" nem os marcadores em outro lugar da mensagem.',
+    '- "Mudar etapa: ETAPA" → [[ETAPA: ETAPA]]',
+    '- "Adicionar etiqueta: NOME" → [[ETIQUETA: NOME]]',
+    '- "Notificar equipe: MOTIVO" → [[NOTIFICAR: MOTIVO]]',
+    'Use só os marcadores que o roteiro pedir. Nunca escreva "⚡ Ação" nem os marcadores no meio da mensagem ao cliente.',
   ]
     .filter(Boolean)
     .join('\n');
@@ -152,16 +160,18 @@ export function buildSystemPrompt(agent: Agent): string {
 
 /** Separa o texto a enviar do marcador de ação e aplica a assinatura. */
 export function parseReply(agent: Agent, raw: string): AgentReply {
-  let action: AgentAction = null;
-  const transfer = raw.match(/\[\[\s*TRANSFERIR\s*:\s*([^\]]+?)\s*\]\]/i);
-  if (transfer) action = { type: 'transfer', agentName: transfer[1] };
-  else if (/\[\[\s*DESATIVAR\s*\]\]/i.test(raw)) action = { type: 'deactivate' };
+  const actions: AgentAction[] = [];
+  for (const m of raw.matchAll(/\[\[\s*TRANSFERIR\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'transfer', agentName: m[1] });
+  if (/\[\[\s*DESATIVAR\s*\]\]/i.test(raw)) actions.push({ type: 'deactivate' });
+  for (const m of raw.matchAll(/\[\[\s*ETAPA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'stage', name: m[1] });
+  for (const m of raw.matchAll(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'tag', name: m[1] });
+  for (const m of raw.matchAll(/\[\[\s*NOTIFICAR\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'notify', reason: m[1] });
   let text = raw
     .replace(/\[\[[^\]]*\]\]/g, '')
     .replace(/^\s*⚡.*$/gim, '') // por segurança, nunca envia a linha de ação crua
     .trim();
   if (agent.signatureOn && agent.signature.trim() && text) text = `${text}\n\n${agent.signature.trim()}`;
-  return { text, action };
+  return { text, actions };
 }
 
 /** Gera a resposta de um agente seguindo seu roteiro. */
@@ -176,7 +186,7 @@ export function offlineReply(agent: Agent, history: ChatTurn[]): AgentReply {
   const m = agent.script.match(/Mensagem:\s*[“"]([\s\S]+?)[”"]/);
   return {
     text: first && m ? m[1].trim() : '[modo offline] Defina ANTHROPIC_API_KEY para o agente seguir o roteiro de verdade.',
-    action: null,
+    actions: [],
   };
 }
 
