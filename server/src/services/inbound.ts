@@ -20,7 +20,7 @@ function phoneFromJid(jid: string): string {
   return jid.split('@')[0].split(':')[0];
 }
 
-type SendText = (jid: string, text: string) => Promise<void>;
+type SendText = (jid: string, text: string) => Promise<string | undefined>;
 
 // Debounce por conversa: espera o cliente parar de digitar (delay do agente)
 // antes de a IA responder. Uma nova mensagem reinicia o contador.
@@ -51,6 +51,59 @@ export async function systemNote(ws: string, conversationId: string, body: strin
     data: { conversationId, direction: 'out', author: 'system', body },
   });
   emit(ws, { type: 'message:new', conversationId, message });
+}
+
+/**
+ * Grava uma mensagem ENVIADA pelo próprio número (fromMe) — tipicamente quando
+ * o operador responde o cliente direto pelo WhatsApp do celular. Dedup pelo id
+ * da mensagem: se o próprio LawHub já a enviou, ignora o eco. Quando é mesmo do
+ * celular, pausa a IA desta conversa (o operador assumiu).
+ */
+export async function recordOutgoingMessage(params: {
+  workspaceId: string;
+  waJid: string;
+  body: string;
+  waMessageId?: string;
+}) {
+  const { workspaceId: ws, waJid, body, waMessageId } = params;
+  if (!body?.trim()) return;
+
+  if (waMessageId) {
+    const already = await prisma.message.findFirst({
+      where: { waMessageId, conversation: { workspaceId: ws } },
+    });
+    if (already) return; // eco de uma mensagem que o LawHub mesmo enviou
+  }
+
+  const contact = await prisma.contact.upsert({
+    where: { workspaceId_waJid: { workspaceId: ws, waJid } },
+    update: {},
+    create: { workspaceId: ws, waJid, phone: phoneFromJid(waJid) },
+  });
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { workspaceId: ws, contactId: contact.id, status: { not: 'closed' } },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: { workspaceId: ws, contactId: contact.id },
+    });
+  }
+
+  const message = await prisma.message.create({
+    data: { conversationId: conversation.id, direction: 'out', author: 'agent', body, waMessageId },
+  });
+
+  // Operador respondeu pelo celular: pausa a IA e cancela resposta agendada.
+  cancelPendingReply(conversation.id);
+  const updated = await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: new Date(), aiEnabled: false },
+  });
+
+  emit(ws, { type: 'message:new', conversationId: conversation.id, message });
+  emit(ws, { type: 'conversation:update', conversation: updated });
 }
 
 /** Processa uma mensagem recebida do WhatsApp. */
@@ -206,9 +259,9 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
     include: { contact: true },
   });
   if (!conversation) return;
-  await sendText(conversation.contact.waJid, text);
+  const waMessageId = await sendText(conversation.contact.waJid, text);
   const outMsg = await prisma.message.create({
-    data: { conversationId, direction: 'out', author: 'ai', body: text },
+    data: { conversationId, direction: 'out', author: 'ai', body: text, waMessageId },
   });
   await prisma.conversation.update({
     where: { id: conversationId },

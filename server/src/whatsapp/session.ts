@@ -12,7 +12,7 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import { emit, type WaStatus } from '../realtime.js';
 import { prisma } from '../db.js';
-import { handleInboundMessage } from '../services/inbound.js';
+import { handleInboundMessage, recordOutgoingMessage } from '../services/inbound.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Em produção/Docker, aponte WA_AUTH_DIR para um volume persistente.
@@ -155,7 +155,6 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const m of messages) {
-        if (m.key.fromMe) continue;
         const jid = m.key.remoteJid;
         if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // ignora grupos/status
 
@@ -166,6 +165,17 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
           m.message?.videoMessage?.caption ??
           '';
         if (!body) continue;
+
+        if (m.key.fromMe) {
+          // Mensagem enviada pelo próprio número (celular do operador ou o próprio LawHub).
+          await recordOutgoingMessage({
+            workspaceId: ws,
+            waJid: jid,
+            body,
+            waMessageId: m.key.id ?? undefined,
+          }).catch((err) => console.error(`[wa:${ws}] falha ao gravar mensagem enviada:`, err));
+          continue;
+        }
 
         await handleInboundMessage({
           workspaceId: ws,
@@ -191,10 +201,11 @@ export async function startSavedSessions() {
 }
 
 /** Envia texto pelo WhatsApp do cliente. Lança erro se não estiver conectado. */
-export async function sendText(ws: string, jid: string, text: string) {
+export async function sendText(ws: string, jid: string, text: string): Promise<string | undefined> {
   const s = sessionOf(ws);
   if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
-  await s.sock.sendMessage(jid, { text });
+  const sent = await s.sock.sendMessage(jid, { text });
+  return sent?.key?.id ?? undefined;
 }
 
 /** Encerra a sessão do cliente e apaga as credenciais (força novo QR). */
@@ -227,10 +238,10 @@ export async function sendFromConversation(ws: string, conversationId: string, t
     include: { contact: true },
   });
   if (!conversation) throw new Error('Conversa não encontrada');
-  await sendText(ws, conversation.contact.waJid, text);
+  const waMessageId = await sendText(ws, conversation.contact.waJid, text);
 
   const message = await prisma.message.create({
-    data: { conversationId, direction: 'out', author: 'agent', body: text },
+    data: { conversationId, direction: 'out', author: 'agent', body: text, waMessageId },
   });
   await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   emit(ws, { type: 'message:new', conversationId, message });
