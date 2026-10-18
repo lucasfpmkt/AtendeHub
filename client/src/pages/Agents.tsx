@@ -1256,7 +1256,7 @@ function ScriptArea({
 
   const detect = (el: HTMLTextAreaElement) => {
     const pos = el.selectionStart ?? 0;
-    const m = value.slice(0, pos).match(/@([\p{L}\p{N} ]{0,20})$/u);
+    const m = el.value.slice(0, pos).match(/@([\p{L}\p{N} ]{0,20})$/u);
     if (m) {
       setMenu({ at: pos - m[0].length, query: m[1] });
       setIdx(0);
@@ -1268,8 +1268,9 @@ function ScriptArea({
   const choose = (a: AtAction) => {
     const el = ref.current;
     if (!el || !menu) return;
-    const pos = el.selectionStart ?? value.length;
-    const next = value.slice(0, menu.at) + a.insert + value.slice(pos);
+    const base = el.value;
+    const pos = el.selectionStart ?? base.length;
+    const next = base.slice(0, menu.at) + a.insert + base.slice(pos);
     onChange(next);
     setMenu(null);
     const caret = menu.at + a.insert.length + (a.caret ?? 0);
@@ -1289,8 +1290,7 @@ function ScriptArea({
         spellCheck
         onChange={(e) => {
           onChange(e.target.value);
-          // detecta depois do onChange aplicar o novo valor
-          requestAnimationFrame(() => ref.current && detect(ref.current));
+          detect(e.target); // lê o valor direto do campo (já contém o que foi digitado)
         }}
         onClick={(e) => detect(e.currentTarget)}
         onKeyUp={(e) => {
