@@ -634,8 +634,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
             <>
               <div className="ed-tools">
                 <p className="hint">
-                  Dica: use <code>⚡ Ação: Transferir para agente: Nome</code> para passar a conversa a outro agente e{' '}
-                  <code>⚡ Ação: Desativar: agente</code> para devolver à equipe.
+                  Digite <code>@</code> para inserir um passo, uma mensagem ou uma ação (transferir / desativar agente).
                   {a.type === 'triage' &&
                     ' Sem essas ações, o sistema escolhe o agente secundário pelos gatilhos e pela descrição de cada um.'}
                 </p>
@@ -656,13 +655,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                   ))}
                 </div>
               </div>
-              <textarea
-                className="script"
-                style={{ fontSize: fs }}
-                value={a.script}
-                onChange={(e) => set('script', e.target.value)}
-                spellCheck
-              />
+              <ScriptArea value={a.script} onChange={(v) => set('script', v)} fontSize={fs} />
             </>
           )}
           {tab === 'regras' && (
@@ -1228,5 +1221,118 @@ function HistoryPanel({ id, onBack }: { id: string; onBack: () => void }) {
         ))}
       </div>
     </>
+  );
+}
+
+/* Ações/atalhos do menu "@" no editor do roteiro. Só entram aqui itens que o
+   LawHub realmente usa: formatação do roteiro + as 2 ações que o motor executa. */
+type AtAction = { label: string; insert: string; hint: string; caret?: number };
+const AT_ACTIONS: AtAction[] = [
+  { label: 'Passo', insert: '◆ Passo N — Título\n', hint: 'novo passo do roteiro' },
+  { label: 'Situação', insert: '🚩 Situação: ', hint: 'descreve o momento da conversa' },
+  { label: 'Mensagem', insert: '💬 Mensagem: ""', hint: 'fala enviada ao cliente', caret: -1 },
+  { label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: NOME', hint: 'passa a conversa a outro agente' },
+  { label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', hint: 'devolve o atendimento à equipe' },
+];
+
+function ScriptArea({
+  value,
+  onChange,
+  fontSize,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  fontSize: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [menu, setMenu] = useState<{ at: number; query: string } | null>(null);
+  const [idx, setIdx] = useState(0);
+
+  const items = useMemo(() => {
+    if (!menu) return [];
+    const q = norm(menu.query);
+    return AT_ACTIONS.filter((a) => !q || norm(a.label).includes(q));
+  }, [menu]);
+
+  const detect = (el: HTMLTextAreaElement) => {
+    const pos = el.selectionStart ?? 0;
+    const m = value.slice(0, pos).match(/@([\p{L}\p{N} ]{0,20})$/u);
+    if (m) {
+      setMenu({ at: pos - m[0].length, query: m[1] });
+      setIdx(0);
+    } else {
+      setMenu(null);
+    }
+  };
+
+  const choose = (a: AtAction) => {
+    const el = ref.current;
+    if (!el || !menu) return;
+    const pos = el.selectionStart ?? value.length;
+    const next = value.slice(0, menu.at) + a.insert + value.slice(pos);
+    onChange(next);
+    setMenu(null);
+    const caret = menu.at + a.insert.length + (a.caret ?? 0);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  return (
+    <div className="script-wrap">
+      <textarea
+        ref={ref}
+        className="script"
+        style={{ fontSize }}
+        value={value}
+        spellCheck
+        onChange={(e) => {
+          onChange(e.target.value);
+          // detecta depois do onChange aplicar o novo valor
+          requestAnimationFrame(() => ref.current && detect(ref.current));
+        }}
+        onClick={(e) => detect(e.currentTarget)}
+        onKeyUp={(e) => {
+          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) detect(e.currentTarget);
+        }}
+        onKeyDown={(e) => {
+          if (!menu || items.length === 0) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setIdx((i) => (i + 1) % items.length);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setIdx((i) => (i - 1 + items.length) % items.length);
+          } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            choose(items[idx]);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setMenu(null);
+          }
+        }}
+        onBlur={() => setTimeout(() => setMenu(null), 150)}
+      />
+      {menu && items.length > 0 && (
+        <div className="at-menu" role="listbox">
+          <div className="at-menu-hd">Ações do roteiro</div>
+          {items.map((a, i) => (
+            <button
+              key={a.label}
+              className={i === idx ? 'active' : ''}
+              onMouseEnter={() => setIdx(i)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                choose(a);
+              }}
+            >
+              <span className="nm">{a.label}</span>
+              <span className="hint">{a.hint}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

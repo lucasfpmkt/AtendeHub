@@ -340,6 +340,16 @@ button.pill { cursor: pointer; }
 .fs-ctl button.active { background: var(--g-0); color: var(--g-900); box-shadow: 0 1px 2px rgba(17, 24, 39, 0.08); }
 textarea.script { flex: 1; min-height: calc(100vh - 190px); line-height: 1.85; border-color: var(--g-200); padding: 16px 18px; }
 textarea.script.short { min-height: 340px; flex: none; }
+
+/* Editor do roteiro com menu "@" */
+.script-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.script-wrap > textarea.script { flex: 1; min-height: 0; }
+.at-menu { position: absolute; left: 14px; bottom: 14px; width: 300px; max-height: 300px; overflow: auto; background: var(--g-0); border: 1px solid var(--g-200); border-radius: 12px; box-shadow: 0 12px 34px rgba(11, 20, 26, 0.2); z-index: 30; padding: 6px; }
+.at-menu-hd { font-size: 10.5px; color: var(--g-500); font-weight: 600; padding: 6px 8px 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+.at-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; border: 0; background: transparent; border-radius: 8px; padding: 7px 9px; min-height: 0; }
+.at-menu button.active { background: var(--g-100); }
+.at-menu button .nm { font-weight: 600; font-size: 13.5px; color: var(--g-900); }
+.at-menu button .hint { font-size: 11.5px; color: var(--g-500); font-weight: 400; }
 .ed-right { overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: var(--g-50); }
 .tile { justify-content: flex-start; gap: 10px; width: 100%; padding: 12px; min-height: 60px; border-radius: var(--r-card); background: var(--g-0); border: 1px solid var(--g-200); text-align: left; }
 .tile:hover { border-color: var(--g-300); background: var(--g-0); }
