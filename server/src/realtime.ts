@@ -18,7 +18,8 @@ export type RealtimeEvent =
   | { type: 'wa:pair'; code: string | null; error?: string }
   | { type: 'wa:status'; status: WaStatus; me?: string }
   | { type: 'message:new'; conversationId: string; message: unknown }
-  | { type: 'conversation:update'; conversation: unknown };
+  | { type: 'conversation:update'; conversation: unknown }
+  | { type: 'crm:update' };
 
 export function emit(workspaceId: string, event: RealtimeEvent) {
   io?.to(roomOf(workspaceId)).emit(event.type, event);

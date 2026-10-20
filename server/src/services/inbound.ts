@@ -46,6 +46,35 @@ async function historyOf(conversationId: string): Promise<ChatTurn[]> {
   }));
 }
 
+/**
+ * Garante que o lead esteja no CRM: cria um negócio na 1ª etapa do funil padrão
+ * (o primeiro funil do cliente) se ainda não houver um para este contato.
+ * Idempotente — pode ser chamado a cada mensagem recebida.
+ */
+export async function ensureDealForContact(ws: string, contactId: string) {
+  const exists = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId } });
+  if (exists) return;
+
+  const funnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
+  if (!funnel) return; // cliente ainda não tem funil configurado
+  const stage = await prisma.pipelineStage.findFirst({ where: { funnelId: funnel.id }, orderBy: { order: 'asc' } });
+
+  const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+  await prisma.deal.create({
+    data: {
+      workspaceId: ws,
+      title: contact?.name || contact?.phone || 'Lead',
+      contactId,
+      funnelId: funnel.id,
+      stageId: stage?.id ?? null,
+      source: 'WhatsApp',
+      stageSince: new Date(),
+    },
+  });
+  if (stage) await prisma.contact.update({ where: { id: contactId }, data: { stageId: stage.id } }).catch(() => {});
+  emit(ws, { type: 'crm:update' });
+}
+
 /** Nota interna na conversa: aparece para a equipe, não vai para o WhatsApp nem para a IA. */
 export async function systemNote(ws: string, conversationId: string, body: string) {
   const message = await prisma.message.create({
@@ -159,6 +188,8 @@ export async function handleInboundMessage(params: {
 
   emit(ws, { type: 'message:new', conversationId: conversation.id, message });
   emit(ws, { type: 'conversation:update', conversation });
+  // Todo lead que escreve entra no CRM (1ª etapa do funil), se ainda não estiver.
+  await ensureDealForContact(ws, contact.id).catch((e) => console.error('[crm] falha ao criar negócio:', e));
   if (startedBy) await systemNote(ws, conversation.id, `${startedBy.name} assumiu o atendimento.`);
 
   if (!conversation.aiEnabled) {
@@ -309,7 +340,10 @@ async function applyStage(ws: string, conversationId: string, stageName: string)
     orderBy: { createdAt: 'desc' },
   });
   if (deal) {
-    await prisma.deal.update({ where: { id: deal.id }, data: { stageId: target.id } });
+    await prisma.deal.update({
+      where: { id: deal.id },
+      data: { stageId: target.id, stageSince: new Date(), followupStageId: null },
+    });
   } else {
     await prisma.deal.create({
       data: {
@@ -319,9 +353,11 @@ async function applyStage(ws: string, conversationId: string, stageName: string)
         funnelId: target.funnelId ?? null,
         stageId: target.id,
         source: 'WhatsApp',
+        stageSince: new Date(),
       },
     });
   }
+  emit(ws, { type: 'crm:update' });
   await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
 }
 
