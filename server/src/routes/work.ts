@@ -164,7 +164,61 @@ workRouter.get('/dashboard', async (req, res) => {
     if (row) row.count++;
   }
 
+  // --- Métricas de atendimento/conversão ---
+  const [messagesIn, messagesOut, dealsMeta, periodConvs] = await Promise.all([
+    prisma.message.count({ where: { conversation: { workspaceId: ws }, direction: 'in', createdAt: { gte: since } } }),
+    prisma.message.count({ where: { conversation: { workspaceId: ws }, direction: 'out', author: { not: 'system' }, createdAt: { gte: since } } }),
+    prisma.deal.findMany({ where: { workspaceId: ws }, select: { source: true } }),
+    prisma.conversation.findMany({ where: { workspaceId: ws, createdAt: { gte: since } }, select: { id: true } }),
+  ]);
+
+  // Tempo médio de 1ª resposta (conversas iniciadas no período).
+  let avgFirstResponseMin: number | null = null;
+  const convIds = periodConvs.map((c) => c.id);
+  if (convIds.length) {
+    const msgs = await prisma.message.findMany({
+      where: { conversationId: { in: convIds }, author: { not: 'system' } },
+      select: { conversationId: true, direction: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const firstIn = new Map<string, Date>();
+    const firstOut = new Map<string, Date>();
+    for (const m of msgs) {
+      if (m.direction === 'in' && !firstIn.has(m.conversationId)) firstIn.set(m.conversationId, m.createdAt);
+      if (m.direction === 'out' && !firstOut.has(m.conversationId)) firstOut.set(m.conversationId, m.createdAt);
+    }
+    let sum = 0;
+    let n = 0;
+    for (const [cid, inAt] of firstIn) {
+      const out = firstOut.get(cid);
+      if (out && out.getTime() > inAt.getTime()) {
+        sum += out.getTime() - inAt.getTime();
+        n++;
+      }
+    }
+    if (n) avgFirstResponseMin = Math.round(sum / n / 60000);
+  }
+
+  // Leads por origem.
+  const sourceMap = new Map<string, number>();
+  for (const d of dealsMeta) {
+    const key = d.source?.trim() || 'Sem origem';
+    sourceMap.set(key, (sourceMap.get(key) ?? 0) + 1);
+  }
+  const bySource = [...sourceMap.entries()].map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count);
+
+  // Conversão: negócios em etapas de "ganho/fechado" vs total.
+  const wonRe = /fechad|ganho|won|conclu|contrat/i;
+  let won = 0;
+  for (const f of funnels) for (const s of f.stages) if (wonRe.test(s.name)) won += s._count.deals;
+  const totalDeals = deals.length;
+  const conversion = { won, total: totalDeals, rate: totalDeals ? Math.round((won / totalDeals) * 100) : 0 };
+
   res.json({
+    messages: { in: messagesIn, out: messagesOut },
+    firstResponseMin: avgFirstResponseMin,
+    bySource,
+    conversion,
     perDay,
     totals: {
       newContacts: contacts.length,
