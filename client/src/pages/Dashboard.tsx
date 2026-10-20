@@ -4,6 +4,7 @@ import { Icon } from '../icons';
 import { Kpi } from './Home';
 
 const BRL = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtMin = (min: number | null) => (min == null ? '—' : min >= 60 ? `${(min / 60).toFixed(1)}h` : `${min} min`);
 
 export function Dashboard() {
   const [days, setDays] = useState(7);
@@ -42,10 +43,11 @@ export function Dashboard() {
 
       <div className="kpis">
         <Kpi label="Novos contatos" value={total} hint={`média ${(total / days).toFixed(1)}/dia`} />
-        <Kpi label="Pico" value={peak} hint="maior dia do período" />
         <Kpi label="Conversas abertas" value={t.openConversations} hint={`${t.aiConversations} com IA`} />
+        <Kpi label="Mensagens recebidas" value={data.messages.in} hint={`${data.messages.out} enviadas`} />
+        <Kpi label="1ª resposta" value={fmtMin(data.firstResponseMin)} hint="tempo médio" />
+        <Kpi label="Conversão" value={`${data.conversion.rate}%`} hint={`${data.conversion.won}/${data.conversion.total} negócios`} />
         <Kpi label="Negócios" value={t.deals} hint={BRL(t.pipelineCents)} />
-        <Kpi label="Tarefas abertas" value={t.tasksOpen} hint="da equipe" />
       </div>
 
       <div className="grid2">
@@ -83,6 +85,27 @@ export function Dashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3 className="card-title">
+          <Icon name="share" /> Leads por origem
+        </h3>
+        {data.bySource.length === 0 && <p className="muted small">Sem negócios ainda.</p>}
+        {(() => {
+          const max = Math.max(1, ...data.bySource.map((s) => s.count));
+          return data.bySource.map((s) => (
+            <div key={s.source} className="fun-row">
+              <div className="row between small">
+                <span>{s.source}</span>
+                <span className="mono">{s.count}</span>
+              </div>
+              <div className="bar">
+                <i style={{ width: `${(s.count / max) * 100}%`, background: 'var(--p-600)' }} />
+              </div>
+            </div>
+          ));
+        })()}
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
