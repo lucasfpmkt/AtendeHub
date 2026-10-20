@@ -227,16 +227,44 @@ export async function autoMoveStage(ws: string, conversationId: string) {
   if (history.length < 2) return; // pouca conversa para classificar
 
   const lista = stages.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+  const canCreate = stages.length < 12; // teto para a IA não inventar etapas demais
   const system =
     'Você classifica em qual ETAPA do funil de vendas um lead está, com base na conversa de atendimento.\n' +
     `Etapas disponíveis (em ordem):\n${lista}\n` +
     (currentStage ? `Etapa atual do lead: "${currentStage}".\n` : '') +
-    'Responda APENAS com o nome EXATO de uma etapa da lista, ou a palavra "manter" se nada mudou ou se tiver dúvida. ' +
-    'Seja conservador com etapas finais (ex.: "Fechado", "Perdido"): só use se o cliente deixou explícito. Não explique.';
+    'Responda em UMA linha, APENAS com um destes:\n' +
+    '- o nome EXATO de uma etapa da lista; ou\n' +
+    '- a palavra "manter" (se nada mudou ou se tiver dúvida); ou\n' +
+    (canCreate
+      ? '- "NOVA: <nome curto>" APENAS se nenhuma etapa existente representa bem a situação e uma nova for mesmo necessária (nome com 1 a 3 palavras).\n'
+      : '') +
+    'Seja conservador com etapas finais (ex.: "Fechado", "Perdido"): só use se o cliente deixou explícito. ' +
+    'Prefira sempre usar uma etapa existente. Não explique.';
   try {
-    const out = (await llm.complete({ system, messages: history, maxTokens: 20 })).trim();
-    if (/manter/i.test(out)) return;
-    const target = stages.find((s) => normalize(s.name) === normalize(out)) ?? stages.find((s) => normalize(out).includes(normalize(s.name)));
+    const out = (await llm.complete({ system, messages: history, maxTokens: 24 })).trim();
+    if (/^manter/i.test(out)) return;
+
+    // A IA pode pedir uma nova etapa: "NOVA: Aguardando documentos".
+    const nova = out.match(/^NOVA\s*:\s*(.+)$/i);
+    if (nova && canCreate) {
+      const name = nova[1].trim().replace(/["'.]/g, '').slice(0, 40);
+      if (!name) return;
+      // Se já existe algo parecido, usa a existente em vez de duplicar.
+      const existing = stages.find((s) => normalize(s.name) === normalize(name));
+      if (existing) {
+        if (existing.name !== currentStage) await applyStage(ws, conversationId, existing.name);
+        return;
+      }
+      await prisma.pipelineStage.create({
+        data: { workspaceId: ws, name, funnelId: funnel.id, order: stages.length, color: '#6366f1' },
+      });
+      emit(ws, { type: 'crm:update' });
+      await applyStage(ws, conversationId, name);
+      return;
+    }
+
+    const target =
+      stages.find((s) => normalize(s.name) === normalize(out)) ?? stages.find((s) => normalize(out).includes(normalize(s.name)));
     if (!target || target.name === currentStage) return;
     await applyStage(ws, conversationId, target.name);
   } catch (err) {
