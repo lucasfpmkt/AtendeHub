@@ -21,6 +21,7 @@ model Workspace {
   active     Boolean  @default(true)
   legacyAuth Boolean  @default(false) // usa a pasta de sessão WhatsApp antiga
   users      User[]
+  adminAccess AdminAccess[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
@@ -32,9 +33,11 @@ model User {
   name         String
   passwordHash String
   role         String    @default("user") // admin | user
+  isMaster     Boolean   @default(true) // admin master = acesso a todos os clientes (só relevante p/ role=admin)
   workspaceId  String
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lastLoginAt  DateTime?
+  adminAccess  AdminAccess[]
   createdAt    DateTime  @default(now())
 }
 
@@ -281,4 +284,16 @@ model PlatformConfig {
   crmBaseUrl  String  @default("")
   crmModel    String  @default("")
   autoStage   Boolean @default(true)
+}
+
+
+/// Clientes que um administrador NÃO-master pode acessar.
+model AdminAccess {
+  id          String @id @default(cuid())
+  userId      String
+  workspaceId String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
 }

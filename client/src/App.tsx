@@ -258,7 +258,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
         {current === 'agenda' && <Agenda />}
         {current === 'connect' && <Connect status={waStatus} me={me} />}
         {current === 'settings' && <Settings user={user} workspace={workspace} />}
-        {current === 'clients' && isAdmin && <Clients currentId={workspace.id} />}
+        {current === 'clients' && isAdmin && <Clients currentId={workspace.id} isMaster={user.isMaster} />}
       </main>
 
       {picker && <WorkspacePicker currentId={workspace.id} onClose={closePicker} />}

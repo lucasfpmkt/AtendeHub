@@ -114,5 +114,28 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/** True se o admin é master (acesso a todos os clientes). */
+export async function userIsMaster(uid: string): Promise<boolean> {
+  const u = await prisma.user.findUnique({ where: { id: uid }, select: { role: true, isMaster: true } });
+  return Boolean(u && u.role === 'admin' && u.isMaster);
+}
+
+/** IDs dos clientes que o admin pode acessar, ou 'all' para master. */
+export async function allowedWorkspaceIds(uid: string): Promise<string[] | 'all'> {
+  const u = await prisma.user.findUnique({ where: { id: uid }, select: { role: true, isMaster: true } });
+  if (!u || u.role !== 'admin') return [];
+  if (u.isMaster) return 'all';
+  const rows = await prisma.adminAccess.findMany({ where: { userId: uid }, select: { workspaceId: true } });
+  return rows.map((r) => r.workspaceId);
+}
+
+/** Só administradores master (gerenciam clientes e outros admins). */
+export async function requireMaster(req: Request, res: Response, next: NextFunction) {
+  if (req.auth?.role !== 'admin' || !(await userIsMaster(req.auth.uid))) {
+    return res.status(403).json({ error: 'apenas administradores master' });
+  }
+  next();
+}
+
 /** Workspace do pedido (sempre definido depois de requireAuth). */
 export const wsOf = (req: Request) => req.auth!.ws;

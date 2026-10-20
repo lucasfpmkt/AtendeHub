@@ -63,6 +63,16 @@ export interface SessionUser {
   name: string;
   email: string;
   role: Role;
+  isMaster?: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  isMaster: boolean;
+  lastLoginAt: string | null;
+  workspaceIds: string[];
 }
 export interface WorkspaceInfo {
   id: string;
@@ -273,6 +283,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(phone ? { phone } : {}),
     }),
+  waReconnect: () =>
+    req<{ status: string; qr: string | null; pairCode: string | null }>('/whatsapp/reconnect', { method: 'POST' }),
   waLogout: () => req('/whatsapp/logout', { method: 'POST' }),
 
   // Conversas / mensagens
@@ -534,5 +546,14 @@ export const api = {
     req<{ ok: boolean; provider?: string; model?: string; error?: string }>(`/admin/ai/test${which ? '?which=crm' : ''}`, {
       method: 'POST',
     }),
-  adminReclassifyAll: () => req<{ total: number; workspaces: number }>('/admin/ai/reclassify-all', { method: 'POST' }),
+  adminReclassifyWorkspace: (workspaceId: string) =>
+    req<{ total: number }>(`/admin/ai/reclassify/${workspaceId}`, { method: 'POST' }),
+
+  // Administradores (só master)
+  adminAdmins: () => req<AdminUser[]>('/admin/admins'),
+  adminCreateAdmin: (data: { name: string; email: string; password: string; isMaster: boolean; workspaceIds: string[] }) =>
+    req<{ id: string }>('/admin/admins', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateAdmin: (id: string, data: { name?: string; isMaster?: boolean; workspaceIds?: string[] }) =>
+    req(`/admin/admins/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  adminDeleteAdmin: (id: string) => req(`/admin/admins/${id}`, { method: 'DELETE' }),
 };

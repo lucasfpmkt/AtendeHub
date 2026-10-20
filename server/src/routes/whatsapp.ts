@@ -67,7 +67,15 @@ whatsappRouter.post('/connect', async (req, res) => {
     phone = normalizePhone(String(raw)) ?? undefined;
     if (!phone) return res.status(400).json({ error: 'Número inválido. Use DDI + DDD + número, ex.: 55 21 99999-0000.' });
   }
-  await startWhatsApp(wsOf(req), { phone });
+  // force: pedido manual recomeça mesmo se o socket estiver preso em "conectando".
+  await startWhatsApp(wsOf(req), { phone, force: true });
+  res.json(getStatus(wsOf(req)));
+});
+
+// Reconecta do zero: apaga a sessão antiga e gera um QR novo (desbloqueia casos travados).
+whatsappRouter.post('/reconnect', async (req, res) => {
+  await logoutWhatsApp(wsOf(req));
+  await startWhatsApp(wsOf(req), { force: true });
   res.json(getStatus(wsOf(req)));
 });
 

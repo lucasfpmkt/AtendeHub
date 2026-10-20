@@ -18,6 +18,13 @@ const hm = (iso: string) => {
     ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 };
+// Carimbo completo da bolha: hoje mostra a hora; dias anteriores mostram data e hora.
+const stamp = (iso: string) => {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${time}`;
+};
 
 const initials = (s: string) =>
   s
@@ -292,7 +299,7 @@ export function Inbox({
                     {m.body && !isMediaLabel(m.body) && <div className="mtext">{m.body}</div>}
                     <div className="by">
                       {m.author === 'agent' ? 'Você · ' : ''}
-                      {hm(m.createdAt)}
+                      {stamp(m.createdAt)}
                     </div>
                   </div>
                 ),
