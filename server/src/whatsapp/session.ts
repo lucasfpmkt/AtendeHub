@@ -2,8 +2,10 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   type WASocket,
 } from '@whiskeysockets/baileys';
+import { kindLabel, type MediaKind } from './media.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -191,18 +193,44 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
       }
     });
 
+    // Lê texto e baixa mídia (imagem/áudio/vídeo/documento) de uma mensagem.
+    const readMessage = async (m: any): Promise<{ body: string; media?: { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer } } | null> => {
+      const msg = m.message;
+      if (!msg) return null;
+      const text = msg.conversation ?? msg.extendedTextMessage?.text ?? '';
+
+      let spec: { kind: MediaKind; mimetype: string; filename?: string; caption?: string } | null = null;
+      if (msg.imageMessage) spec = { kind: 'image', mimetype: msg.imageMessage.mimetype ?? 'image/jpeg', caption: msg.imageMessage.caption ?? '' };
+      else if (msg.videoMessage) spec = { kind: 'video', mimetype: msg.videoMessage.mimetype ?? 'video/mp4', caption: msg.videoMessage.caption ?? '' };
+      else if (msg.audioMessage) spec = { kind: 'audio', mimetype: msg.audioMessage.mimetype ?? 'audio/ogg' };
+      else if (msg.stickerMessage) spec = { kind: 'sticker', mimetype: 'image/webp' };
+      else if (msg.documentMessage)
+        spec = { kind: 'document', mimetype: msg.documentMessage.mimetype ?? 'application/octet-stream', filename: msg.documentMessage.fileName ?? 'arquivo', caption: msg.documentMessage.caption ?? '' };
+      else if (msg.documentWithCaptionMessage?.message?.documentMessage) {
+        const d = msg.documentWithCaptionMessage.message.documentMessage;
+        spec = { kind: 'document', mimetype: d.mimetype ?? 'application/octet-stream', filename: d.fileName ?? 'arquivo', caption: d.caption ?? '' };
+      }
+
+      if (spec) {
+        try {
+          const buffer = (await downloadMediaMessage(m, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage })) as Buffer;
+          const caption = (spec.caption ?? '').trim();
+          return { body: caption || kindLabel(spec.kind), media: { kind: spec.kind, mimetype: spec.mimetype, filename: spec.filename, buffer } };
+        } catch (err) {
+          console.error(`[wa:${ws}] falha ao baixar mídia:`, (err as Error).message);
+          return { body: kindLabel(spec.kind) }; // registra ao menos o rótulo
+        }
+      }
+      return text ? { body: text } : null;
+    };
+
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       for (const m of messages) {
         const jid = m.key.remoteJid;
         if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // ignora grupos/status
 
-        const body =
-          m.message?.conversation ??
-          m.message?.extendedTextMessage?.text ??
-          m.message?.imageMessage?.caption ??
-          m.message?.videoMessage?.caption ??
-          '';
-        if (!body) continue;
+        const parsed = await readMessage(m);
+        if (!parsed) continue;
 
         if (m.key.fromMe) {
           // Mensagem enviada pelo próprio número (celular do operador ou o próprio LawHub).
@@ -210,8 +238,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
           await recordOutgoingMessage({
             workspaceId: ws,
             waJid: jid,
-            body,
+            body: parsed.body,
             waMessageId: m.key.id ?? undefined,
+            media: parsed.media,
           }).catch((err) => console.error(`[wa:${ws}] falha ao gravar mensagem enviada:`, err));
           continue;
         }
@@ -223,8 +252,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
           workspaceId: ws,
           waJid: jid,
           pushName: m.pushName ?? undefined,
-          body,
+          body: parsed.body,
           waMessageId: m.key.id ?? undefined,
+          media: parsed.media,
           sendText: (to, text) => sendText(ws, to, text),
         }).catch((err) => console.error(`[wa:${ws}] falha ao processar mensagem:`, err));
       }
@@ -247,6 +277,24 @@ export async function sendText(ws: string, jid: string, text: string): Promise<s
   const s = sessionOf(ws);
   if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
   const sent = await s.sock.sendMessage(jid, { text });
+  return sent?.key?.id ?? undefined;
+}
+
+/** Envia um arquivo (imagem/vídeo/áudio/documento) pelo WhatsApp do cliente. */
+export async function sendMedia(
+  ws: string,
+  jid: string,
+  opts: { buffer: Buffer; mimetype: string; filename?: string; caption?: string; kind: MediaKind },
+): Promise<string | undefined> {
+  const s = sessionOf(ws);
+  if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
+  const caption = opts.caption?.trim() || undefined;
+  let content: any;
+  if (opts.kind === 'image') content = { image: opts.buffer, mimetype: opts.mimetype, caption };
+  else if (opts.kind === 'video') content = { video: opts.buffer, mimetype: opts.mimetype, caption };
+  else if (opts.kind === 'audio') content = { audio: opts.buffer, mimetype: opts.mimetype, ptt: true };
+  else content = { document: opts.buffer, mimetype: opts.mimetype, fileName: opts.filename || 'arquivo', caption };
+  const sent = await s.sock.sendMessage(jid, content);
   return sent?.key?.id ?? undefined;
 }
 

@@ -458,6 +458,12 @@ button.ai-on:hover { background: var(--ai-100); }
 .bubble.typing { color: var(--g-500); font-style: italic; }
 .bubble .by { font-size: 10.5px; color: var(--g-500); margin-top: 2px; text-align: right; }
 .ai-name { font-size: 11px; font-weight: 600; color: var(--ai-600); margin-bottom: 2px; }
+.bubble .mtext { white-space: pre-wrap; }
+.media-link { display: block; }
+.media-img { display: block; max-width: 260px; max-height: 300px; width: auto; border-radius: 8px; margin-bottom: 4px; }
+.media-audio { display: block; max-width: 260px; margin-bottom: 4px; }
+.media-doc { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(0, 0, 0, 0.05); border-radius: 8px; color: inherit; text-decoration: none; font-size: 13px; font-weight: 500; margin-bottom: 4px; max-width: 260px; }
+.media-doc:hover { background: rgba(0, 0, 0, 0.09); }
 .composer { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--g-0); border-top: 1px solid var(--g-200); }
 .composer button { flex: none; }
 .quick-pop { margin: 0 14px 6px; border: 1px solid var(--g-200); border-radius: var(--r-ctl); background: var(--g-0); max-height: 180px; overflow: auto; }

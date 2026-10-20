@@ -162,6 +162,10 @@ model Message {
   author         String
   body           String
   waMessageId    String?
+  mediaType      String? // image | video | audio | document | sticker
+  mediaId        String? // id do arquivo salvo (usado na URL /api/media/:id)
+  mediaName      String? // nome original (documentos)
+  mimeType       String?
   createdAt      DateTime     @default(now())
 }
 
