@@ -236,6 +236,11 @@ model AiConfig {
   apiKey       String  @default("") // chave do provedor escolhido (por cliente)
   baseUrl      String  @default("") // endpoint (só p/ "custom" ou override)
   autoStage    Boolean @default(true) // IA move a etapa do CRM lendo a conversa
+  // IA dedicada do CRM (ler conversas e mover/criar etapas). Em branco = usa a dos agentes.
+  crmProvider  String  @default("")
+  crmApiKey    String  @default("")
+  crmBaseUrl   String  @default("")
+  crmModel     String  @default("")
 }
 
 /// Mensagem agendada (lembrete/consulta) para enviar pelo WhatsApp no futuro.

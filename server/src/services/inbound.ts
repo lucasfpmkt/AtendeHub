@@ -12,7 +12,7 @@ async function mediaFields(ws: string, media?: InboundMedia) {
   return { mediaType: media.kind, mediaId, mediaName: media.filename ?? null, mimeType: media.mimetype };
 }
 import type { ChatTurn } from './llm.js';
-import { resolveLlm } from './llm.js';
+import { resolveLlm, resolveCrmLlm } from './llm.js';
 import {
   decideTarget,
   findAgentByName,
@@ -206,11 +206,11 @@ export async function importHistoryMessage(params: {
  * A IA lê a conversa e move o lead para a etapa certa do funil automaticamente.
  * Roda em segundo plano a cada mensagem recebida (quando ligado em Ajustes).
  */
-export async function autoMoveStage(ws: string, conversationId: string) {
+export async function autoMoveStage(ws: string, conversationId: string, force = false) {
   const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
-  if (cfg && cfg.autoStage === false) return; // desligado pelo cliente
+  if (!force && cfg && cfg.autoStage === false) return; // desligado pelo cliente (botão manual ignora)
 
-  const llm = await resolveLlm(ws);
+  const llm = await resolveCrmLlm(ws); // IA dedicada do CRM (ou a dos agentes, se não houver)
   if (!llm.ready) return;
 
   const funnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
@@ -270,6 +270,38 @@ export async function autoMoveStage(ws: string, conversationId: string) {
   } catch (err) {
     console.error('[auto-stage] falhou:', (err as Error).message);
   }
+}
+
+/**
+ * Reavalia TODAS as conversas abertas agora: roda a IA do CRM em cada uma e
+ * ajusta a etapa. Em segundo plano, com throttle (respeita cota do provedor).
+ * Retorna quantas conversas entraram na fila.
+ */
+export async function reclassifyAllStages(ws: string): Promise<number> {
+  const convs = await prisma.conversation.findMany({
+    where: { workspaceId: ws, status: { not: 'closed' } },
+    select: { id: true, contactId: true },
+    orderBy: { lastMessageAt: 'desc' },
+    take: 300,
+  });
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const c of convs) {
+    if (seen.has(c.contactId)) continue;
+    seen.add(c.contactId);
+    ids.push(c.id);
+  }
+  void (async () => {
+    for (const id of ids) {
+      try {
+        await autoMoveStage(ws, id, true);
+      } catch {
+        /* segue para a próxima */
+      }
+      await new Promise((r) => setTimeout(r, 4500)); // ~13/min: cabe na cota grátis do Gemini
+    }
+  })();
+  return ids.length;
 }
 
 /** Processa uma mensagem recebida do WhatsApp. */

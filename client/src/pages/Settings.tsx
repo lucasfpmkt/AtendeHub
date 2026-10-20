@@ -23,7 +23,20 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
 
+  // IA dedicada do CRM (ler conversas e mover/criar etapas)
+  const [crmProvider, setCrmProvider] = useState('');
+  const [crmModel, setCrmModel] = useState('');
+  const [crmBaseUrl, setCrmBaseUrl] = useState('');
+  const [crmApiKey, setCrmApiKey] = useState('');
+  const [crmHasKey, setCrmHasKey] = useState(false);
+  const [crmConnected, setCrmConnected] = useState(false);
+  const [crmTestMsg, setCrmTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [crmTesting, setCrmTesting] = useState(false);
+  const [crmSaved, setCrmSaved] = useState(false);
+  const [reclass, setReclass] = useState<{ ok: boolean; text: string } | null>(null);
+
   const preset = useMemo(() => providers.find((p) => p.id === provider), [providers, provider]);
+  const crmPreset = useMemo(() => providers.find((p) => p.id === crmProvider), [providers, crmProvider]);
 
   useEffect(() => {
     api.aiConfig().then((c) => {
@@ -35,8 +48,66 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
       setBaseUrl(c.baseUrl);
       setHasKey(c.hasKey);
       setAutoStage(c.autoStage);
+      setCrmProvider(c.crmProvider || '');
+      setCrmModel(c.crmModel || '');
+      setCrmBaseUrl(c.crmBaseUrl || '');
+      setCrmHasKey(c.crmHasKey);
+      setCrmConnected(c.crmConnected);
     });
   }, []);
+
+  const onCrmProvider = (id: string) => {
+    setCrmProvider(id);
+    setCrmTestMsg(null);
+    const p = providers.find((x) => x.id === id);
+    if (p) {
+      setCrmModel(p.defaultModel);
+      setCrmBaseUrl(p.baseUrl);
+    }
+  };
+  const saveCrm = async () => {
+    setCrmTestMsg(null);
+    const r = await api.updateAiConfig({
+      crmProvider,
+      crmModel,
+      crmBaseUrl,
+      ...(crmApiKey.trim() ? { crmApiKey: crmApiKey.trim() } : {}),
+    });
+    setCrmConnected(r.crmConnected);
+    setCrmHasKey(r.crmHasKey);
+    setCrmApiKey('');
+    setCrmSaved(true);
+    setTimeout(() => setCrmSaved(false), 1800);
+  };
+  const disconnectCrm = async () => {
+    const r = await api.updateAiConfig({ clearCrmKey: true, crmProvider: '' });
+    setCrmConnected(r.crmConnected);
+    setCrmHasKey(r.crmHasKey);
+    setCrmProvider('');
+    setCrmApiKey('');
+  };
+  const testCrm = async () => {
+    setCrmTesting(true);
+    setCrmTestMsg(null);
+    try {
+      const r = await api.testAi('crm');
+      setCrmTestMsg(r.ok ? { ok: true, text: `Conectado · ${r.provider} · ${r.model}` } : { ok: false, text: r.error || 'Falhou' });
+      if (r.ok) setCrmConnected(true);
+    } catch (x) {
+      setCrmTestMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setCrmTesting(false);
+    }
+  };
+  const reclassify = async () => {
+    setReclass({ ok: true, text: 'Iniciando…' });
+    try {
+      const r = await api.reclassifyStages();
+      setReclass({ ok: true, text: `Reavaliando ${r.total} conversa(s) em segundo plano. As etapas vão se ajustar nos próximos minutos.` });
+    } catch (x) {
+      setReclass({ ok: false, text: (x as Error).message });
+    }
+  };
 
   const onProvider = (id: string) => {
     setProvider(id);
@@ -281,6 +352,100 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
           <div className="field-sm" style={{ marginTop: 6 }}>
             <span>Instrução base do rascunho de resposta (botão ✦ nas conversas sem agente)</span>
             <textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
+          </div>
+        </section>
+
+        <section className="card stack" style={{ gridColumn: '1 / -1' }}>
+          <div className="row between">
+            <h3 className="card-title" style={{ margin: 0 }}>
+              <Icon name="crm" /> IA do CRM (ler conversas e mover etapas)
+            </h3>
+            <span className={`pill ${crmConnected ? 'ok' : 'warn'}`}>{crmConnected ? 'IA conectada' : 'usando a dos agentes'}</span>
+          </div>
+          <p className="muted small">
+            IA dedicada e barata só para ler as conversas e ajustar o lead no funil. Recomendado: <b>Google · Gemini</b>, modelo{' '}
+            <code>gemini-3.8-flash</code>. Deixe em branco para usar a mesma IA dos agentes.
+          </p>
+
+          <div className="duo">
+            <div className="field-sm">
+              <span>Provedor</span>
+              <select value={crmProvider} onChange={(e) => onCrmProvider(e.target.value)}>
+                <option value="">— usar a dos agentes —</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {crmProvider && (
+              <div className="field-sm">
+                <span>Modelo</span>
+                <input
+                  list="crm-ai-models"
+                  value={crmModel}
+                  onChange={(e) => setCrmModel(e.target.value)}
+                  placeholder={crmPreset?.defaultModel || 'nome do modelo'}
+                />
+                <datalist id="crm-ai-models">
+                  {(crmPreset?.models ?? []).map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+              </div>
+            )}
+          </div>
+
+          {crmProvider === 'custom' && (
+            <div className="field-sm">
+              <span>Endpoint (compatível com OpenAI)</span>
+              <input value={crmBaseUrl} onChange={(e) => setCrmBaseUrl(e.target.value)} placeholder="https://.../v1" />
+            </div>
+          )}
+
+          {crmProvider && (
+            <div className="field-sm">
+              <span>
+                Chave da API{' '}
+                {crmPreset?.keyUrl && (
+                  <a href={crmPreset.keyUrl} target="_blank" rel="noreferrer" className="small">
+                    (onde pegar)
+                  </a>
+                )}
+              </span>
+              <input
+                type="password"
+                value={crmApiKey}
+                onChange={(e) => setCrmApiKey(e.target.value)}
+                placeholder={crmHasKey ? '•••••••• (chave salva — deixe em branco para manter)' : crmPreset?.keyHint || 'cole a chave'}
+                autoComplete="off"
+              />
+            </div>
+          )}
+
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="primary" onClick={saveCrm}>
+              {crmSaved ? 'Salvo' : 'Salvar e conectar'}
+            </button>
+            {crmProvider && (
+              <button onClick={testCrm} disabled={crmTesting}>
+                {crmTesting ? 'Testando…' : 'Testar conexão'}
+              </button>
+            )}
+            {crmHasKey && (
+              <button className="ghost" onClick={disconnectCrm}>
+                Desconectar
+              </button>
+            )}
+            {crmTestMsg && <span className={`small ${crmTestMsg.ok ? 'ok-text' : 'late-text'}`}>{crmTestMsg.text}</span>}
+          </div>
+
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+            <button className="soft" onClick={reclassify} title="Roda a IA em todas as conversas abertas e ajusta as etapas">
+              <Icon name="refresh" size={15} /> Reavaliar conversas agora
+            </button>
+            {reclass && <span className={`small ${reclass.ok ? 'ok-text' : 'late-text'}`}>{reclass.text}</span>}
           </div>
         </section>
       </div>
