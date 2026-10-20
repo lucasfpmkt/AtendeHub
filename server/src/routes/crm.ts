@@ -1,8 +1,10 @@
+import { unlink } from 'node:fs/promises';
 import { Router, type Response } from 'express';
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { wsOf } from '../auth.js';
 import { sendFromConversation } from '../whatsapp/session.js';
+import { mediaFilePath } from '../whatsapp/media.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
 import { cancelPendingReply, systemNote } from '../services/inbound.js';
 
@@ -32,6 +34,43 @@ crmRouter.patch('/contacts/:id', async (req, res) => {
   const { name, notes, tags, stageId } = req.body ?? {};
   if (stageId && !(await prisma.pipelineStage.findFirst({ where: { id: stageId, workspaceId: ws } }))) return notFound(res);
   res.json(await prisma.contact.update({ where: { id: req.params.id }, data: { name, notes, tags, stageId } }));
+});
+
+// LGPD: exporta todos os dados de um contato (direito de acesso/portabilidade).
+crmRouter.get('/contacts/:id/export', async (req, res) => {
+  const ws = wsOf(req);
+  const contact = await prisma.contact.findFirst({ where: { id: req.params.id, workspaceId: ws } });
+  if (!contact) return notFound(res);
+  const [conversations, deals] = await Promise.all([
+    prisma.conversation.findMany({ where: { workspaceId: ws, contactId: contact.id }, include: { messages: { orderBy: { createdAt: 'asc' } } } }),
+    prisma.deal.findMany({ where: { workspaceId: ws, contactId: contact.id } }),
+  ]);
+  res.setHeader('Content-Disposition', `attachment; filename="dados-${contact.phone || contact.id}.json"`);
+  res.json({ exportedAt: new Date().toISOString(), contact, conversations, deals });
+});
+
+// LGPD: apaga todos os dados de um contato (direito ao esquecimento).
+crmRouter.delete('/contacts/:id/erase', async (req, res) => {
+  const ws = wsOf(req);
+  const contact = await prisma.contact.findFirst({ where: { id: req.params.id, workspaceId: ws } });
+  if (!contact) return notFound(res);
+
+  const convs = await prisma.conversation.findMany({ where: { workspaceId: ws, contactId: contact.id }, select: { id: true } });
+  const convIds = convs.map((c) => c.id);
+  // Apaga os arquivos de mídia das conversas do contato.
+  if (convIds.length) {
+    const medias = await prisma.message.findMany({
+      where: { conversationId: { in: convIds }, mediaId: { not: null } },
+      select: { mediaId: true },
+    });
+    for (const m of medias) {
+      if (m.mediaId) await unlink(mediaFilePath(ws, m.mediaId)).catch(() => {});
+    }
+    await prisma.scheduledMessage.deleteMany({ where: { conversationId: { in: convIds } } });
+  }
+  await prisma.deal.deleteMany({ where: { workspaceId: ws, contactId: contact.id } });
+  await prisma.contact.delete({ where: { id: contact.id } }); // cascata: conversas + mensagens
+  res.json({ ok: true });
 });
 
 /* --------------------------- Conversas ------------------------------ */

@@ -24,6 +24,23 @@ export function Contacts() {
     load();
   };
 
+  const exportData = async (c: Contact) => {
+    const blob = await api.exportContact(c.id);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dados-${c.phone || c.id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const erase = async (c: Contact) => {
+    if (!confirm(`Apagar TODOS os dados de ${c.name || c.phone}? Isso remove o contato, conversas, mensagens e mídia. Não dá para desfazer.`))
+      return;
+    await api.eraseContact(c.id);
+    load();
+  };
+
   return (
     <div className="page">
       <h1 className="h1">Contatos (CRM)</h1>
@@ -61,7 +78,15 @@ export function Contacts() {
                     : '—'}
                 </td>
                 <td>
-                  <button onClick={() => setEditing(c)}>Editar</button>
+                  <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setEditing(c)}>Editar</button>
+                    <button className="soft" title="Exportar dados (LGPD)" onClick={() => exportData(c)}>
+                      Exportar
+                    </button>
+                    <button className="danger-text" title="Apagar dados do titular (LGPD)" onClick={() => erase(c)}>
+                      Excluir
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

@@ -331,6 +331,13 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  exportContact: async (id: string): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(`/api/contacts/${id}/export`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error('falha ao exportar');
+    return res.blob();
+  },
+  eraseContact: (id: string) => req(`/contacts/${id}/erase`, { method: 'DELETE' }),
 
   // Funis
   funnels: () => req<Funnel[]>('/funnels'),
