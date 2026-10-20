@@ -178,15 +178,18 @@ export async function importHistoryMessage(params: {
     create: { workspaceId: ws, waJid, phone, name: pushName || null },
   });
 
+  const createdAt = new Date(timestampMs || Date.now());
+
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: ws, contactId: contact.id },
     orderBy: { lastMessageAt: 'desc' },
   });
   if (!conversation) {
-    conversation = await prisma.conversation.create({ data: { workspaceId: ws, contactId: contact.id } });
+    // Conversa criada a partir do histórico: reflete a data real da última mensagem.
+    conversation = await prisma.conversation.create({
+      data: { workspaceId: ws, contactId: contact.id, createdAt, lastMessageAt: createdAt },
+    });
   }
-
-  const createdAt = new Date(timestampMs || Date.now());
   await prisma.message.create({
     data: {
       conversationId: conversation.id,

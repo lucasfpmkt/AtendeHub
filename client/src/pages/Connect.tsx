@@ -60,6 +60,19 @@ export function Connect({ status, me }: { status: string; me?: string }) {
     }
   };
 
+  const reconnectFresh = async () => {
+    setBusy(true);
+    setError('');
+    setQr(null);
+    try {
+      await api.waReconnect(); // apaga a sessão antiga e gera um QR novo
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const connectCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -152,9 +165,14 @@ export function Connect({ status, me }: { status: string; me?: string }) {
                   Gere o QR code e leia com o WhatsApp do escritório.
                 </p>
               </div>
-              <button className="primary" onClick={connectQr} disabled={busy || status === 'connecting'}>
-                {busy ? 'Gerando…' : 'Gerar QR code'}
-              </button>
+              <div className="stack-sm" style={{ alignItems: 'flex-end' }}>
+                <button className="primary" onClick={connectQr} disabled={busy || status === 'connecting'}>
+                  {busy ? 'Gerando…' : 'Gerar QR code'}
+                </button>
+                <button className="link" onClick={reconnectFresh} disabled={busy} title="Apaga a sessão antiga e gera um QR novo">
+                  Travou / não aparece o QR? Gerar novo do zero
+                </button>
+              </div>
             </>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { clearAccessCache, hashPassword } from '../auth.js';
+import { clearAccessCache, hashPassword, allowedWorkspaceIds, requireMaster } from '../auth.js';
 import { createWorkspace } from '../services/tenancy.js';
 import { dropSession, getStatus } from '../whatsapp/session.js';
 import { getPlatformConfig, updatePlatformConfig } from '../services/platform.js';
@@ -49,21 +49,87 @@ adminRouter.post('/ai/test', async (req, res) => {
   }
 });
 
-// Reavalia as conversas de TODOS os clientes e ajusta as etapas.
-adminRouter.post('/ai/reclassify-all', async (_req, res) => {
+/* --------------------- Administradores (só master) ---------------------- */
+adminRouter.get('/admins', requireMaster, async (_req, res) => {
+  const admins = await prisma.user.findMany({
+    where: { role: 'admin' },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, name: true, email: true, isMaster: true, lastLoginAt: true, adminAccess: { select: { workspaceId: true } } },
+  });
+  res.json(admins.map((a) => ({ ...a, workspaceIds: a.adminAccess.map((x) => x.workspaceId), adminAccess: undefined })));
+});
+
+adminRouter.post('/admins', requireMaster, async (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  const email = cleanEmail(req.body?.email);
+  const password = String(req.body?.password ?? '');
+  const isMaster = Boolean(req.body?.isMaster);
+  const workspaceIds: string[] = Array.isArray(req.body?.workspaceIds) ? req.body.workspaceIds.map(String) : [];
+  if (!name || !email) return res.status(400).json({ error: 'nome e e-mail são obrigatórios' });
+  if (password.length < 8) return res.status(400).json({ error: 'a senha precisa ter ao menos 8 caracteres' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'e-mail inválido' });
+  if (await prisma.user.findUnique({ where: { email } })) return res.status(409).json({ error: 'já existe uma conta com este e-mail' });
+  if (!isMaster && workspaceIds.length === 0) return res.status(400).json({ error: 'selecione ao menos um cliente para o admin' });
+
+  // Admin precisa de um workspace "casa"; usa o 1º selecionado (ou o do criador, se master).
+  const home = isMaster ? req.auth!.ws : workspaceIds[0];
+  const user = await prisma.user.create({
+    data: { name, email, passwordHash: hashPassword(password), role: 'admin', isMaster, workspaceId: home },
+  });
+  if (!isMaster) {
+    await prisma.adminAccess.createMany({ data: workspaceIds.map((wid) => ({ userId: user.id, workspaceId: wid })) });
+  }
+  res.json({ id: user.id });
+});
+
+adminRouter.patch('/admins/:id', requireMaster, async (req, res) => {
+  const user = await prisma.user.findFirst({ where: { id: req.params.id, role: 'admin' } });
+  if (!user) return res.status(404).json({ error: 'admin não encontrado' });
+  const data: Record<string, unknown> = {};
+  if (typeof req.body?.isMaster === 'boolean') data.isMaster = req.body.isMaster;
+  if (typeof req.body?.name === 'string') data.name = req.body.name.trim();
+  await prisma.user.update({ where: { id: user.id }, data });
+  // Atualiza a lista de clientes permitidos (quando enviada e não for master).
+  if (Array.isArray(req.body?.workspaceIds)) {
+    await prisma.adminAccess.deleteMany({ where: { userId: user.id } });
+    const makeMaster = req.body?.isMaster === true;
+    if (!makeMaster) {
+      const ids: string[] = req.body.workspaceIds.map(String);
+      await prisma.adminAccess.createMany({ data: ids.map((wid) => ({ userId: user.id, workspaceId: wid })) });
+    }
+  }
+  clearAccessCache();
+  res.json({ ok: true });
+});
+
+adminRouter.delete('/admins/:id', requireMaster, async (req, res) => {
+  if (req.params.id === req.auth!.uid) return res.status(400).json({ error: 'você não pode excluir a si mesmo' });
+  const masters = await prisma.user.count({ where: { role: 'admin', isMaster: true } });
+  const target = await prisma.user.findFirst({ where: { id: req.params.id, role: 'admin' } });
+  if (!target) return res.status(404).json({ error: 'admin não encontrado' });
+  if (target.isMaster && masters <= 1) return res.status(400).json({ error: 'não dá para excluir o último admin master' });
+  await prisma.user.delete({ where: { id: target.id } });
+  res.json({ ok: true });
+});
+
+// Reavalia manualmente as conversas de UM cliente e ajusta as etapas.
+adminRouter.post('/ai/reclassify/:workspaceId', async (req, res) => {
   const crmLlm = await resolveCrmLlm();
   if (!crmLlm.ready) return res.status(400).json({ error: 'Conecte a IA da plataforma antes de reavaliar.' });
-  const workspaces = await prisma.workspace.findMany({ where: { active: true }, select: { id: true } });
-  let total = 0;
-  for (const w of workspaces) total += await reclassifyAllStages(w.id);
-  res.json({ total, workspaces: workspaces.length });
+  const wid = req.params.workspaceId;
+  const allowed = await allowedWorkspaceIds(req.auth!.uid);
+  if (allowed !== 'all' && !allowed.includes(wid)) return res.status(403).json({ error: 'sem acesso a este cliente' });
+  const total = await reclassifyAllStages(wid);
+  res.json({ total });
 });
 
 const PLANS = ['MENSAL', 'CLIENTE', 'TESTE'];
 const cleanEmail = (v: unknown) => String(v ?? '').trim().toLowerCase();
 
-adminRouter.get('/workspaces', async (_req, res) => {
+adminRouter.get('/workspaces', async (req, res) => {
+  const allowed = await allowedWorkspaceIds(req.auth!.uid);
   const list = await prisma.workspace.findMany({
+    where: allowed === 'all' ? {} : { id: { in: allowed } },
     orderBy: { createdAt: 'asc' },
     include: { users: { select: { id: true, name: true, email: true, role: true, lastLoginAt: true } } },
   });

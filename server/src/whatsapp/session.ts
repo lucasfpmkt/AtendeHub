@@ -93,7 +93,7 @@ async function requestPair(ws: string, s: Session) {
  * Abre (ou reabre) a conexão do cliente. Idempotente.
  * Com `phone`, conecta por código (digitado no celular) em vez de QR.
  */
-export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
+export async function startWhatsApp(ws: string, opts: { phone?: string; force?: boolean } = {}) {
   const s = sessionOf(ws);
   if (opts.phone) {
     s.pairPhone = opts.phone;
@@ -103,6 +103,17 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
       await requestPair(ws, s);
       return;
     }
+  }
+  if (opts.force && s.status !== 'connected') {
+    // Pedido explícito do usuário: derruba um socket preso em "conectando" e recomeça.
+    try {
+      s.sock?.end?.(undefined as unknown as Error);
+    } catch {
+      /* ignore */
+    }
+    s.sock = null;
+    s.starting = false;
+    s.qr = null;
   }
   if (s.starting || s.status === 'connected' || s.status === 'connecting') return;
   s.starting = true;
@@ -155,7 +166,13 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
         s.starting = false;
         s.pairCode = null;
         setStatus(ws, 'disconnected');
-        if (!loggedOut) setTimeout(() => void startWhatsApp(ws), 2000); // queda de rede etc.
+        if (loggedOut) {
+          // Credenciais inválidas (aparelho desvinculado): apaga para o próximo
+          // "Gerar QR" mostrar um QR novo em vez de tentar retomar a sessão morta.
+          await rm(await authDirOf(ws), { recursive: true, force: true }).catch(() => {});
+        } else {
+          setTimeout(() => void startWhatsApp(ws), 2000); // queda de rede etc.
+        }
       }
     });
 
@@ -311,6 +328,7 @@ export async function logoutWhatsApp(ws: string) {
   s.qr = null;
   s.pairPhone = undefined;
   s.pairCode = null;
+  s.starting = false;
   setStatus(ws, 'disconnected');
   await rm(await authDirOf(ws), { recursive: true, force: true });
 }

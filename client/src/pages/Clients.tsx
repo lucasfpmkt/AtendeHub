@@ -13,7 +13,7 @@ const WA: Record<string, [string, string]> = {
 };
 
 /** Área do administrador: todos os clientes, planos e acessos. */
-export function Clients({ currentId }: { currentId: string }) {
+export function Clients({ currentId, isMaster }: { currentId: string; isMaster?: boolean }) {
   const [list, setList] = useState<AdminWorkspace[]>([]);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<AdminWorkspace | null>(null);
@@ -48,7 +48,8 @@ export function Clients({ currentId }: { currentId: string }) {
         </div>
       </div>
 
-      <PlatformAI />
+      {isMaster && <PlatformAI />}
+      {isMaster && <AdminUsers workspaces={list} />}
 
       <div className="card flush">
         <table className="table">
@@ -125,6 +126,24 @@ export function Clients({ currentId }: { currentId: string }) {
                         onClick={() => setRemoving(w)}
                       >
                         <Icon name="trash" size={16} />
+                      </button>
+                      <button
+                        className="sm"
+                        title="Reavaliar etapas deste cliente agora (IA lê as conversas e ajusta)"
+                        onClick={async (e) => {
+                          const btn = e.currentTarget;
+                          btn.disabled = true;
+                          try {
+                            const r = await api.adminReclassifyWorkspace(w.id);
+                            alert(`Reavaliando ${r.total} conversa(s) deste cliente em segundo plano.`);
+                          } catch (x) {
+                            alert((x as Error).message);
+                          } finally {
+                            btn.disabled = false;
+                          }
+                        }}
+                      >
+                        <Icon name="refresh" size={14} /> Reavaliar etapas
                       </button>
                       <button
                         className="sm"
@@ -428,11 +447,6 @@ function PlatformAI() {
     try { const r = await api.adminTestAi('crm'); setCrmMsg(r.ok ? { ok: true, text: `Conectado · ${r.provider} · ${r.model}` } : { ok: false, text: r.error || 'Falhou' }); if (r.ok) setCrmConnected(true); }
     catch (x) { setCrmMsg({ ok: false, text: (x as Error).message }); }
   };
-  const reclassifyAll = async () => {
-    setReclass('Iniciando…');
-    try { const r = await api.adminReclassifyAll(); setReclass(`Reavaliando ${r.total} conversa(s) de ${r.workspaces} cliente(s) em segundo plano.`); }
-    catch (x) { setReclass((x as Error).message); }
-  };
 
   const Conn = ({ which }: { which: 'main' | 'crm' }) => {
     const crm = which === 'crm';
@@ -503,14 +517,193 @@ function PlatformAI() {
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={autoStage} onChange={(e) => { setAutoStage(e.target.checked); api.adminUpdateAi({ autoStage: e.target.checked }); }} style={{ width: 16, flex: 'none' }} />
-          Mover etapas do CRM automaticamente lendo as conversas (todos os clientes)
+          Ler as conversas e mover as etapas automaticamente (sempre ligado, vale para todos)
         </label>
       </div>
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button className="soft" onClick={reclassifyAll} title="Roda a IA em todas as conversas de todos os clientes">
-          <Icon name="refresh" size={15} /> Reavaliar conversas de todos os clientes agora
+      <p className="muted small">
+        A mudança de etapa é <b>automática</b> (a IA lê as conversas e move sozinha). Se quiser forçar uma reavaliação manual de um
+        cliente específico, use o botão <b>Reavaliar etapas</b> na linha do cliente, na tabela abaixo.
+      </p>
+    </div>
+  );
+}
+
+/* ----------------------- Administradores (só master) ----------------------- */
+function AdminUsers({ workspaces }: { workspaces: AdminWorkspace[] }) {
+  const [admins, setAdmins] = useState<import('../api').AdminUser[]>([]);
+  const [modal, setModal] = useState<{ admin?: import('../api').AdminUser } | null>(null);
+
+  const load = () => api.adminAdmins().then(setAdmins).catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+
+  const wsName = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id;
+
+  return (
+    <div className="card stack" style={{ marginBottom: 14 }}>
+      <div className="row between">
+        <h3 className="card-title" style={{ margin: 0 }}>
+          <Icon name="shield" /> Administradores
+        </h3>
+        <button className="primary" onClick={() => setModal({})}>
+          <Icon name="plus" size={16} /> Novo admin
         </button>
-        {reclass && <span className="small muted">{reclass}</span>}
+      </div>
+      <p className="muted small">
+        Admins <b>master</b> acessam todos os clientes. Os demais acessam só os clientes que você selecionar.
+      </p>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Acesso</th>
+            <th style={{ textAlign: 'right' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {admins.map((a) => (
+            <tr key={a.id}>
+              <td>{a.name}</td>
+              <td className="muted">{a.email}</td>
+              <td>
+                {a.isMaster ? (
+                  <span className="pill primary">Master (todos)</span>
+                ) : (
+                  <span title={a.workspaceIds.map(wsName).join(', ')}>{a.workspaceIds.length} cliente(s)</span>
+                )}
+              </td>
+              <td>
+                <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                  <button className="sm" onClick={() => setModal({ admin: a })}>
+                    Editar
+                  </button>
+                  <button
+                    className="sm danger-text"
+                    onClick={async () => {
+                      if (!confirm(`Excluir o admin ${a.name}?`)) return;
+                      try {
+                        await api.adminDeleteAdmin(a.id);
+                        load();
+                      } catch (x) {
+                        alert((x as Error).message);
+                      }
+                    }}
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {admins.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted">
+                Nenhum admin adicional. Clique em "Novo admin".
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {modal && (
+        <AdminModal
+          admin={modal.admin}
+          workspaces={workspaces}
+          onClose={() => setModal(null)}
+          onSaved={() => {
+            setModal(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AdminModal({
+  admin,
+  workspaces,
+  onClose,
+  onSaved,
+}: {
+  admin?: import('../api').AdminUser;
+  workspaces: AdminWorkspace[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isNew = !admin;
+  const [name, setName] = useState(admin?.name ?? '');
+  const [email, setEmail] = useState(admin?.email ?? '');
+  const [password, setPassword] = useState('');
+  const [master, setMaster] = useState(admin?.isMaster ?? false);
+  const [ids, setIds] = useState<string[]>(admin?.workspaceIds ?? []);
+  const [err, setErr] = useState('');
+
+  const toggle = (id: string) => setIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+
+  const save = async () => {
+    setErr('');
+    try {
+      if (isNew) {
+        await api.adminCreateAdmin({ name, email, password, isMaster: master, workspaceIds: master ? [] : ids });
+      } else {
+        await api.adminUpdateAdmin(admin!.id, { name, isMaster: master, workspaceIds: master ? [] : ids });
+      }
+      onSaved();
+    } catch (x) {
+      setErr((x as Error).message);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <h3>{isNew ? 'Novo administrador' : `Editar ${admin!.name}`}</h3>
+        <div className="field">
+          <label>Nome</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>E-mail (login)</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} disabled={!isNew} autoComplete="off" />
+        </div>
+        {isNew && (
+          <div className="field">
+            <label>Senha inicial (mín. 8)</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+          </div>
+        )}
+        <div className="field">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={master} onChange={(e) => setMaster(e.target.checked)} style={{ width: 16, flex: 'none' }} />
+            Master — acessa todos os clientes
+          </label>
+        </div>
+        {!master && (
+          <div className="field">
+            <label>Clientes que este admin pode acessar</label>
+            <div className="stack-sm" style={{ maxHeight: 220, overflow: 'auto', border: '1px solid var(--g-200)', borderRadius: 8, padding: 8 }}>
+              {workspaces.map((w) => (
+                <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={ids.includes(w.id)} onChange={() => toggle(w.id)} style={{ width: 16, flex: 'none' }} />
+                  {w.name} <span className="muted small">#{w.code}</span>
+                </label>
+              ))}
+              {workspaces.length === 0 && <span className="muted small">Nenhum cliente cadastrado.</span>}
+            </div>
+          </div>
+        )}
+        {err && <p className="small late-text">{err}</p>}
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary" onClick={save} disabled={!name.trim() || !email.trim() || (isNew && password.length < 8) || (!master && ids.length === 0)}>
+            {isNew ? 'Criar admin' : 'Salvar'}
+          </button>
+        </div>
       </div>
     </div>
   );

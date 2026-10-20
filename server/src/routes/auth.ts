@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
-import { checkPasswordHash, hashPassword, issueToken, requireAuth, requireAdmin, type Role } from '../auth.js';
+import { checkPasswordHash, hashPassword, issueToken, requireAuth, requireAdmin, allowedWorkspaceIds, type Role } from '../auth.js';
 import { createWorkspace } from '../services/tenancy.js';
 
 export const authRouter = Router();
@@ -54,7 +54,7 @@ authRouter.post('/login', async (req, res) => {
   const role = user.role as Role;
   res.json({
     token: issueToken({ uid: user.id, role, ws: user.workspaceId }),
-    user: { id: user.id, name: user.name, email: user.email, role },
+    user: { id: user.id, name: user.name, email: user.email, role, isMaster: role === 'admin' && user.isMaster },
     workspace: publicWs(user.workspace),
   });
 });
@@ -95,7 +95,10 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     const reason = wsBlockedReason(ws);
     if (reason) return res.status(403).json({ error: reason });
   }
-  res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role }, workspace: publicWs(ws) });
+  res.json({
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, isMaster: user.role === 'admin' && user.isMaster },
+    workspace: publicWs(ws),
+  });
 });
 
 /** Trocar a própria senha. */
@@ -113,5 +116,7 @@ authRouter.post('/password', requireAuth, async (req, res) => {
 authRouter.post('/switch', requireAuth, requireAdmin, async (req, res) => {
   const ws = await prisma.workspace.findUnique({ where: { id: String(req.body?.workspaceId ?? '') } });
   if (!ws) return res.status(404).json({ error: 'cliente não encontrado' });
+  const allowed = await allowedWorkspaceIds(req.auth!.uid);
+  if (allowed !== 'all' && !allowed.includes(ws.id)) return res.status(403).json({ error: 'sem acesso a este cliente' });
   res.json({ token: issueToken({ uid: req.auth!.uid, role: 'admin', ws: ws.id }), workspace: publicWs(ws) });
 });
