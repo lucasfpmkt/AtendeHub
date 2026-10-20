@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { api, type AdminWorkspace } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import { api, type AdminWorkspace, type AiProvider } from '../api';
 import { Icon } from '../icons';
 import { Switch } from './Agents';
 
@@ -47,6 +47,8 @@ export function Clients({ currentId }: { currentId: string }) {
           </button>
         </div>
       </div>
+
+      <PlatformAI />
 
       <div className="card flush">
         <table className="table">
@@ -353,6 +355,163 @@ function DeleteModal({ client, onClose, onDeleted }: { client: AdminWorkspace; o
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/* ---------------------- IA global da plataforma (admin) ---------------------- */
+function PlatformAI() {
+  const [providers, setProviders] = useState<AiProvider[]>([]);
+  const [provider, setProvider] = useState('');
+  const [model, setModel] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [hasKey, setHasKey] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [crmProvider, setCrmProvider] = useState('');
+  const [crmModel, setCrmModel] = useState('');
+  const [crmBaseUrl, setCrmBaseUrl] = useState('');
+  const [crmApiKey, setCrmApiKey] = useState('');
+  const [crmHasKey, setCrmHasKey] = useState(false);
+  const [crmConnected, setCrmConnected] = useState(false);
+  const [autoStage, setAutoStage] = useState(true);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [crmMsg, setCrmMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [reclass, setReclass] = useState<string | null>(null);
+
+  const preset = useMemo(() => providers.find((p) => p.id === provider), [providers, provider]);
+  const crmPreset = useMemo(() => providers.find((p) => p.id === crmProvider), [providers, crmProvider]);
+
+  useEffect(() => {
+    api.adminAiConfig().then((c) => {
+      setProviders(c.providers);
+      setProvider(c.provider || '');
+      setModel(c.model || '');
+      setBaseUrl(c.baseUrl || '');
+      setHasKey(c.hasKey);
+      setConnected(c.providerConnected);
+      setCrmProvider(c.crmProvider || '');
+      setCrmModel(c.crmModel || '');
+      setCrmBaseUrl(c.crmBaseUrl || '');
+      setCrmHasKey(c.crmHasKey);
+      setCrmConnected(c.crmConnected);
+      setAutoStage(c.autoStage);
+    });
+  }, []);
+
+  const pick = (id: string, crm: boolean) => {
+    const p = providers.find((x) => x.id === id);
+    if (crm) {
+      setCrmProvider(id);
+      setCrmMsg(null);
+      if (p) { setCrmModel(p.defaultModel); setCrmBaseUrl(p.baseUrl); }
+    } else {
+      setProvider(id);
+      setMsg(null);
+      if (p) { setModel(p.defaultModel); setBaseUrl(p.baseUrl); }
+    }
+  };
+
+  const saveMain = async () => {
+    const r = await api.adminUpdateAi({ provider, model, baseUrl, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) });
+    setConnected(r.providerConnected); setHasKey(r.hasKey); setApiKey(''); setMsg({ ok: true, text: 'Salvo' });
+  };
+  const testMain = async () => {
+    try { const r = await api.adminTestAi(); setMsg(r.ok ? { ok: true, text: `Conectado · ${r.provider} · ${r.model}` } : { ok: false, text: r.error || 'Falhou' }); if (r.ok) setConnected(true); }
+    catch (x) { setMsg({ ok: false, text: (x as Error).message }); }
+  };
+  const saveCrm = async () => {
+    const r = await api.adminUpdateAi({ crmProvider, crmModel, crmBaseUrl, ...(crmApiKey.trim() ? { crmApiKey: crmApiKey.trim() } : {}) });
+    setCrmConnected(r.crmConnected); setCrmHasKey(r.crmHasKey); setCrmApiKey(''); setCrmMsg({ ok: true, text: 'Salvo' });
+  };
+  const testCrm = async () => {
+    try { const r = await api.adminTestAi('crm'); setCrmMsg(r.ok ? { ok: true, text: `Conectado · ${r.provider} · ${r.model}` } : { ok: false, text: r.error || 'Falhou' }); if (r.ok) setCrmConnected(true); }
+    catch (x) { setCrmMsg({ ok: false, text: (x as Error).message }); }
+  };
+  const reclassifyAll = async () => {
+    setReclass('Iniciando…');
+    try { const r = await api.adminReclassifyAll(); setReclass(`Reavaliando ${r.total} conversa(s) de ${r.workspaces} cliente(s) em segundo plano.`); }
+    catch (x) { setReclass((x as Error).message); }
+  };
+
+  const Conn = ({ which }: { which: 'main' | 'crm' }) => {
+    const crm = which === 'crm';
+    const pv = crm ? crmProvider : provider;
+    const pr = crm ? crmPreset : preset;
+    const md = crm ? crmModel : model;
+    const bu = crm ? crmBaseUrl : baseUrl;
+    const key = crm ? crmApiKey : apiKey;
+    const hk = crm ? crmHasKey : hasKey;
+    const m = crm ? crmMsg : msg;
+    return (
+      <div className="card stack">
+        <div className="row between">
+          <h4 className="card-title" style={{ margin: 0 }}>
+            <Icon name={crm ? 'crm' : 'bot'} /> {crm ? 'IA do CRM (etapas)' : 'IA dos agentes'}
+          </h4>
+          <span className={`pill ${(crm ? crmConnected : connected) ? 'ok' : 'warn'}`}>
+            {(crm ? crmConnected : connected) ? 'conectada' : crm ? 'usa a dos agentes' : 'não conectada'}
+          </span>
+        </div>
+        <div className="duo">
+          <div className="field-sm">
+            <span>Provedor</span>
+            <select value={pv} onChange={(e) => pick(e.target.value, crm)}>
+              {crm && <option value="">— usar a dos agentes —</option>}
+              {providers.map((p) => (<option key={p.id} value={p.id}>{p.label}</option>))}
+            </select>
+          </div>
+          {pv && (
+            <div className="field-sm">
+              <span>Modelo</span>
+              <input value={md} onChange={(e) => (crm ? setCrmModel : setModel)(e.target.value)} placeholder={pr?.defaultModel} list={`m-${which}`} />
+              <datalist id={`m-${which}`}>{(pr?.models ?? []).map((x) => <option key={x} value={x} />)}</datalist>
+            </div>
+          )}
+        </div>
+        {pv === 'custom' && (
+          <div className="field-sm"><span>Endpoint</span><input value={bu} onChange={(e) => (crm ? setCrmBaseUrl : setBaseUrl)(e.target.value)} placeholder="https://.../v1" /></div>
+        )}
+        {pv && (
+          <div className="field-sm">
+            <span>Chave da API {pr?.keyUrl && <a href={pr.keyUrl} target="_blank" rel="noreferrer" className="small">(onde pegar)</a>}</span>
+            <input type="password" value={key} onChange={(e) => (crm ? setCrmApiKey : setApiKey)(e.target.value)} placeholder={hk ? '•••••••• (salva)' : pr?.keyHint || 'cole a chave'} autoComplete="off" />
+          </div>
+        )}
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="primary" onClick={crm ? saveCrm : saveMain}>Salvar e conectar</button>
+          {pv && <button onClick={crm ? testCrm : testMain}>Testar</button>}
+          {m && <span className={`small ${m.ok ? 'ok-text' : 'late-text'}`}>{m.text}</span>}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="card stack" style={{ marginBottom: 14 }}>
+      <h3 className="card-title">
+        <Icon name="bot" /> IA da plataforma — vale para TODOS os clientes
+      </h3>
+      <p className="muted small">
+        Conexão única controlada só por você. Recomendado para o CRM: <b>Google · Gemini</b>, modelo <code>gemini-3.8-flash</code> (barato).
+        Os clientes não veem nem alteram isso.
+      </p>
+      <div className="grid2">
+        {Conn({ which: 'main' })}
+        {Conn({ which: 'crm' })}
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={autoStage} onChange={(e) => { setAutoStage(e.target.checked); api.adminUpdateAi({ autoStage: e.target.checked }); }} style={{ width: 16, flex: 'none' }} />
+          Mover etapas do CRM automaticamente lendo as conversas (todos os clientes)
+        </label>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="soft" onClick={reclassifyAll} title="Roda a IA em todas as conversas de todos os clientes">
+          <Icon name="refresh" size={15} /> Reavaliar conversas de todos os clientes agora
+        </button>
+        {reclass && <span className="small muted">{reclass}</span>}
+      </div>
     </div>
   );
 }

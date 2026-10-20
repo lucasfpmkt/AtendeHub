@@ -224,37 +224,47 @@ function buildLlm(provider: string, apiKey: string, baseUrl: string, model: stri
   };
 }
 
-/** IA dos agentes / rascunho (config principal, com fallback de ambiente). */
-export async function resolveLlm(ws: string): Promise<Llm> {
-  const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
+/**
+ * IA dos agentes / rascunho. Conexão GLOBAL da plataforma (definida pelo admin),
+ * com fallback por variável de ambiente. O cliente não altera a conexão.
+ * O parâmetro ws é mantido por compatibilidade das chamadas.
+ */
+export async function resolveLlm(_ws?: string): Promise<Llm> {
+  const platform = await prisma.platformConfig.findUnique({ where: { id: 'global' } });
 
-  // Fallback por variável de ambiente (vale p/ todos os clientes sem chave própria):
+  // Fallback por variável de ambiente:
   //   AI_PROVIDER (ex.: gemini), AI_API_KEY, AI_BASE_URL (opcional), AI_MODEL (opcional).
   const envProvider = process.env.AI_PROVIDER?.trim();
   const envKey = process.env.AI_API_KEY?.trim();
   const envBase = process.env.AI_BASE_URL?.trim();
   const envModel = process.env.AI_MODEL?.trim();
 
-  // A config salva no painel tem prioridade; depois o ambiente; por fim o preset.
-  const provider = cfg?.provider?.trim() || envProvider || 'anthropic';
+  // A config global do admin tem prioridade; depois o ambiente; por fim o preset.
+  const provider = platform?.provider?.trim() || envProvider || 'anthropic';
   const preset = providerPreset(provider);
-  const apiKey = cfg?.apiKey?.trim() || envKey || (provider === 'anthropic' ? env.anthropicKey : '') || '';
-  const baseUrl = cfg?.baseUrl?.trim() || envBase || preset.baseUrl || '';
-  const model = cfg?.model?.trim() || envModel || preset.defaultModel || env.aiModel;
+  const apiKey = platform?.apiKey?.trim() || envKey || (provider === 'anthropic' ? env.anthropicKey : '') || '';
+  const baseUrl = platform?.baseUrl?.trim() || envBase || preset.baseUrl || '';
+  const model = platform?.model?.trim() || envModel || preset.defaultModel || env.aiModel;
   return buildLlm(provider, apiKey, baseUrl, model);
 }
 
 /**
- * IA dedicada do CRM (ler conversas, mover/criar etapas). Se o cliente não
- * configurou uma IA própria para o CRM, reutiliza a dos agentes (resolveLlm).
+ * IA dedicada do CRM (ler conversas, mover/criar etapas). Conexão GLOBAL; se o
+ * admin não configurou uma IA própria para o CRM, reutiliza a dos agentes.
  */
-export async function resolveCrmLlm(ws: string): Promise<Llm> {
-  const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
-  const provider = cfg?.crmProvider?.trim();
-  const apiKey = cfg?.crmApiKey?.trim();
-  if (!provider || !apiKey) return resolveLlm(ws); // sem IA de CRM própria → usa a dos agentes
+export async function resolveCrmLlm(_ws?: string): Promise<Llm> {
+  const platform = await prisma.platformConfig.findUnique({ where: { id: 'global' } });
+  const provider = platform?.crmProvider?.trim();
+  const apiKey = platform?.crmApiKey?.trim();
+  if (!provider || !apiKey) return resolveLlm(); // sem IA de CRM própria → usa a dos agentes
   const preset = providerPreset(provider);
-  const baseUrl = cfg?.crmBaseUrl?.trim() || preset.baseUrl || '';
-  const model = cfg?.crmModel?.trim() || preset.defaultModel || env.aiModel;
+  const baseUrl = platform?.crmBaseUrl?.trim() || preset.baseUrl || '';
+  const model = platform?.crmModel?.trim() || preset.defaultModel || env.aiModel;
   return buildLlm(provider, apiKey, baseUrl, model);
+}
+
+/** autoStage é global (definido pelo admin). */
+export async function platformAutoStage(): Promise<boolean> {
+  const platform = await prisma.platformConfig.findUnique({ where: { id: 'global' } });
+  return platform?.autoStage ?? true;
 }

@@ -496,4 +496,43 @@ export const api = {
     req(`/admin/workspaces/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
   adminSetPassword: (userId: string, password: string) =>
     req(`/admin/users/${userId}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
+
+  // IA GLOBAL da plataforma (só admin). Vale para todos os clientes.
+  adminAiConfig: () =>
+    req<{
+      provider: string;
+      model: string;
+      baseUrl: string;
+      hasKey: boolean;
+      providerConnected: boolean;
+      crmProvider: string;
+      crmModel: string;
+      crmBaseUrl: string;
+      crmHasKey: boolean;
+      crmConnected: boolean;
+      autoStage: boolean;
+      providers: AiProvider[];
+    }>('/admin/ai'),
+  adminUpdateAi: (data: {
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    clearKey?: boolean;
+    crmProvider?: string;
+    crmModel?: string;
+    crmBaseUrl?: string;
+    crmApiKey?: string;
+    clearCrmKey?: boolean;
+    autoStage?: boolean;
+  }) =>
+    req<{ providerConnected: boolean; hasKey: boolean; crmConnected: boolean; crmHasKey: boolean }>('/admin/ai', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  adminTestAi: (which?: 'crm') =>
+    req<{ ok: boolean; provider?: string; model?: string; error?: string }>(`/admin/ai/test${which ? '?which=crm' : ''}`, {
+      method: 'POST',
+    }),
+  adminReclassifyAll: () => req<{ total: number; workspaces: number }>('/admin/ai/reclassify-all', { method: 'POST' }),
 };
