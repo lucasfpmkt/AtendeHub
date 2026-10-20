@@ -311,6 +311,13 @@ export const api = {
   },
   mediaUrl: (mediaId: string) => `/api/media/${mediaId}?token=${encodeURIComponent(getToken() ?? '')}`,
 
+  // Mensagens agendadas (lembretes)
+  schedules: (conversationId: string) =>
+    req<{ id: string; body: string; sendAt: string; sent: boolean }[]>(`/conversations/${conversationId}/schedules`),
+  schedule: (conversationId: string, body: string, sendAt: string) =>
+    req(`/conversations/${conversationId}/schedules`, { method: 'POST', body: JSON.stringify({ body, sendAt }) }),
+  cancelSchedule: (id: string) => req(`/schedules/${id}`, { method: 'DELETE' }),
+
   // Contatos
   contacts: (q = '') => req<Contact[]>(`/contacts?q=${encodeURIComponent(q)}`),
   updateContact: (id: string, data: Partial<Contact>) =>

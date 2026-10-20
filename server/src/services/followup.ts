@@ -76,14 +76,52 @@ async function runFollowupsOnce() {
   }
 }
 
+/** Envia as mensagens agendadas (lembretes) cujo horário chegou. */
+async function runScheduledMessagesOnce() {
+  const due = await prisma.scheduledMessage.findMany({
+    where: { sent: false, sendAt: { lte: new Date() } },
+    take: 50,
+  });
+  for (const sched of due) {
+    try {
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: sched.conversationId },
+        include: { contact: true },
+      });
+      if (!conversation) {
+        await prisma.scheduledMessage.update({ where: { id: sched.id }, data: { sent: true } });
+        continue;
+      }
+      if (getStatus(sched.workspaceId).status !== 'connected') continue; // tenta no próximo ciclo
+      const waMessageId = await sendText(sched.workspaceId, conversation.contact.waJid, sched.body);
+      const message = await prisma.message.create({
+        data: { conversationId: conversation.id, direction: 'out', author: 'agent', body: sched.body, waMessageId },
+      });
+      const updated = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: new Date() },
+      });
+      await prisma.scheduledMessage.update({ where: { id: sched.id }, data: { sent: true } });
+      emit(sched.workspaceId, { type: 'message:new', conversationId: conversation.id, message });
+      emit(sched.workspaceId, { type: 'conversation:update', conversation: updated });
+    } catch (err) {
+      console.error('[agendada] falha ao enviar:', (err as Error).message);
+    }
+  }
+}
+
 let timer: NodeJS.Timeout | null = null;
 
-/** Liga o laço de follow-up (verifica a cada minuto). */
+/** Liga o laço de follow-up e mensagens agendadas (verifica a cada minuto). */
 export function startFollowupLoop() {
   if (timer) return;
   timer = setInterval(() => {
     void runFollowupsOnce().catch((e) => console.error('[follow-up] ciclo falhou:', e));
+    void runScheduledMessagesOnce().catch((e) => console.error('[agendada] ciclo falhou:', e));
   }, 60_000);
   // Primeira verificação logo após subir (dá tempo das sessões conectarem).
-  setTimeout(() => void runFollowupsOnce().catch(() => {}), 20_000);
+  setTimeout(() => {
+    void runFollowupsOnce().catch(() => {});
+    void runScheduledMessagesOnce().catch(() => {});
+  }, 20_000);
 }

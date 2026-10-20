@@ -48,6 +48,33 @@ crmRouter.get('/conversations', async (req, res) => {
   res.json(conversations);
 });
 
+/* -------------------- Mensagens agendadas (lembretes) -------------------- */
+crmRouter.get('/conversations/:id/schedules', async (req, res) => {
+  const ws = wsOf(req);
+  if (!(await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: ws } }))) return notFound(res);
+  res.json(
+    await prisma.scheduledMessage.findMany({
+      where: { conversationId: req.params.id, sent: false },
+      orderBy: { sendAt: 'asc' },
+    }),
+  );
+});
+
+crmRouter.post('/conversations/:id/schedules', async (req, res) => {
+  const ws = wsOf(req);
+  if (!(await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: ws } }))) return notFound(res);
+  const body = String(req.body?.body ?? '').trim();
+  const sendAt = new Date(req.body?.sendAt);
+  if (!body) return res.status(400).json({ error: 'mensagem obrigatória' });
+  if (isNaN(sendAt.getTime()) || sendAt.getTime() < Date.now() - 60_000) return res.status(400).json({ error: 'data/hora inválida' });
+  res.json(await prisma.scheduledMessage.create({ data: { workspaceId: ws, conversationId: req.params.id, body, sendAt } }));
+});
+
+crmRouter.delete('/schedules/:id', async (req, res) => {
+  const r = await prisma.scheduledMessage.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  res.json({ ok: r.count > 0 });
+});
+
 crmRouter.get('/conversations/:id/messages', async (req, res) => {
   if (!(await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } }))) return notFound(res);
   const messages = await prisma.message.findMany({
