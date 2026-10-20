@@ -6,7 +6,10 @@ import cors from 'cors';
 import { Server as IOServer } from 'socket.io';
 import { env } from './env.js';
 import { setIO, roomOf } from './realtime.js';
+import { existsSync } from 'node:fs';
 import { accessStillValid, requireAuth, requireAdmin, verifyToken } from './auth.js';
+import { prisma } from './db.js';
+import { mediaFilePath } from './whatsapp/media.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { startFollowupLoop } from './services/followup.js';
 import { ensureTenancy } from './services/tenancy.js';
@@ -27,6 +30,25 @@ app.use(express.json({ limit: '2mb' }));
 // Público
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRouter);
+
+// Mídia das conversas: autenticada por token na query (para <img>/<audio> src).
+app.get('/api/media/:id', async (req, res) => {
+  const token = (req.query.token as string) || (req.headers.authorization?.replace('Bearer ', '') ?? '');
+  const info = verifyToken(token);
+  if (!info) return res.status(401).end();
+  const message = await prisma.message.findFirst({
+    where: { mediaId: req.params.id, conversation: { workspaceId: info.ws } },
+    select: { mimeType: true, mediaName: true, mediaType: true },
+  });
+  if (!message) return res.status(404).end();
+  const file = mediaFilePath(info.ws, req.params.id);
+  if (!existsSync(file)) return res.status(404).end();
+  if (message.mimeType) res.type(message.mimeType);
+  if (message.mediaType === 'document' && message.mediaName) {
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(message.mediaName)}"`);
+  }
+  res.sendFile(file);
+});
 
 // Protegido
 app.use('/api/whatsapp', requireAuth, whatsappRouter);

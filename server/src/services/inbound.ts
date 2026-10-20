@@ -1,5 +1,16 @@
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
+import { saveMedia, type MediaKind } from '../whatsapp/media.js';
+
+/** Mídia recebida/enviada já baixada em memória. */
+export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer };
+
+/** Salva a mídia e devolve os campos para gravar na mensagem. */
+async function mediaFields(ws: string, media?: InboundMedia) {
+  if (!media) return {};
+  const mediaId = await saveMedia(ws, media.buffer);
+  return { mediaType: media.kind, mediaId, mediaName: media.filename ?? null, mimeType: media.mimetype };
+}
 import type { ChatTurn } from './llm.js';
 import { resolveLlm } from './llm.js';
 import {
@@ -94,9 +105,10 @@ export async function recordOutgoingMessage(params: {
   waJid: string;
   body: string;
   waMessageId?: string;
+  media?: InboundMedia;
 }) {
-  const { workspaceId: ws, waJid, body, waMessageId } = params;
-  if (!body?.trim()) return;
+  const { workspaceId: ws, waJid, body, waMessageId, media } = params;
+  if (!body?.trim() && !media) return;
 
   if (waMessageId) {
     const already = await prisma.message.findFirst({
@@ -122,7 +134,7 @@ export async function recordOutgoingMessage(params: {
   }
 
   const message = await prisma.message.create({
-    data: { conversationId: conversation.id, direction: 'out', author: 'agent', body, waMessageId },
+    data: { conversationId: conversation.id, direction: 'out', author: 'agent', body, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
   // Operador respondeu pelo celular: pausa a IA e cancela resposta agendada.
@@ -197,10 +209,11 @@ export async function handleInboundMessage(params: {
   pushName?: string;
   body: string;
   waMessageId?: string;
+  media?: InboundMedia;
   sendText: SendText;
 }) {
-  const { workspaceId: ws, waJid, pushName, body, waMessageId, sendText } = params;
-  if (!body?.trim()) return;
+  const { workspaceId: ws, waJid, pushName, body, waMessageId, media, sendText } = params;
+  if (!body?.trim() && !media) return;
 
   const phone = phoneFromJid(waJid);
 
@@ -232,7 +245,7 @@ export async function handleInboundMessage(params: {
   }
 
   const message = await prisma.message.create({
-    data: { conversationId: conversation.id, direction: 'in', author: 'contact', body, waMessageId },
+    data: { conversationId: conversation.id, direction: 'in', author: 'contact', body, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
   conversation = await prisma.conversation.update({

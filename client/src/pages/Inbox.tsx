@@ -48,6 +48,7 @@ export function Inbox({
   const [aiBusy, setAiBusy] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
 
@@ -122,6 +123,21 @@ export function Inbox({
     } catch (e) {
       setText(body);
       setError((e as Error).message);
+    }
+  };
+
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !activeId) return;
+    setError('');
+    try {
+      const msg = await api.sendMedia(activeId, file, text.trim());
+      setText('');
+      setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
+      loadConversations();
+    } catch (x) {
+      setError((x as Error).message);
     }
   };
 
@@ -244,7 +260,8 @@ export function Inbox({
                 ) : (
                   <div key={m.id} className={`bubble ${m.direction} ${m.author === 'ai' ? 'ai' : ''}`}>
                     {m.author === 'ai' && <div className="ai-name">{agentName(active.assignedAgentId) ?? 'IA'}</div>}
-                    {m.body}
+                    {m.mediaId && <MediaBubble m={m} />}
+                    {m.body && !isMediaLabel(m.body) && <div className="mtext">{m.body}</div>}
                     <div className="by">
                       {m.author === 'agent' ? 'Você · ' : ''}
                       {hm(m.createdAt)}
@@ -277,6 +294,22 @@ export function Inbox({
               }}
             >
               <input
+                ref={fileRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={onPickFile}
+                accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={!connected}
+                title="Anexar arquivo (imagem, PDF, áudio…)"
+                aria-label="Anexar arquivo"
+              >
+                <Icon name="doc" />
+              </button>
+              <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={connected ? 'Escreva uma mensagem ou / para mensagens rápidas' : 'Conecte o WhatsApp para enviar'}
@@ -301,5 +334,30 @@ export function Inbox({
         )}
       </div>
     </div>
+  );
+}
+
+// Rótulos usados quando a mídia não tem legenda (para não exibi-los como texto).
+const MEDIA_LABELS = ['📷 Imagem', '🎬 Vídeo', '🎤 Áudio', '📎 Documento', 'Figurinha', 'Arquivo'];
+function isMediaLabel(body: string) {
+  return MEDIA_LABELS.includes(body.trim());
+}
+
+function MediaBubble({ m }: { m: Message }) {
+  if (!m.mediaId) return null;
+  const url = api.mediaUrl(m.mediaId);
+  if (m.mediaType === 'image' || m.mediaType === 'sticker') {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="media-link">
+        <img className="media-img" src={url} alt={m.body || 'imagem'} loading="lazy" />
+      </a>
+    );
+  }
+  if (m.mediaType === 'video') return <video className="media-img" src={url} controls />;
+  if (m.mediaType === 'audio') return <audio className="media-audio" src={url} controls />;
+  return (
+    <a className="media-doc" href={url} target="_blank" rel="noreferrer">
+      <Icon name="doc" size={16} /> {m.mediaName || 'Documento'}
+    </a>
   );
 }

@@ -126,6 +126,10 @@ export interface Message {
   direction: 'in' | 'out';
   author: 'contact' | 'agent' | 'ai' | 'system';
   body: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'sticker' | null;
+  mediaId?: string | null;
+  mediaName?: string | null;
+  mimeType?: string | null;
   createdAt: string;
 }
 
@@ -285,6 +289,23 @@ export const api = {
   markRead: (id: string) => req(`/conversations/${id}/read`, { method: 'POST' }),
   draft: (id: string) =>
     req<{ text: string }>(`/ai/draft/${id}`, { method: 'POST' }),
+
+  // Mídia nas conversas
+  sendMedia: async (conversationId: string, file: File, caption = '') => {
+    const token = getToken();
+    const qs = new URLSearchParams({ mime: file.type || 'application/octet-stream', name: file.name, caption });
+    const res = await fetch(`/api/whatsapp/send-media/${conversationId}?${qs.toString()}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: file,
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Falha ao enviar arquivo');
+    return (await res.json()) as Message;
+  },
+  mediaUrl: (mediaId: string) => `/api/media/${mediaId}?token=${encodeURIComponent(getToken() ?? '')}`,
 
   // Contatos
   contacts: (q = '') => req<Contact[]>(`/contacts?q=${encodeURIComponent(q)}`),
