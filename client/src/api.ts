@@ -410,6 +410,7 @@ export const api = {
     req<{
       systemPrompt: string;
       autoReply: boolean;
+      autoStage: boolean;
       model: string;
       provider: string;
       baseUrl: string;
@@ -420,6 +421,7 @@ export const api = {
   updateAiConfig: (data: {
     systemPrompt?: string;
     autoReply?: boolean;
+    autoStage?: boolean;
     provider?: string;
     model?: string;
     baseUrl?: string;

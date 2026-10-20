@@ -19,6 +19,7 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
+  const [autoStage, setAutoStage] = useState(true);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
 
@@ -33,6 +34,7 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
       setModel(c.model);
       setBaseUrl(c.baseUrl);
       setHasKey(c.hasKey);
+      setAutoStage(c.autoStage);
     });
   }, []);
 
@@ -258,6 +260,22 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
               </button>
             )}
             {testMsg && <span className={`small ${testMsg.ok ? 'ok-text' : 'late-text'}`}>{testMsg.text}</span>}
+          </div>
+
+          <div className="field-sm" style={{ marginTop: 6 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={autoStage}
+                onChange={(e) => {
+                  setAutoStage(e.target.checked);
+                  api.updateAiConfig({ autoStage: e.target.checked });
+                }}
+                style={{ width: 16, flex: 'none' }}
+              />
+              Mover a etapa do CRM automaticamente lendo a conversa
+            </label>
+            <span className="muted small">A IA reavalia cada conversa e move o lead para a etapa certa do funil. Precisa de um provedor conectado.</span>
           </div>
 
           <div className="field-sm" style={{ marginTop: 6 }}>
