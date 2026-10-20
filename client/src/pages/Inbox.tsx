@@ -344,17 +344,26 @@ function isMediaLabel(body: string) {
 }
 
 function MediaBubble({ m }: { m: Message }) {
+  const [failed, setFailed] = useState(false);
   if (!m.mediaId) return null;
   const url = api.mediaUrl(m.mediaId);
-  if (m.mediaType === 'image' || m.mediaType === 'sticker') {
+
+  if (failed) {
     return (
-      <a href={url} target="_blank" rel="noreferrer" className="media-link">
-        <img className="media-img" src={url} alt={m.body || 'imagem'} loading="lazy" />
+      <a className="media-doc media-missing" href={url} target="_blank" rel="noreferrer" title="Abrir / baixar">
+        <Icon name="doc" size={16} /> {m.mediaName || 'Mídia indisponível'}
       </a>
     );
   }
-  if (m.mediaType === 'video') return <video className="media-img" src={url} controls />;
-  if (m.mediaType === 'audio') return <audio className="media-audio" src={url} controls />;
+  if (m.mediaType === 'image' || m.mediaType === 'sticker') {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="media-link">
+        <img className="media-img" src={url} alt={m.body || 'imagem'} loading="lazy" onError={() => setFailed(true)} />
+      </a>
+    );
+  }
+  if (m.mediaType === 'video') return <video className="media-img" src={url} controls onError={() => setFailed(true)} />;
+  if (m.mediaType === 'audio') return <audio className="media-audio" src={url} controls onError={() => setFailed(true)} />;
   return (
     <a className="media-doc" href={url} target="_blank" rel="noreferrer">
       <Icon name="doc" size={16} /> {m.mediaName || 'Documento'}

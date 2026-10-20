@@ -6,7 +6,7 @@ import cors from 'cors';
 import { Server as IOServer } from 'socket.io';
 import { env } from './env.js';
 import { setIO, roomOf } from './realtime.js';
-import { existsSync } from 'node:fs';
+import { existsSync, createReadStream } from 'node:fs';
 import { accessStillValid, requireAuth, requireAdmin, verifyToken } from './auth.js';
 import { prisma } from './db.js';
 import { mediaFilePath } from './whatsapp/media.js';
@@ -43,11 +43,14 @@ app.get('/api/media/:id', async (req, res) => {
   if (!message) return res.status(404).end();
   const file = mediaFilePath(info.ws, req.params.id);
   if (!existsSync(file)) return res.status(404).end();
-  if (message.mimeType) res.type(message.mimeType);
+  // Content-Type explícito: os arquivos são salvos sem extensão, então o
+  // sendFile marcaria tudo como octet-stream (quebra <img>/<audio>/PDF inline).
+  res.setHeader('Content-Type', message.mimeType || 'application/octet-stream');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
   if (message.mediaType === 'document' && message.mediaName) {
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(message.mediaName)}"`);
   }
-  res.sendFile(file);
+  createReadStream(file).pipe(res);
 });
 
 // Protegido
