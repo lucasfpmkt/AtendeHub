@@ -206,12 +206,20 @@ async function completeOpenAICompatible(
 /** Monta o cliente de IA do workspace a partir da config salva (ou do .env, p/ Anthropic). */
 export async function resolveLlm(ws: string): Promise<Llm> {
   const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
-  const provider = cfg?.provider || 'anthropic';
+
+  // Fallback por variável de ambiente (vale p/ todos os clientes sem chave própria):
+  //   AI_PROVIDER (ex.: gemini), AI_API_KEY, AI_BASE_URL (opcional), AI_MODEL (opcional).
+  const envProvider = process.env.AI_PROVIDER?.trim();
+  const envKey = process.env.AI_API_KEY?.trim();
+  const envBase = process.env.AI_BASE_URL?.trim();
+  const envModel = process.env.AI_MODEL?.trim();
+
+  // A config salva no painel tem prioridade; depois o ambiente; por fim o preset.
+  const provider = cfg?.provider?.trim() || envProvider || 'anthropic';
   const preset = providerPreset(provider);
-  // A chave salva no painel tem prioridade; p/ Anthropic, cai no .env por compatibilidade.
-  const apiKey = (cfg?.apiKey?.trim() || (provider === 'anthropic' ? env.anthropicKey : '')) ?? '';
-  const baseUrl = (cfg?.baseUrl?.trim() || preset.baseUrl) ?? '';
-  const model = cfg?.model?.trim() || preset.defaultModel || env.aiModel;
+  const apiKey = cfg?.apiKey?.trim() || envKey || (provider === 'anthropic' ? env.anthropicKey : '') || '';
+  const baseUrl = cfg?.baseUrl?.trim() || envBase || preset.baseUrl || '';
+  const model = cfg?.model?.trim() || envModel || preset.defaultModel || env.aiModel;
   const ready = Boolean(apiKey) && (preset.kind === 'anthropic' || Boolean(baseUrl));
 
   return {
