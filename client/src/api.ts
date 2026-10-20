@@ -436,6 +436,11 @@ export const api = {
       baseUrl: string;
       hasKey: boolean;
       providerConnected: boolean;
+      crmProvider: string;
+      crmModel: string;
+      crmBaseUrl: string;
+      crmHasKey: boolean;
+      crmConnected: boolean;
       providers: AiProvider[];
     }>('/ai/config'),
   updateAiConfig: (data: {
@@ -447,8 +452,22 @@ export const api = {
     baseUrl?: string;
     apiKey?: string;
     clearKey?: boolean;
-  }) => req<{ providerConnected: boolean; hasKey: boolean; provider: string; model: string }>('/ai/config', { method: 'PATCH', body: JSON.stringify(data) }),
-  testAi: () => req<{ ok: boolean; provider?: string; model?: string; sample?: string; error?: string }>('/ai/config/test', { method: 'POST' }),
+    crmProvider?: string;
+    crmModel?: string;
+    crmBaseUrl?: string;
+    crmApiKey?: string;
+    clearCrmKey?: boolean;
+  }) =>
+    req<{ providerConnected: boolean; hasKey: boolean; crmConnected: boolean; crmHasKey: boolean }>('/ai/config', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  testAi: (which?: 'crm') =>
+    req<{ ok: boolean; provider?: string; model?: string; sample?: string; error?: string }>(
+      `/ai/config/test${which ? '?which=crm' : ''}`,
+      { method: 'POST' },
+    ),
+  reclassifyStages: () => req<{ total: number }>('/ai/reclassify-stages', { method: 'POST' }),
 
   // Sessão / clientes
   me: () => req<{ user: SessionUser; workspace: WorkspaceInfo }>('/auth/me'),

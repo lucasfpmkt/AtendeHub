@@ -1,36 +1,46 @@
 import { Router } from 'express';
 import { wsOf } from '../auth.js';
 import { generateReply, getAiConfig, updateAiConfig } from '../services/ai.js';
-import { providersPublic, resolveLlm } from '../services/llm.js';
+import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
+import { reclassifyAllStages } from '../services/inbound.js';
 
 export const aiRouter = Router();
 
 aiRouter.get('/config', async (req, res) => {
   const ws = wsOf(req);
   const cfg = await getAiConfig(ws);
-  const llm = await resolveLlm(ws);
-  // Nunca devolve a chave crua — só sinaliza que existe.
-  const { apiKey, ...safe } = cfg;
+  const [llm, crmLlm] = await Promise.all([resolveLlm(ws), resolveCrmLlm(ws)]);
+  // Nunca devolve as chaves cruas — só sinaliza que existem.
+  const { apiKey, crmApiKey, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
+    crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
     providerConnected: llm.ready,
+    crmConnected: crmLlm.ready,
     providers: providersPublic(),
   });
 });
 
 aiRouter.patch('/config', async (req, res) => {
-  const { systemPrompt, autoReply, autoStage, provider, model, baseUrl, apiKey, clearKey } = req.body ?? {};
-  const cfg = await updateAiConfig(wsOf(req), { systemPrompt, autoReply, autoStage, provider, model, baseUrl, apiKey, clearKey });
-  const llm = await resolveLlm(wsOf(req));
-  const { apiKey: _k, ...safe } = cfg;
-  res.json({ ...safe, hasKey: Boolean(_k && _k.trim()), providerConnected: llm.ready });
+  const b = req.body ?? {};
+  const cfg = await updateAiConfig(wsOf(req), b);
+  const [llm, crmLlm] = await Promise.all([resolveLlm(wsOf(req)), resolveCrmLlm(wsOf(req))]);
+  const { apiKey: _k, crmApiKey: _ck, ...safe } = cfg;
+  res.json({
+    ...safe,
+    hasKey: Boolean(_k && _k.trim()),
+    crmHasKey: Boolean(_ck && _ck.trim()),
+    providerConnected: llm.ready,
+    crmConnected: crmLlm.ready,
+  });
 });
 
-// Testa a conexão com o provedor fazendo uma chamada mínima.
+// Testa a conexão fazendo uma chamada mínima. ?which=crm testa a IA do CRM.
 aiRouter.post('/config/test', async (req, res) => {
   try {
-    const llm = await resolveLlm(wsOf(req));
+    const which = req.query.which === 'crm';
+    const llm = which ? await resolveCrmLlm(wsOf(req)) : await resolveLlm(wsOf(req));
     if (!llm.ready) return res.status(400).json({ ok: false, error: 'Nenhum provedor conectado. Salve a chave primeiro.' });
     const out = await llm.complete({
       system: 'Responda apenas com a palavra OK.',
@@ -41,6 +51,14 @@ aiRouter.post('/config/test', async (req, res) => {
   } catch (err) {
     res.status(400).json({ ok: false, error: (err as Error).message });
   }
+});
+
+// Reavalia todas as conversas abertas e ajusta as etapas no CRM.
+aiRouter.post('/reclassify-stages', async (req, res) => {
+  const crmLlm = await resolveCrmLlm(wsOf(req));
+  if (!crmLlm.ready) return res.status(400).json({ error: 'Conecte uma IA (ou a do CRM) antes de reavaliar.' });
+  const total = await reclassifyAllStages(wsOf(req));
+  res.json({ total });
 });
 
 // Gera um rascunho de resposta para a conversa (não envia).

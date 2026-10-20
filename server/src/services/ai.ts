@@ -64,6 +64,12 @@ export type AiConfigPatch = {
   baseUrl?: string;
   apiKey?: string; // só grava quando vier string não-vazia (ou clearKey)
   clearKey?: boolean;
+  // IA dedicada do CRM
+  crmProvider?: string;
+  crmModel?: string;
+  crmBaseUrl?: string;
+  crmApiKey?: string;
+  clearCrmKey?: boolean;
 };
 
 export async function updateAiConfig(ws: string, data: AiConfigPatch) {
@@ -77,5 +83,11 @@ export async function updateAiConfig(ws: string, data: AiConfigPatch) {
   if (typeof data.baseUrl === 'string') patch.baseUrl = data.baseUrl.trim();
   if (data.clearKey) patch.apiKey = '';
   else if (typeof data.apiKey === 'string' && data.apiKey.trim()) patch.apiKey = data.apiKey.trim();
+  // CRM
+  if (typeof data.crmProvider === 'string') patch.crmProvider = data.crmProvider;
+  if (typeof data.crmModel === 'string') patch.crmModel = data.crmModel;
+  if (typeof data.crmBaseUrl === 'string') patch.crmBaseUrl = data.crmBaseUrl.trim();
+  if (data.clearCrmKey) patch.crmApiKey = '';
+  else if (typeof data.crmApiKey === 'string' && data.crmApiKey.trim()) patch.crmApiKey = data.crmApiKey.trim();
   return prisma.aiConfig.update({ where: { id: ws }, data: patch });
 }

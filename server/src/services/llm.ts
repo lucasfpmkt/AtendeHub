@@ -204,6 +204,27 @@ async function completeOpenAICompatible(
 }
 
 /** Monta o cliente de IA do workspace a partir da config salva (ou do .env, p/ Anthropic). */
+/** Monta um cliente de IA a partir de provedor/chave/endpoint/modelo já resolvidos. */
+function buildLlm(provider: string, apiKey: string, baseUrl: string, model: string): Llm {
+  const preset = providerPreset(provider);
+  const ready = Boolean(apiKey) && (preset.kind === 'anthropic' || Boolean(baseUrl));
+  return {
+    ready,
+    provider,
+    model,
+    async complete(opts) {
+      if (!ready) {
+        throw new Error(
+          apiKey ? 'Falta o endpoint do provedor (baseUrl).' : 'IA não conectada. Escolha um provedor e informe a chave em Ajustes.',
+        );
+      }
+      if (preset.kind === 'anthropic') return completeAnthropic(apiKey, model, opts);
+      return completeOpenAICompatible(baseUrl, apiKey, model, opts);
+    },
+  };
+}
+
+/** IA dos agentes / rascunho (config principal, com fallback de ambiente). */
 export async function resolveLlm(ws: string): Promise<Llm> {
   const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
 
@@ -220,20 +241,20 @@ export async function resolveLlm(ws: string): Promise<Llm> {
   const apiKey = cfg?.apiKey?.trim() || envKey || (provider === 'anthropic' ? env.anthropicKey : '') || '';
   const baseUrl = cfg?.baseUrl?.trim() || envBase || preset.baseUrl || '';
   const model = cfg?.model?.trim() || envModel || preset.defaultModel || env.aiModel;
-  const ready = Boolean(apiKey) && (preset.kind === 'anthropic' || Boolean(baseUrl));
+  return buildLlm(provider, apiKey, baseUrl, model);
+}
 
-  return {
-    ready,
-    provider,
-    model,
-    async complete(opts) {
-      if (!ready) {
-        throw new Error(
-          apiKey ? 'Falta o endpoint do provedor (baseUrl).' : 'IA não conectada. Escolha um provedor e informe a chave em Ajustes.',
-        );
-      }
-      if (preset.kind === 'anthropic') return completeAnthropic(apiKey, model, opts);
-      return completeOpenAICompatible(baseUrl, apiKey, model, opts);
-    },
-  };
+/**
+ * IA dedicada do CRM (ler conversas, mover/criar etapas). Se o cliente não
+ * configurou uma IA própria para o CRM, reutiliza a dos agentes (resolveLlm).
+ */
+export async function resolveCrmLlm(ws: string): Promise<Llm> {
+  const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
+  const provider = cfg?.crmProvider?.trim();
+  const apiKey = cfg?.crmApiKey?.trim();
+  if (!provider || !apiKey) return resolveLlm(ws); // sem IA de CRM própria → usa a dos agentes
+  const preset = providerPreset(provider);
+  const baseUrl = cfg?.crmBaseUrl?.trim() || preset.baseUrl || '';
+  const model = cfg?.crmModel?.trim() || preset.defaultModel || env.aiModel;
+  return buildLlm(provider, apiKey, baseUrl, model);
 }
