@@ -187,6 +187,8 @@ model PipelineStage {
   funnel   Funnel?   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
   contacts Contact[]
   deals    Deal[]
+  followupMinutes Int    @default(0) // 0 = sem follow-up automático
+  followupMessage String @default("") // mensagem enviada ao ficar parado nesta etapa
 }
 
 /// Uma oportunidade/negócio ligada a um contato e a uma etapa de um funil.
@@ -204,6 +206,8 @@ model Deal {
   funnel      Funnel?        @relation(fields: [funnelId], references: [id], onDelete: Cascade)
   stageId     String?
   stage       PipelineStage? @relation(fields: [stageId], references: [id])
+  stageSince  DateTime       @default(now()) // quando entrou na etapa atual (base do follow-up)
+  followupStageId String?    // etapa cujo follow-up já foi enviado (evita repetir)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 }

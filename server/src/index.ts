@@ -8,6 +8,7 @@ import { env } from './env.js';
 import { setIO, roomOf } from './realtime.js';
 import { accessStillValid, requireAuth, requireAdmin, verifyToken } from './auth.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
+import { startFollowupLoop } from './services/followup.js';
 import { ensureTenancy } from './services/tenancy.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
@@ -74,4 +75,5 @@ server.listen(env.port, async () => {
   console.log('');
   await ensureTenancy();
   await startSavedSessions();
+  startFollowupLoop();
 });

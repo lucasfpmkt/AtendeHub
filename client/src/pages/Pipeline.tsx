@@ -32,6 +32,7 @@ export function Pipeline() {
   const [dropStage, setDropStage] = useState<string | null>(null);
   const [dealModal, setDealModal] = useState<{ deal: Deal | null; stageId: string } | null>(null);
   const [stageModalOpen, setStageModalOpen] = useState(false);
+  const [editStage, setEditStage] = useState<Stage | null>(null);
 
   const tagColor = useMemo(() => {
     const m = new Map<string, string>();
@@ -180,6 +181,7 @@ export function Pipeline() {
                 onDragStartDeal={setDragDeal}
                 onOpenDeal={(d) => setDealModal({ deal: d, stageId: stage.id })}
                 onNewDeal={() => setDealModal({ deal: null, stageId: stage.id })}
+                onEditStage={() => setEditStage(stage)}
                 onDeleteStage={async () => {
                   if (confirm(`Excluir a etapa "${stage.name}"? Os negócios dela ficam sem etapa.`)) {
                     await api.deleteStage(stage.id);
@@ -251,9 +253,21 @@ export function Pipeline() {
       {stageModalOpen && (
         <StageModal
           onClose={() => setStageModalOpen(false)}
-          onCreate={async (name, color) => {
-            await api.addStage(activeId!, name, color);
+          onSave={async ({ name, color, followupMinutes, followupMessage }) => {
+            const s = await api.addStage(activeId!, name, color);
+            if (followupMinutes > 0) await api.updateStage(s.id, { followupMinutes, followupMessage });
             setStageModalOpen(false);
+            refresh();
+          }}
+        />
+      )}
+      {editStage && (
+        <StageModal
+          stage={editStage}
+          onClose={() => setEditStage(null)}
+          onSave={async (data) => {
+            await api.updateStage(editStage.id, data);
+            setEditStage(null);
             refresh();
           }}
         />
@@ -272,6 +286,7 @@ function KanbanColumn({
   onDragStartDeal,
   onOpenDeal,
   onNewDeal,
+  onEditStage,
   onDeleteStage,
 }: {
   stage: Stage;
@@ -283,6 +298,7 @@ function KanbanColumn({
   onDragStartDeal: (id: string) => void;
   onOpenDeal: (d: Deal) => void;
   onNewDeal: () => void;
+  onEditStage: () => void;
   onDeleteStage: () => void;
 }) {
   const sum = stage.deals.reduce((s, d) => s + d.valueCents, 0);
@@ -309,6 +325,22 @@ function KanbanColumn({
         <span className="name">{stage.name}</span>
         <span className="count">{stage.deals.length}</span>
         {sum > 0 && <span className="sum">{BRL(sum)}</span>}
+        {stage.followupMinutes > 0 && (
+          <span className="count" title={`Follow-up após ${stage.followupMinutes} min`} style={{ color: '#ea580c' }}>
+            <Icon name="clock" size={13} />
+          </span>
+        )}
+        <button
+          className="icon-btn"
+          title="Follow-up automático desta etapa"
+          aria-label="Follow-up da etapa"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditStage();
+          }}
+        >
+          <Icon name="clock" size={15} />
+        </button>
         <button className="icon-btn" title="Excluir etapa" aria-label="Excluir etapa" onClick={onDeleteStage}>
           <Icon name="x" size={15} />
         </button>
@@ -501,18 +533,24 @@ function DealModal({
 }
 
 function StageModal({
+  stage,
   onClose,
-  onCreate,
+  onSave,
 }: {
+  stage?: Stage | null;
   onClose: () => void;
-  onCreate: (name: string, color: string) => void;
+  onSave: (data: { name: string; color: string; followupMinutes: number; followupMessage: string }) => void;
 }) {
-  const [name, setName] = useState('');
-  const [color, setColor] = useState(STAGE_COLORS[0]);
+  const editing = Boolean(stage);
+  const [name, setName] = useState(stage?.name ?? '');
+  const [color, setColor] = useState(stage?.color ?? STAGE_COLORS[0]);
+  const [fupOn, setFupOn] = useState((stage?.followupMinutes ?? 0) > 0);
+  const [fupMin, setFupMin] = useState(String(stage?.followupMinutes || 60));
+  const [fupMsg, setFupMsg] = useState(stage?.followupMessage ?? '');
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Nova etapa</h3>
+        <h3>{editing ? `Etapa “${stage!.name}”` : 'Nova etapa'}</h3>
         <div className="field">
           <label>Nome</label>
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Ex.: Em negociação" />
@@ -537,12 +575,52 @@ function StageModal({
             ))}
           </div>
         </div>
+
+        <div className="field">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={fupOn} onChange={(e) => setFupOn(e.target.checked)} style={{ width: 16, flex: 'none' }} />
+            Follow-up automático nesta etapa
+          </label>
+          <span className="muted small">Se o lead ficar parado aqui pelo tempo abaixo, o LawHub envia a mensagem pelo WhatsApp (uma vez por etapa).</span>
+        </div>
+        {fupOn && (
+          <>
+            <div className="field">
+              <label>Enviar após (minutos)</label>
+              <input
+                type="number"
+                min={1}
+                value={fupMin}
+                onChange={(e) => setFupMin(e.target.value)}
+                placeholder="60"
+                style={{ maxWidth: 160 }}
+              />
+            </div>
+            <div className="field">
+              <label>Mensagem do follow-up</label>
+              <textarea
+                rows={3}
+                value={fupMsg}
+                onChange={(e) => setFupMsg(e.target.value)}
+                placeholder="Ex.: Oi! Ainda quer seguir com a análise do seu caso? Fico à disposição."
+              />
+            </div>
+          </>
+        )}
+
         <div className="modal-actions">
           <button className="ghost" onClick={onClose}>
             Cancelar
           </button>
-          <button className="primary" onClick={() => name.trim() && onCreate(name, color)}>
-            Criar etapa
+          <button
+            className="primary"
+            onClick={() => {
+              if (!name.trim()) return;
+              const minutes = fupOn ? Math.max(1, Number(fupMin) || 0) : 0;
+              onSave({ name: name.trim(), color, followupMinutes: minutes, followupMessage: fupOn ? fupMsg : '' });
+            }}
+          >
+            {editing ? 'Salvar etapa' : 'Criar etapa'}
           </button>
         </div>
       </div>

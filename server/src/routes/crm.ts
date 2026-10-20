@@ -132,8 +132,13 @@ crmRouter.delete('/funnels/:id', async (req, res) => {
 
 // Quadro completo de um funil: etapas ordenadas, cada uma com seus negócios.
 crmRouter.get('/funnels/:id/board', async (req, res) => {
-  const funnel = await prisma.funnel.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  const ws = wsOf(req);
+  const funnel = await prisma.funnel.findFirst({ where: { id: req.params.id, workspaceId: ws } });
   if (!funnel) return res.status(404).json({ error: 'funil não encontrado' });
+  // No funil padrão (primeiro do cliente), puxa para o CRM os leads antigos que
+  // ainda não têm negócio — assim conversas anteriores à feature aparecem aqui.
+  const first = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
+  if (first?.id === funnel.id) await backfillLeads(ws, funnel.id);
   const stages = await prisma.pipelineStage.findMany({
     where: { funnelId: funnel.id },
     orderBy: { order: 'asc' },
@@ -141,6 +146,37 @@ crmRouter.get('/funnels/:id/board', async (req, res) => {
   });
   res.json({ funnel, stages });
 });
+
+/** Cria negócios na 1ª etapa para contatos com conversa aberta e sem nenhum negócio. */
+async function backfillLeads(ws: string, funnelId: string) {
+  const stage = await prisma.pipelineStage.findFirst({ where: { funnelId }, orderBy: { order: 'asc' } });
+  if (!stage) return;
+  const convos = await prisma.conversation.findMany({
+    where: { workspaceId: ws, status: { not: 'closed' } },
+    select: { contactId: true },
+    distinct: ['contactId'],
+    take: 500,
+  });
+  for (const { contactId } of convos) {
+    const has = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId } });
+    if (has) continue;
+    const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+    await prisma.deal
+      .create({
+        data: {
+          workspaceId: ws,
+          title: contact?.name || contact?.phone || 'Lead',
+          contactId,
+          funnelId,
+          stageId: stage.id,
+          source: 'WhatsApp',
+          stageSince: new Date(),
+        },
+      })
+      .catch(() => {});
+    if (contact) await prisma.contact.update({ where: { id: contactId }, data: { stageId: stage.id } }).catch(() => {});
+  }
+}
 
 /* ----------------------------- Etapas ------------------------------- */
 
@@ -162,8 +198,19 @@ crmRouter.post('/funnels/:id/stages', async (req, res) => {
 
 crmRouter.patch('/stages/:id', async (req, res) => {
   if (!(await prisma.pipelineStage.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } }))) return notFound(res);
-  const { name, color, order } = req.body ?? {};
-  res.json(await prisma.pipelineStage.update({ where: { id: req.params.id }, data: { name, color, order } }));
+  const { name, color, order, followupMinutes, followupMessage } = req.body ?? {};
+  res.json(
+    await prisma.pipelineStage.update({
+      where: { id: req.params.id },
+      data: {
+        name,
+        color,
+        order,
+        followupMinutes: followupMinutes === undefined ? undefined : Math.max(0, Number(followupMinutes) || 0),
+        followupMessage: followupMessage === undefined ? undefined : String(followupMessage),
+      },
+    }),
+  );
 });
 
 crmRouter.delete('/stages/:id', async (req, res) => {
@@ -222,6 +269,8 @@ crmRouter.patch('/deals/:id', async (req, res) => {
       source,
       responsavel,
       tags,
+      // Mudou de etapa: reinicia o relógio do follow-up e permite notificar de novo.
+      ...(stageId === undefined ? {} : { stageSince: new Date(), followupStageId: null }),
     },
     include: { contact: true },
   });

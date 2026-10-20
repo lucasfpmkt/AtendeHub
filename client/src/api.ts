@@ -164,6 +164,8 @@ export interface Stage {
   name: string;
   color: string;
   order: number;
+  followupMinutes: number;
+  followupMessage: string;
   deals: Deal[];
 }
 
@@ -315,8 +317,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name, color }),
     }),
-  updateStage: (id: string, data: { name?: string; color?: string; order?: number }) =>
-    req<Stage>(`/stages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateStage: (
+    id: string,
+    data: { name?: string; color?: string; order?: number; followupMinutes?: number; followupMessage?: string },
+  ) => req<Stage>(`/stages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteStage: (id: string) => req(`/stages/${id}`, { method: 'DELETE' }),
 
   // Negócios
