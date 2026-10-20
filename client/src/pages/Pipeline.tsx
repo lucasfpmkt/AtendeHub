@@ -18,7 +18,7 @@ const BRL = (cents: number) =>
 
 const STAGE_COLORS = ['#64748b', '#f59e0b', '#3b82f6', '#16a34a', '#b71312', '#8b5cf6', '#06b6d4', '#ec4899'];
 
-export function Pipeline() {
+export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contactId: string) => void }) {
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [activeId, setActiveId] = useState<string | null>(
     () => localStorage.getItem('lawhub.funnel') ?? null,
@@ -181,6 +181,7 @@ export function Pipeline() {
                 onDragStartDeal={setDragDeal}
                 onOpenDeal={(d) => setDealModal({ deal: d, stageId: stage.id })}
                 onNewDeal={() => setDealModal({ deal: null, stageId: stage.id })}
+                onOpenConversation={onOpenConversation}
                 onEditStage={() => setEditStage(stage)}
                 onDeleteStage={async () => {
                   if (confirm(`Excluir a etapa "${stage.name}"? Os negócios dela ficam sem etapa.`)) {
@@ -286,6 +287,7 @@ function KanbanColumn({
   onDragStartDeal,
   onOpenDeal,
   onNewDeal,
+  onOpenConversation,
   onEditStage,
   onDeleteStage,
 }: {
@@ -298,6 +300,7 @@ function KanbanColumn({
   onDragStartDeal: (id: string) => void;
   onOpenDeal: (d: Deal) => void;
   onNewDeal: () => void;
+  onOpenConversation?: (contactId: string) => void;
   onEditStage: () => void;
   onDeleteStage: () => void;
 }) {
@@ -382,7 +385,21 @@ function KanbanColumn({
               <span>
                 <Icon name="user" size={13} /> {d.responsavel || 'Sem responsável'}
               </span>
-              {d.contact && <span className="pill wa">WA</span>}
+              {d.contact &&
+                (onOpenConversation ? (
+                  <button
+                    className="pill wa as-btn"
+                    title="Abrir conversa"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (d.contact) onOpenConversation(d.contact.id);
+                    }}
+                  >
+                    <Icon name="chat" size={12} /> Abrir conversa
+                  </button>
+                ) : (
+                  <span className="pill wa">WA</span>
+                ))}
             </div>
             {d.tags && (
               <div className="tags">

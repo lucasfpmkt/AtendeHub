@@ -28,7 +28,15 @@ const initials = (s: string) =>
     .join('')
     .toUpperCase();
 
-export function Inbox({ connected }: { connected: boolean }) {
+export function Inbox({
+  connected,
+  focusContactId,
+  onFocusConsumed,
+}: {
+  connected: boolean;
+  focusContactId?: string | null;
+  onFocusConsumed?: () => void;
+}) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [quick, setQuick] = useState<QuickReply[]>([]);
@@ -47,6 +55,17 @@ export function Inbox({ connected }: { connected: boolean }) {
   const agentName = (id?: string | null) => agents.find((a) => a.id === id)?.name;
 
   const loadConversations = () => api.conversations().then(setConversations);
+
+  // Veio do CRM pedindo para abrir a conversa de um contato.
+  useEffect(() => {
+    if (!focusContactId) return;
+    const conv = conversations.find((c) => c.contact?.id === focusContactId);
+    if (conv) {
+      setFilter(conv.status === 'closed' ? 'closed' : 'open');
+      setActiveId(conv.id);
+      onFocusConsumed?.();
+    }
+  }, [focusContactId, conversations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadConversations();

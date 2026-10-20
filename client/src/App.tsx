@@ -114,10 +114,17 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
   const [me, setMe] = useState<string | undefined>();
   const [unread, setUnread] = useState(0);
   const [picker, setPicker] = useState(() => isAdmin && !sessionStorage.getItem(PICKED_KEY));
+  const [inboxContact, setInboxContact] = useState<string | null>(null);
 
   const setTab = (t: Tab) => {
     setTabState(t);
     localStorage.setItem(TAB_KEY, t);
+  };
+
+  // Abre a conversa de um contato (vindo do CRM).
+  const openConversation = (contactId: string) => {
+    setInboxContact(contactId);
+    setTab('inbox');
   };
   const current: Tab = tab === 'clients' && !isAdmin ? 'home' : tab;
 
@@ -236,10 +243,12 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
       <main className="main">
         {current === 'home' && <Home go={setTab} connected={connected} userName={firstName} />}
         {current === 'dashboard' && <Dashboard />}
-        {current === 'inbox' && <Inbox connected={connected} />}
+        {current === 'inbox' && (
+          <Inbox connected={connected} focusContactId={inboxContact} onFocusConsumed={() => setInboxContact(null)} />
+        )}
         {current === 'agents' && <AgentsModule number={number} />}
         {current === 'automations' && <Automations />}
-        {current === 'pipeline' && <Pipeline />}
+        {current === 'pipeline' && <Pipeline onOpenConversation={openConversation} />}
         {current === 'contacts' && <Contacts />}
         {current === 'tasks' && <Tasks />}
         {current === 'agenda' && <Agenda />}

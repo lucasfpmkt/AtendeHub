@@ -73,6 +73,9 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+/* A shell ocupa exatamente a viewport; o scroll acontece nas áreas internas. */
+html, body { overflow: hidden; }
+#root { overflow: hidden; }
 body {
   margin: 0;
   font-family: var(--font);
@@ -184,6 +187,7 @@ button.pill { cursor: pointer; }
 .pill.warn { background: var(--warn-50); color: var(--warn); }
 .pill.danger { background: var(--bad-50); color: var(--bad); }
 .pill.wa { background: var(--ok-50); color: var(--wa); }
+.pill.wa.as-btn:hover { background: var(--ok); color: #fff; }
 
 .tag { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 600; background: var(--g-100); color: var(--g-700); }
 .tag .swatch, .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
@@ -303,7 +307,7 @@ button.pill { cursor: pointer; }
 .avatar.gray { background: var(--g-200); color: var(--g-700); }
 
 /* --------------------------- submenu (coluna 2) ------------------------ */
-.split { display: grid; grid-template-columns: 248px minmax(0, 1fr); height: 100%; }
+.split { display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; }
 .split.collapsed { grid-template-columns: 0 minmax(0, 1fr); }
 .split.collapsed .subnav { visibility: hidden; padding: 0; border: 0; }
 .split-main { min-width: 0; overflow: auto; position: relative; }
@@ -328,7 +332,7 @@ button.pill { cursor: pointer; }
 .botmark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; color: var(--ai-600); background: var(--ai-50); }
 .botmark.off { background: var(--g-200); color: var(--g-500); }
 .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--g-700); font-family: var(--mono); font-size: 12.5px; }
-.editor { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100%; background: var(--g-0); }
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr); height: 100%; background: var(--g-0); }
 .ed-left { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--g-200); }
 .ed-bar { display: flex; align-items: center; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--g-200); flex-wrap: wrap; }
 .tab { min-height: 34px; padding: 6px 12px; border: 0; background: transparent; color: var(--g-500); gap: 6px; }
@@ -416,7 +420,7 @@ button.chip { padding-right: 11px; }
 .hist-row:first-child { border-top: 0; }
 
 /* -------------------------------- inbox -------------------------------- */
-.inbox { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100%; }
+.inbox { display: grid; grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; }
 .conv-list { display: flex; flex-direction: column; background: var(--g-0); border-right: 1px solid var(--g-200); min-width: 0; }
 .conv-top-bar { display: flex; gap: 6px; align-items: center; padding: 12px; }
 .conv-search { flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--g-200); border-radius: var(--r-ctl); color: var(--g-400); background: var(--g-0); }
@@ -461,15 +465,15 @@ button.ai-on:hover { background: var(--ai-100); }
 .quick-pop button span { color: var(--g-500); overflow: hidden; text-overflow: ellipsis; }
 
 /* --------------------------------- CRM --------------------------------- */
-.funnel-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100%; }
+.funnel-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; }
 .funnel-side { background: var(--g-0); border-right: 1px solid var(--g-200); padding: 16px 12px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .funnel-side h4 { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--g-400); font-weight: 600; padding: 6px 10px; }
 .funnel-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 12px; border-radius: var(--r-ctl); cursor: pointer; color: var(--g-700); font-weight: 500; }
 .funnel-item:hover { background: var(--g-100); }
 .funnel-item.active { background: var(--g-100); color: var(--g-900); font-weight: 600; }
-.funnel-main { display: flex; flex-direction: column; min-width: 0; height: 100%; }
+.funnel-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .funnel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--g-0); border-bottom: 1px solid var(--g-200); flex-wrap: wrap; }
-.board { display: flex; gap: 12px; align-items: flex-start; padding: 16px 20px; overflow-x: auto; flex: 1; }
+.board { display: flex; gap: 12px; align-items: flex-start; padding: 16px 20px; overflow-x: auto; flex: 1; min-height: 0; }
 .board.flat { padding: 0; }
 .column { width: 300px; min-width: 300px; background: var(--g-100); border-radius: var(--r-card); display: flex; flex-direction: column; max-height: 100%; }
 .column-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: var(--g-0); border: 1px solid var(--g-200); border-radius: var(--r-card) var(--r-card) 0 0; }
@@ -478,7 +482,7 @@ button.ai-on:hover { background: var(--ai-100); }
 .column-head .sum { font-size: 12px; color: var(--ok); font-weight: 600; }
 .column-head .count { font-size: 11.5px; color: var(--g-500); background: var(--g-100); border-radius: 6px; padding: 1px 7px; font-weight: 600; }
 .column-head button { min-height: 24px; }
-.column-body { padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; min-height: 80px; }
+.column-body { padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
 .column.drop-target .column-body { outline: 2px dashed var(--p-600); outline-offset: -6px; border-radius: var(--r-card); }
 .deal { background: var(--g-0); border: 1px solid var(--g-200); border-radius: var(--r-card); padding: 12px 14px; cursor: grab; }
 .deal:hover { border-color: var(--g-300); }
