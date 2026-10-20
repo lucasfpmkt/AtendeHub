@@ -9,6 +9,7 @@ import {
   type Contact,
 } from '../api';
 import { Icon } from '../icons';
+import { socket } from '../socket';
 
 const AV = ['#3b82f6', '#8b5cf6', '#0ea5e9', '#14b8a6', '#f59e0b', '#ec4899', '#64748b'];
 const avatarColor = (s: string) => AV[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
@@ -60,6 +61,18 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
       loadBoard(activeId);
     }
   }, [activeId]);
+
+  // Atualiza o quadro em tempo real quando a IA (ou outra ação) mexe no CRM.
+  useEffect(() => {
+    const onCrm = () => {
+      const id = localStorage.getItem('lawhub.funnel');
+      if (id) loadBoard(id);
+    };
+    socket.on('crm:update', onCrm);
+    return () => {
+      socket.off('crm:update', onCrm);
+    };
+  }, []);
 
   const refresh = () => activeId && loadBoard(activeId);
 
