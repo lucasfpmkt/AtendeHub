@@ -120,17 +120,7 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
   };
 
   const save = async () => {
-    setTestMsg(null);
-    const r = await api.updateAiConfig({
-      systemPrompt,
-      provider,
-      model,
-      baseUrl,
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-    });
-    setConnected(r.providerConnected);
-    setHasKey(r.hasKey);
-    setApiKey('');
+    await api.updateAiConfig({ systemPrompt });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
   };
@@ -261,191 +251,18 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
             </h3>
             <span className={`pill ${connected ? 'ok' : 'warn'}`}>{connected ? 'IA conectada' : 'IA não conectada'}</span>
           </div>
-
           <p className="muted small">
-            Conecte qualquer IA do mercado: escolha o provedor, cole a chave da API e selecione o modelo. A chave fica salva só para este cliente.
+            A conexão de IA (provedor, modelo e a mudança automática de etapas) é gerenciada pelo administrador do LawHub e vale
+            para todas as contas. Aqui você só ajusta a instrução do rascunho de resposta.
           </p>
-
-          <div className="duo">
-            <div className="field-sm">
-              <span>Provedor</span>
-              <select value={provider} onChange={(e) => onProvider(e.target.value)}>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field-sm">
-              <span>Modelo</span>
-              <input
-                list="ai-models"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={preset?.defaultModel || 'nome do modelo'}
-              />
-              <datalist id="ai-models">
-                {(preset?.models ?? []).map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </div>
-          </div>
-
-          {provider === 'custom' && (
-            <div className="field-sm">
-              <span>Endpoint (compatível com OpenAI)</span>
-              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://.../v1" />
-            </div>
-          )}
-
           <div className="field-sm">
-            <span>
-              Chave da API{' '}
-              {preset?.keyUrl && (
-                <a href={preset.keyUrl} target="_blank" rel="noreferrer" className="small">
-                  (onde pegar)
-                </a>
-              )}
-            </span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={hasKey ? '•••••••• (chave salva — deixe em branco para manter)' : preset?.keyHint || 'cole a chave'}
-              autoComplete="off"
-            />
-          </div>
-
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <button className="primary" onClick={save}>
-              {saved ? 'Salvo' : 'Salvar e conectar'}
-            </button>
-            <button onClick={test} disabled={testing}>
-              {testing ? 'Testando…' : 'Testar conexão'}
-            </button>
-            {hasKey && (
-              <button className="ghost" onClick={disconnect}>
-                Desconectar
-              </button>
-            )}
-            {testMsg && <span className={`small ${testMsg.ok ? 'ok-text' : 'late-text'}`}>{testMsg.text}</span>}
-          </div>
-
-          <div className="field-sm" style={{ marginTop: 6 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={autoStage}
-                onChange={(e) => {
-                  setAutoStage(e.target.checked);
-                  api.updateAiConfig({ autoStage: e.target.checked });
-                }}
-                style={{ width: 16, flex: 'none' }}
-              />
-              Mover a etapa do CRM automaticamente lendo a conversa
-            </label>
-            <span className="muted small">A IA reavalia cada conversa e move o lead para a etapa certa do funil. Precisa de um provedor conectado.</span>
-          </div>
-
-          <div className="field-sm" style={{ marginTop: 6 }}>
             <span>Instrução base do rascunho de resposta (botão ✦ nas conversas sem agente)</span>
             <textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
           </div>
-        </section>
-
-        <section className="card stack" style={{ gridColumn: '1 / -1' }}>
-          <div className="row between">
-            <h3 className="card-title" style={{ margin: 0 }}>
-              <Icon name="crm" /> IA do CRM (ler conversas e mover etapas)
-            </h3>
-            <span className={`pill ${crmConnected ? 'ok' : 'warn'}`}>{crmConnected ? 'IA conectada' : 'usando a dos agentes'}</span>
-          </div>
-          <p className="muted small">
-            IA dedicada e barata só para ler as conversas e ajustar o lead no funil. Recomendado: <b>Google · Gemini</b>, modelo{' '}
-            <code>gemini-3.8-flash</code>. Deixe em branco para usar a mesma IA dos agentes.
-          </p>
-
-          <div className="duo">
-            <div className="field-sm">
-              <span>Provedor</span>
-              <select value={crmProvider} onChange={(e) => onCrmProvider(e.target.value)}>
-                <option value="">— usar a dos agentes —</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {crmProvider && (
-              <div className="field-sm">
-                <span>Modelo</span>
-                <input
-                  list="crm-ai-models"
-                  value={crmModel}
-                  onChange={(e) => setCrmModel(e.target.value)}
-                  placeholder={crmPreset?.defaultModel || 'nome do modelo'}
-                />
-                <datalist id="crm-ai-models">
-                  {(crmPreset?.models ?? []).map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-              </div>
-            )}
-          </div>
-
-          {crmProvider === 'custom' && (
-            <div className="field-sm">
-              <span>Endpoint (compatível com OpenAI)</span>
-              <input value={crmBaseUrl} onChange={(e) => setCrmBaseUrl(e.target.value)} placeholder="https://.../v1" />
-            </div>
-          )}
-
-          {crmProvider && (
-            <div className="field-sm">
-              <span>
-                Chave da API{' '}
-                {crmPreset?.keyUrl && (
-                  <a href={crmPreset.keyUrl} target="_blank" rel="noreferrer" className="small">
-                    (onde pegar)
-                  </a>
-                )}
-              </span>
-              <input
-                type="password"
-                value={crmApiKey}
-                onChange={(e) => setCrmApiKey(e.target.value)}
-                placeholder={crmHasKey ? '•••••••• (chave salva — deixe em branco para manter)' : crmPreset?.keyHint || 'cole a chave'}
-                autoComplete="off"
-              />
-            </div>
-          )}
-
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <button className="primary" onClick={saveCrm}>
-              {crmSaved ? 'Salvo' : 'Salvar e conectar'}
+          <div className="row">
+            <button className="primary" onClick={save}>
+              {saved ? 'Salvo' : 'Salvar'}
             </button>
-            {crmProvider && (
-              <button onClick={testCrm} disabled={crmTesting}>
-                {crmTesting ? 'Testando…' : 'Testar conexão'}
-              </button>
-            )}
-            {crmHasKey && (
-              <button className="ghost" onClick={disconnectCrm}>
-                Desconectar
-              </button>
-            )}
-            {crmTestMsg && <span className={`small ${crmTestMsg.ok ? 'ok-text' : 'late-text'}`}>{crmTestMsg.text}</span>}
-          </div>
-
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-            <button className="soft" onClick={reclassify} title="Roda a IA em todas as conversas abertas e ajusta as etapas">
-              <Icon name="refresh" size={15} /> Reavaliar conversas agora
-            </button>
-            {reclass && <span className={`small ${reclass.ok ? 'ok-text' : 'late-text'}`}>{reclass.text}</span>}
           </div>
         </section>
       </div>

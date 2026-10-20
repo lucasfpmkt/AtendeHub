@@ -12,7 +12,7 @@ async function mediaFields(ws: string, media?: InboundMedia) {
   return { mediaType: media.kind, mediaId, mediaName: media.filename ?? null, mimeType: media.mimetype };
 }
 import type { ChatTurn } from './llm.js';
-import { resolveLlm, resolveCrmLlm } from './llm.js';
+import { resolveLlm, resolveCrmLlm, platformAutoStage } from './llm.js';
 import {
   decideTarget,
   findAgentByName,
@@ -207,10 +207,9 @@ export async function importHistoryMessage(params: {
  * Roda em segundo plano a cada mensagem recebida (quando ligado em Ajustes).
  */
 export async function autoMoveStage(ws: string, conversationId: string, force = false) {
-  const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
-  if (!force && cfg && cfg.autoStage === false) return; // desligado pelo cliente (botão manual ignora)
+  if (!force && !(await platformAutoStage())) return; // desligado pelo admin (botão manual ignora)
 
-  const llm = await resolveCrmLlm(ws); // IA dedicada do CRM (ou a dos agentes, se não houver)
+  const llm = await resolveCrmLlm(); // IA global do CRM (ou a dos agentes, se não houver)
   if (!llm.ready) return;
 
   const funnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });

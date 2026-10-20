@@ -267,3 +267,18 @@ model Campaign {
   status      String   @default("running") // running | done | error
   createdAt   DateTime @default(now())
 }
+
+/// Configuração de IA GLOBAL da plataforma (uma só, controlada pelo admin).
+/// Vale para todos os clientes; o cliente não altera.
+model PlatformConfig {
+  id          String  @id @default("global")
+  provider    String  @default("")
+  apiKey      String  @default("")
+  baseUrl     String  @default("")
+  model       String  @default("")
+  crmProvider String  @default("")
+  crmApiKey   String  @default("")
+  crmBaseUrl  String  @default("")
+  crmModel    String  @default("")
+  autoStage   Boolean @default(true)
+}

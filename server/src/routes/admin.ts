@@ -3,9 +3,61 @@ import { prisma } from '../db.js';
 import { clearAccessCache, hashPassword } from '../auth.js';
 import { createWorkspace } from '../services/tenancy.js';
 import { dropSession, getStatus } from '../whatsapp/session.js';
+import { getPlatformConfig, updatePlatformConfig } from '../services/platform.js';
+import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
+import { reclassifyAllStages } from '../services/inbound.js';
 
 /** Painel do administrador: todos os clientes (workspaces) e seus acessos. */
 export const adminRouter = Router();
+
+/* ------------------------ IA global da plataforma ------------------------ */
+adminRouter.get('/ai', async (_req, res) => {
+  const cfg = await getPlatformConfig();
+  const [llm, crmLlm] = await Promise.all([resolveLlm(), resolveCrmLlm()]);
+  const { apiKey, crmApiKey, ...safe } = cfg;
+  res.json({
+    ...safe,
+    hasKey: Boolean(apiKey && apiKey.trim()),
+    crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
+    providerConnected: llm.ready,
+    crmConnected: crmLlm.ready,
+    providers: providersPublic(),
+  });
+});
+
+adminRouter.patch('/ai', async (req, res) => {
+  const cfg = await updatePlatformConfig(req.body ?? {});
+  const [llm, crmLlm] = await Promise.all([resolveLlm(), resolveCrmLlm()]);
+  const { apiKey, crmApiKey, ...safe } = cfg;
+  res.json({
+    ...safe,
+    hasKey: Boolean(apiKey && apiKey.trim()),
+    crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
+    providerConnected: llm.ready,
+    crmConnected: crmLlm.ready,
+  });
+});
+
+adminRouter.post('/ai/test', async (req, res) => {
+  try {
+    const llm = req.query.which === 'crm' ? await resolveCrmLlm() : await resolveLlm();
+    if (!llm.ready) return res.status(400).json({ ok: false, error: 'Nenhum provedor conectado. Salve a chave primeiro.' });
+    const out = await llm.complete({ system: 'Responda apenas com a palavra OK.', messages: [{ role: 'user', content: 'teste' }], maxTokens: 5 });
+    res.json({ ok: true, provider: llm.provider, model: llm.model, sample: out.slice(0, 40) });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+// Reavalia as conversas de TODOS os clientes e ajusta as etapas.
+adminRouter.post('/ai/reclassify-all', async (_req, res) => {
+  const crmLlm = await resolveCrmLlm();
+  if (!crmLlm.ready) return res.status(400).json({ error: 'Conecte a IA da plataforma antes de reavaliar.' });
+  const workspaces = await prisma.workspace.findMany({ where: { active: true }, select: { id: true } });
+  let total = 0;
+  for (const w of workspaces) total += await reclassifyAllStages(w.id);
+  res.json({ total, workspaces: workspaces.length });
+});
 
 const PLANS = ['MENSAL', 'CLIENTE', 'TESTE'];
 const cleanEmail = (v: unknown) => String(v ?? '').trim().toLowerCase();
