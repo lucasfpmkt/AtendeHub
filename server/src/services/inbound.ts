@@ -136,6 +136,60 @@ export async function recordOutgoingMessage(params: {
   emit(ws, { type: 'conversation:update', conversation: updated });
 }
 
+/**
+ * Importa UMA mensagem do histórico do WhatsApp (sincronização inicial do Baileys).
+ * Diferente de uma mensagem ao vivo: NÃO dispara IA, automações, follow-up nem
+ * notificação de não-lida. Só registra a conversa com o horário original, para a
+ * equipe ver a conversa inteira no LawHub. Idempotente (dedup pelo id da mensagem).
+ */
+export async function importHistoryMessage(params: {
+  workspaceId: string;
+  waJid: string;
+  pushName?: string;
+  body: string;
+  fromMe: boolean;
+  waMessageId?: string;
+  timestampMs: number;
+}) {
+  const { workspaceId: ws, waJid, pushName, body, fromMe, waMessageId, timestampMs } = params;
+  if (!body?.trim()) return;
+
+  if (waMessageId) {
+    const already = await prisma.message.findFirst({ where: { waMessageId, conversation: { workspaceId: ws } } });
+    if (already) return; // já temos esta mensagem
+  }
+
+  const phone = phoneFromJid(waJid);
+  const contact = await prisma.contact.upsert({
+    where: { workspaceId_waJid: { workspaceId: ws, waJid } },
+    update: pushName ? { name: pushName } : {},
+    create: { workspaceId: ws, waJid, phone, name: pushName || null },
+  });
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { workspaceId: ws, contactId: contact.id },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+  if (!conversation) {
+    conversation = await prisma.conversation.create({ data: { workspaceId: ws, contactId: contact.id } });
+  }
+
+  const createdAt = new Date(timestampMs || Date.now());
+  await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      direction: fromMe ? 'out' : 'in',
+      author: fromMe ? 'agent' : 'contact',
+      body,
+      waMessageId,
+      createdAt, // preserva o horário original para a ordem da conversa
+    },
+  });
+  if (createdAt > conversation.lastMessageAt) {
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: createdAt } });
+  }
+}
+
 /** Processa uma mensagem recebida do WhatsApp. */
 export async function handleInboundMessage(params: {
   workspaceId: string;
