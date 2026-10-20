@@ -58,6 +58,7 @@ export async function getAiConfig(ws: string) {
 export type AiConfigPatch = {
   systemPrompt?: string;
   autoReply?: boolean;
+  autoStage?: boolean;
   provider?: string;
   model?: string;
   baseUrl?: string;
@@ -70,6 +71,7 @@ export async function updateAiConfig(ws: string, data: AiConfigPatch) {
   const patch: Record<string, unknown> = {};
   if (typeof data.systemPrompt === 'string') patch.systemPrompt = data.systemPrompt;
   if (typeof data.autoReply === 'boolean') patch.autoReply = data.autoReply;
+  if (typeof data.autoStage === 'boolean') patch.autoStage = data.autoStage;
   if (typeof data.provider === 'string') patch.provider = data.provider;
   if (typeof data.model === 'string') patch.model = data.model;
   if (typeof data.baseUrl === 'string') patch.baseUrl = data.baseUrl.trim();

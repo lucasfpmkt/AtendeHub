@@ -20,8 +20,8 @@ aiRouter.get('/config', async (req, res) => {
 });
 
 aiRouter.patch('/config', async (req, res) => {
-  const { systemPrompt, autoReply, provider, model, baseUrl, apiKey, clearKey } = req.body ?? {};
-  const cfg = await updateAiConfig(wsOf(req), { systemPrompt, autoReply, provider, model, baseUrl, apiKey, clearKey });
+  const { systemPrompt, autoReply, autoStage, provider, model, baseUrl, apiKey, clearKey } = req.body ?? {};
+  const cfg = await updateAiConfig(wsOf(req), { systemPrompt, autoReply, autoStage, provider, model, baseUrl, apiKey, clearKey });
   const llm = await resolveLlm(wsOf(req));
   const { apiKey: _k, ...safe } = cfg;
   res.json({ ...safe, hasKey: Boolean(_k && _k.trim()), providerConnected: llm.ready });

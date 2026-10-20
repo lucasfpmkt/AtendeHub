@@ -202,6 +202,48 @@ export async function importHistoryMessage(params: {
   }
 }
 
+/**
+ * A IA lê a conversa e move o lead para a etapa certa do funil automaticamente.
+ * Roda em segundo plano a cada mensagem recebida (quando ligado em Ajustes).
+ */
+export async function autoMoveStage(ws: string, conversationId: string) {
+  const cfg = await prisma.aiConfig.findUnique({ where: { id: ws } });
+  if (cfg && cfg.autoStage === false) return; // desligado pelo cliente
+
+  const llm = await resolveLlm(ws);
+  if (!llm.ready) return;
+
+  const funnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
+  if (!funnel) return;
+  const stages = await prisma.pipelineStage.findMany({ where: { funnelId: funnel.id }, orderBy: { order: 'asc' } });
+  if (stages.length < 2) return;
+
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
+  if (!conv) return;
+  const deal = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId: conv.contactId }, orderBy: { createdAt: 'desc' } });
+  const currentStage = deal?.stageId ? stages.find((s) => s.id === deal.stageId)?.name : undefined;
+
+  const history = await historyOf(conversationId);
+  if (history.length < 2) return; // pouca conversa para classificar
+
+  const lista = stages.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+  const system =
+    'Você classifica em qual ETAPA do funil de vendas um lead está, com base na conversa de atendimento.\n' +
+    `Etapas disponíveis (em ordem):\n${lista}\n` +
+    (currentStage ? `Etapa atual do lead: "${currentStage}".\n` : '') +
+    'Responda APENAS com o nome EXATO de uma etapa da lista, ou a palavra "manter" se nada mudou ou se tiver dúvida. ' +
+    'Seja conservador com etapas finais (ex.: "Fechado", "Perdido"): só use se o cliente deixou explícito. Não explique.';
+  try {
+    const out = (await llm.complete({ system, messages: history, maxTokens: 20 })).trim();
+    if (/manter/i.test(out)) return;
+    const target = stages.find((s) => normalize(s.name) === normalize(out)) ?? stages.find((s) => normalize(out).includes(normalize(s.name)));
+    if (!target || target.name === currentStage) return;
+    await applyStage(ws, conversationId, target.name);
+  } catch (err) {
+    console.error('[auto-stage] falhou:', (err as Error).message);
+  }
+}
+
 /** Processa uma mensagem recebida do WhatsApp. */
 export async function handleInboundMessage(params: {
   workspaceId: string;
@@ -257,6 +299,8 @@ export async function handleInboundMessage(params: {
   emit(ws, { type: 'conversation:update', conversation });
   // Todo lead que escreve entra no CRM (1ª etapa do funil), se ainda não estiver.
   await ensureDealForContact(ws, contact.id).catch((e) => console.error('[crm] falha ao criar negócio:', e));
+  // A IA lê a conversa e reavalia a etapa do lead (em segundo plano).
+  void autoMoveStage(ws, conversation.id).catch(() => {});
   if (startedBy) await systemNote(ws, conversation.id, `${startedBy.name} assumiu o atendimento.`);
 
   if (!conversation.aiEnabled) {

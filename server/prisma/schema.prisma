@@ -235,4 +235,5 @@ model AiConfig {
   provider     String  @default("anthropic") // anthropic | openai | gemini | deepseek | groq | mistral | xai | openrouter | custom
   apiKey       String  @default("") // chave do provedor escolhido (por cliente)
   baseUrl      String  @default("") // endpoint (só p/ "custom" ou override)
+  autoStage    Boolean @default(true) // IA move a etapa do CRM lendo a conversa
 }
