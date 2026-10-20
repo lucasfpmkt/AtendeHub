@@ -12,7 +12,7 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import { emit, type WaStatus } from '../realtime.js';
 import { prisma } from '../db.js';
-import { handleInboundMessage, recordOutgoingMessage } from '../services/inbound.js';
+import { handleInboundMessage, importHistoryMessage, recordOutgoingMessage } from '../services/inbound.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Em produção/Docker, aponte WA_AUTH_DIR para um volume persistente.
@@ -119,6 +119,8 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
       // Não marca o número como "online" ao conectar: assim o celular continua
       // recebendo as notificações normais do WhatsApp.
       markOnlineOnConnect: false,
+      // Puxa o histórico de conversas do aparelho na sincronização inicial.
+      syncFullHistory: true,
     });
     s.sock = sock;
 
@@ -152,6 +154,40 @@ export async function startWhatsApp(ws: string, opts: { phone?: string } = {}) {
         s.pairCode = null;
         setStatus(ws, 'disconnected');
         if (!loggedOut) setTimeout(() => void startWhatsApp(ws), 2000); // queda de rede etc.
+      }
+    });
+
+    // Histórico: o aparelho envia as conversas antigas em lotes após conectar.
+    sock.ev.on('messaging-history.set', async ({ messages }) => {
+      if (!messages?.length) return;
+      let imported = 0;
+      for (const m of messages) {
+        const jid = m.key.remoteJid;
+        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue;
+        const body =
+          m.message?.conversation ??
+          m.message?.extendedTextMessage?.text ??
+          m.message?.imageMessage?.caption ??
+          m.message?.videoMessage?.caption ??
+          '';
+        if (!body) continue;
+        await importHistoryMessage({
+          workspaceId: ws,
+          waJid: jid,
+          pushName: m.pushName ?? undefined,
+          body,
+          fromMe: Boolean(m.key.fromMe),
+          waMessageId: m.key.id ?? undefined,
+          timestampMs: Number(m.messageTimestamp ?? 0) * 1000,
+        })
+          .then(() => (imported += 1))
+          .catch((err) => console.error(`[wa:${ws}] falha ao importar histórico:`, err));
+      }
+      if (imported > 0) {
+        console.log(`[wa:${ws}] histórico importado: ${imported} mensagens`);
+        // Recarrega a lista de conversas na UI e o CRM.
+        emit(ws, { type: 'conversation:update', conversation: { id: 'history-sync' } });
+        emit(ws, { type: 'crm:update' });
       }
     });
 
