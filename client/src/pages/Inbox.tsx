@@ -126,6 +126,34 @@ export function Inbox({
     }
   };
 
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [schedList, setSchedList] = useState<{ id: string; body: string; sendAt: string }[]>([]);
+  const [schedAt, setSchedAt] = useState('');
+  const [schedBody, setSchedBody] = useState('');
+
+  const openSched = async () => {
+    if (!activeId) return;
+    setSchedBody(text.trim());
+    setSchedAt('');
+    setSchedOpen(true);
+    api.schedules(activeId).then(setSchedList).catch(() => {});
+  };
+  const saveSched = async () => {
+    if (!activeId || !schedBody.trim() || !schedAt) return;
+    try {
+      await api.schedule(activeId, schedBody.trim(), new Date(schedAt).toISOString());
+      setSchedBody('');
+      setSchedAt('');
+      api.schedules(activeId).then(setSchedList).catch(() => {});
+    } catch (x) {
+      setError((x as Error).message);
+    }
+  };
+  const cancelSched = async (id: string) => {
+    await api.cancelSchedule(id).catch(() => {});
+    if (activeId) api.schedules(activeId).then(setSchedList).catch(() => {});
+  };
+
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -315,6 +343,9 @@ export function Inbox({
                 placeholder={connected ? 'Escreva uma mensagem ou / para mensagens rápidas' : 'Conecte o WhatsApp para enviar'}
                 disabled={!connected}
               />
+              <button type="button" onClick={openSched} disabled={!connected} title="Agendar mensagem / lembrete" aria-label="Agendar mensagem">
+                <Icon name="clock" />
+              </button>
               <button type="button" onClick={draft} disabled={aiBusy} title="Sugerir resposta com IA" aria-label="Sugerir resposta com IA">
                 {aiBusy ? '…' : <Icon name="sparkle" />}
               </button>
@@ -322,6 +353,48 @@ export function Inbox({
                 <Icon name="send" />
               </button>
             </form>
+
+            {schedOpen && (
+              <div className="modal-backdrop" onClick={() => setSchedOpen(false)}>
+                <div className="modal" onClick={(e) => e.stopPropagation()}>
+                  <h3>Agendar mensagem</h3>
+                  <div className="field">
+                    <label>Quando enviar</label>
+                    <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Mensagem</label>
+                    <textarea rows={3} value={schedBody} onChange={(e) => setSchedBody(e.target.value)} placeholder="Ex.: Olá! Passando para lembrar da sua consulta amanhã às 15h." />
+                  </div>
+                  {schedList.length > 0 && (
+                    <div className="field">
+                      <label>Agendadas</label>
+                      <div className="stack-sm">
+                        {schedList.map((s) => (
+                          <div key={s.id} className="row between small" style={{ gap: 8 }}>
+                            <span>
+                              <b>{new Date(s.sendAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</b> — {s.body.slice(0, 40)}
+                              {s.body.length > 40 ? '…' : ''}
+                            </span>
+                            <button className="link" onClick={() => cancelSched(s.id)}>
+                              cancelar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="modal-actions">
+                    <button className="ghost" onClick={() => setSchedOpen(false)}>
+                      Fechar
+                    </button>
+                    <button className="primary" onClick={saveSched} disabled={!schedBody.trim() || !schedAt}>
+                      Agendar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="empty center">

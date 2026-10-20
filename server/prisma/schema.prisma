@@ -237,3 +237,16 @@ model AiConfig {
   baseUrl      String  @default("") // endpoint (só p/ "custom" ou override)
   autoStage    Boolean @default(true) // IA move a etapa do CRM lendo a conversa
 }
+
+/// Mensagem agendada (lembrete/consulta) para enviar pelo WhatsApp no futuro.
+model ScheduledMessage {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  body           String
+  sendAt         DateTime
+  sent           Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([sent, sendAt])
+}
