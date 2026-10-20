@@ -20,6 +20,7 @@ import { crmRouter } from './routes/crm.js';
 import { aiRouter } from './routes/ai.js';
 import { agentsRouter } from './routes/agents.js';
 import { workRouter } from './routes/work.js';
+import { campaignsRouter } from './routes/campaigns.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,7 @@ app.use('/api/whatsapp', requireAuth, whatsappRouter);
 app.use('/api', requireAuth, crmRouter);
 app.use('/api/ai', requireAuth, aiRouter);
 app.use('/api/agents', requireAuth, agentsRouter);
+app.use('/api/campaigns', requireAuth, campaignsRouter);
 app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 app.use('/api', requireAuth, workRouter);
 

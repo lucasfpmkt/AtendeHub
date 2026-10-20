@@ -250,3 +250,15 @@ model ScheduledMessage {
 
   @@index([sent, sendAt])
 }
+
+/// Campanha de disparo em massa (com throttle para evitar bloqueio).
+model Campaign {
+  id          String   @id @default(cuid())
+  workspaceId String
+  body        String
+  audience    String   @default("all") // descrição legível do público
+  total       Int      @default(0)
+  sent        Int      @default(0)
+  status      String   @default("running") // running | done | error
+  createdAt   DateTime @default(now())
+}

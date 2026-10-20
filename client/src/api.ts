@@ -318,6 +318,12 @@ export const api = {
     req(`/conversations/${conversationId}/schedules`, { method: 'POST', body: JSON.stringify({ body, sendAt }) }),
   cancelSchedule: (id: string) => req(`/schedules/${id}`, { method: 'DELETE' }),
 
+  // Campanhas (disparo em massa)
+  campaigns: () =>
+    req<{ id: string; body: string; audience: string; total: number; sent: number; status: string; createdAt: string }[]>('/campaigns'),
+  startCampaign: (body: string, audienceType: 'all' | 'tag' | 'stage', value?: string) =>
+    req<{ id: string; total: number }>('/campaigns', { method: 'POST', body: JSON.stringify({ body, audienceType, value }) }),
+
   // Contatos
   contacts: (q = '') => req<Contact[]>(`/contacts?q=${encodeURIComponent(q)}`),
   updateContact: (id: string, data: Partial<Contact>) =>
