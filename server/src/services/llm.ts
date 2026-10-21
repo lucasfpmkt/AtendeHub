@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
+import { dec } from '../crypto.js';
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string };
 
@@ -242,7 +243,7 @@ export async function resolveLlm(_ws?: string): Promise<Llm> {
   // A config global do admin tem prioridade; depois o ambiente; por fim o preset.
   const provider = platform?.provider?.trim() || envProvider || 'anthropic';
   const preset = providerPreset(provider);
-  const apiKey = platform?.apiKey?.trim() || envKey || (provider === 'anthropic' ? env.anthropicKey : '') || '';
+  const apiKey = dec(platform?.apiKey).trim() || envKey || (provider === 'anthropic' ? env.anthropicKey : '') || '';
   const baseUrl = platform?.baseUrl?.trim() || envBase || preset.baseUrl || '';
   const model = platform?.model?.trim() || envModel || preset.defaultModel || env.aiModel;
   return buildLlm(provider, apiKey, baseUrl, model);
@@ -255,7 +256,7 @@ export async function resolveLlm(_ws?: string): Promise<Llm> {
 export async function resolveCrmLlm(_ws?: string): Promise<Llm> {
   const platform = await prisma.platformConfig.findUnique({ where: { id: 'global' } });
   const provider = platform?.crmProvider?.trim();
-  const apiKey = platform?.crmApiKey?.trim();
+  const apiKey = dec(platform?.crmApiKey).trim();
   if (!provider || !apiKey) return resolveLlm(); // sem IA de CRM própria → usa a dos agentes
   const preset = providerPreset(provider);
   const baseUrl = platform?.crmBaseUrl?.trim() || preset.baseUrl || '';

@@ -1,6 +1,17 @@
+import { rm } from 'node:fs/promises';
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { getStatus, sendText } from '../whatsapp/session.js';
+import { mediaFilePath } from '../whatsapp/media.js';
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** Clientes ativos e dentro do prazo (não envia para conta desativada/vencida). */
+async function activeWorkspaceIds(): Promise<Set<string>> {
+  const all = await prisma.workspace.findMany({ where: { active: true }, select: { id: true, expiresAt: true } });
+  const t = today();
+  return new Set(all.filter((w) => !w.expiresAt || w.expiresAt >= t).map((w) => w.id));
+}
 
 /**
  * Follow-up automático por etapa do funil.
@@ -17,6 +28,7 @@ async function runFollowupsOnce() {
   });
   if (stages.length === 0) return;
 
+  const active = await activeWorkspaceIds();
   const now = Date.now();
   for (const stage of stages) {
     const cutoff = new Date(now - stage.followupMinutes * 60_000);
@@ -33,7 +45,7 @@ async function runFollowupsOnce() {
     for (const deal of deals) {
       const ws = deal.workspaceId;
       const contact = deal.contact;
-      if (!ws || !contact?.waJid) continue;
+      if (!ws || !contact?.waJid || !active.has(ws)) continue; // cliente inativo/vencido
       if (getStatus(ws).status !== 'connected') continue; // WhatsApp desconectado: tenta no próximo ciclo
 
       try {
@@ -82,8 +94,10 @@ async function runScheduledMessagesOnce() {
     where: { sent: false, sendAt: { lte: new Date() } },
     take: 50,
   });
+  const active = due.length ? await activeWorkspaceIds() : new Set<string>();
   for (const sched of due) {
     try {
+      if (!active.has(sched.workspaceId)) continue; // cliente inativo/vencido
       const conversation = await prisma.conversation.findUnique({
         where: { id: sched.conversationId },
         include: { contact: true },
@@ -112,16 +126,45 @@ async function runScheduledMessagesOnce() {
 
 let timer: NodeJS.Timeout | null = null;
 
+/** Apaga mídia antiga (quando MEDIA_RETENTION_DAYS > 0) e zera o id na mensagem. */
+async function cleanupOldMedia() {
+  const days = Number(process.env.MEDIA_RETENTION_DAYS || 0);
+  if (!days || days < 1) return; // desligado por padrão
+  const cutoff = new Date(Date.now() - days * 86_400_000);
+  const old = await prisma.message.findMany({
+    where: { mediaId: { not: null }, createdAt: { lt: cutoff } },
+    select: { id: true, mediaId: true, conversation: { select: { workspaceId: true } } },
+    take: 500,
+  });
+  for (const m of old) {
+    const ws = m.conversation?.workspaceId;
+    if (ws && m.mediaId) await rm(mediaFilePath(ws, m.mediaId), { force: true }).catch(() => {});
+    await prisma.message.update({ where: { id: m.id }, data: { mediaId: null } }).catch(() => {});
+  }
+}
+
+/** Marca como interrompidas campanhas que ficaram "running" (restart no meio). */
+async function cleanupStuckCampaigns() {
+  const stale = new Date(Date.now() - 2 * 3_600_000); // 2h
+  await prisma.campaign
+    .updateMany({ where: { status: 'running', createdAt: { lt: stale } }, data: { status: 'error' } })
+    .catch(() => {});
+}
+
 /** Liga o laço de follow-up e mensagens agendadas (verifica a cada minuto). */
 export function startFollowupLoop() {
   if (timer) return;
+  let ticks = 0;
   timer = setInterval(() => {
     void runFollowupsOnce().catch((e) => console.error('[follow-up] ciclo falhou:', e));
     void runScheduledMessagesOnce().catch((e) => console.error('[agendada] ciclo falhou:', e));
+    if (++ticks % 1440 === 0) void cleanupOldMedia().catch(() => {}); // 1x por dia
   }, 60_000);
   // Primeira verificação logo após subir (dá tempo das sessões conectarem).
   setTimeout(() => {
     void runFollowupsOnce().catch(() => {});
     void runScheduledMessagesOnce().catch(() => {});
+    void cleanupStuckCampaigns().catch(() => {});
+    void cleanupOldMedia().catch(() => {});
   }, 20_000);
 }

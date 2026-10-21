@@ -108,6 +108,12 @@ server.listen(env.port, async () => {
   if (env.serveClient) console.log('  Servindo frontend compilado (client/dist)');
   console.log('');
   await ensureTenancy();
+  if (env.adminPassword === 'admin') {
+    console.warn('[segurança] Senha de admin padrão ("admin") em uso. Defina ADMIN_PASSWORD no ambiente e troque a senha.');
+  }
+  if (env.allowSignup) {
+    console.warn('[segurança] Criação de conta pública está LIGADA. Defina ALLOW_SIGNUP=0 se o cadastro deve ser só pelo admin.');
+  }
   await startSavedSessions();
   startFollowupLoop();
 });

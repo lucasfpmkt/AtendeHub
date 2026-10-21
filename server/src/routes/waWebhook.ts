@@ -38,6 +38,9 @@ waWebhookRouter.post('/:ws', async (req, res) => {
     for (const entry of req.body?.entry ?? []) {
       for (const change of entry?.changes ?? []) {
         const value = change?.value;
+        // Anti-spoofing: só aceita eventos do número configurado para este cliente.
+        const incomingPhoneId = value?.metadata?.phone_number_id;
+        if (cfg.cloudPhoneId && incomingPhoneId && incomingPhoneId !== cfg.cloudPhoneId) continue;
         const contactName = value?.contacts?.[0]?.profile?.name as string | undefined;
         for (const msg of value?.messages ?? []) {
           if (msg.type === 'reaction' || msg.type === 'system') continue;

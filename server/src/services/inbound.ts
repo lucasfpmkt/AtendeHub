@@ -63,7 +63,13 @@ async function historyOf(conversationId: string): Promise<ChatTurn[]> {
  * (o primeiro funil do cliente) se ainda não houver um para este contato.
  * Idempotente — pode ser chamado a cada mensagem recebida.
  */
+const dealLocks = new Set<string>(); // evita criar 2 negócios para o mesmo contato em paralelo
+
 export async function ensureDealForContact(ws: string, contactId: string) {
+  const key = `${ws}:${contactId}`;
+  if (dealLocks.has(key)) return; // já tem uma criação em andamento
+  dealLocks.add(key);
+  try {
   const exists = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId } });
   if (exists) return;
 
@@ -85,6 +91,9 @@ export async function ensureDealForContact(ws: string, contactId: string) {
   });
   if (stage) await prisma.contact.update({ where: { id: contactId }, data: { stageId: stage.id } }).catch(() => {});
   emit(ws, { type: 'crm:update' });
+  } finally {
+    dealLocks.delete(key);
+  }
 }
 
 /** Nota interna na conversa: aparece para a equipe, não vai para o WhatsApp nem para a IA. */
@@ -210,8 +219,15 @@ export async function importHistoryMessage(params: {
  * A IA lê a conversa e move o lead para a etapa certa do funil automaticamente.
  * Roda em segundo plano a cada mensagem recebida (quando ligado em Ajustes).
  */
+const lastAutoStage = new Map<string, number>(); // throttle por conversa (reduz custo da IA)
+
 export async function autoMoveStage(ws: string, conversationId: string, force = false) {
   if (!force && !(await platformAutoStage())) return; // desligado pelo admin (botão manual ignora)
+  if (!force) {
+    const last = lastAutoStage.get(conversationId) ?? 0;
+    if (Date.now() - last < 90_000) return; // no máximo 1 reavaliação por conversa a cada 90s
+    lastAutoStage.set(conversationId, Date.now());
+  }
 
   const llm = await resolveCrmLlm(); // IA global do CRM (ou a dos agentes, se não houver)
   if (!llm.ready) return;

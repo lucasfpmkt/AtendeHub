@@ -7,6 +7,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { kindLabel, type MediaKind } from './media.js';
 import { sendTextCloud, sendMediaCloud } from './cloud.js';
+import { dec } from '../crypto.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -52,7 +53,19 @@ function sessionOf(ws: string): Session {
 export async function refreshChannel(ws: string) {
   const cfg = await prisma.waConfig.findUnique({ where: { id: ws } });
   if (cfg?.channel === 'cloud' && cfg.cloudPhoneId.trim() && cfg.cloudToken.trim()) {
-    cloudInfo.set(ws, { phoneId: cfg.cloudPhoneId.trim(), token: cfg.cloudToken.trim() });
+    cloudInfo.set(ws, { phoneId: cfg.cloudPhoneId.trim(), token: dec(cfg.cloudToken) });
+    // Virou API Oficial: encerra qualquer sessão Baileys antiga (evita duplicidade).
+    const s = sessions.get(ws);
+    if (s?.sock) {
+      try {
+        s.sock.end?.(undefined as unknown as Error);
+      } catch {
+        /* ignore */
+      }
+      s.sock = null;
+      s.starting = false;
+      s.status = 'disconnected';
+    }
   } else {
     cloudInfo.delete(ws);
   }
@@ -310,7 +323,7 @@ export async function startSavedSessions() {
   const configs = await prisma.waConfig.findMany();
   for (const c of configs) {
     if (c.channel === 'cloud' && c.cloudPhoneId.trim() && c.cloudToken.trim()) {
-      cloudInfo.set(c.id, { phoneId: c.cloudPhoneId.trim(), token: c.cloudToken.trim() });
+      cloudInfo.set(c.id, { phoneId: c.cloudPhoneId.trim(), token: dec(c.cloudToken) });
     }
   }
   const all = await prisma.workspace.findMany({ where: { active: true }, select: { id: true } });

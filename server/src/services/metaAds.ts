@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '../db.js';
+import { dec } from '../crypto.js';
 
 const GRAPH = `https://graph.facebook.com/${process.env.GRAPH_VERSION ?? 'v21.0'}`;
 const sha256 = (s: string) => createHash('sha256').update(s.trim().toLowerCase()).digest('hex');
@@ -44,7 +45,7 @@ export async function maybeFireQualifiedLead(ws: string, contactId: string, stag
   try {
     await sendCapiLead({
       pixelId: cfg.pixelId,
-      token: cfg.token,
+      token: dec(cfg.token),
       eventName: cfg.eventName,
       phone: contact.phone,
       ctwaClid: contact.ctwaClid || undefined,

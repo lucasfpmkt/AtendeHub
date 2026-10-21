@@ -6,6 +6,7 @@ import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { saveMedia, kindFromMime } from '../whatsapp/media.js';
 import { listTemplates } from '../whatsapp/cloud.js';
+import { enc, dec } from '../crypto.js';
 
 /** Conexão de WhatsApp do cliente aberto (cada escritório tem a sua). */
 export const whatsappRouter = Router();
@@ -34,7 +35,7 @@ whatsappRouter.get('/cloud/templates', async (req, res) => {
   const cfg = await prisma.waConfig.findUnique({ where: { id: wsOf(req) } });
   if (!cfg?.cloudToken || !cfg?.cloudWabaId) return res.json([]);
   try {
-    res.json(await listTemplates(cfg.cloudWabaId, cfg.cloudToken));
+    res.json(await listTemplates(cfg.cloudWabaId, dec(cfg.cloudToken)));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -47,7 +48,7 @@ whatsappRouter.patch('/cloud', async (req, res) => {
   if (channel === 'qr' || channel === 'cloud') data.channel = channel;
   if (typeof phoneId === 'string') data.cloudPhoneId = phoneId.trim();
   if (typeof wabaId === 'string') data.cloudWabaId = wabaId.trim();
-  if (typeof token === 'string' && token.trim()) data.cloudToken = token.trim();
+  if (typeof token === 'string' && token.trim()) data.cloudToken = enc(token.trim());
   await prisma.waConfig.upsert({
     where: { id: ws },
     update: data,
