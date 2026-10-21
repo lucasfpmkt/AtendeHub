@@ -9,7 +9,7 @@ import { Inbox } from './pages/Inbox';
 import { Contacts } from './pages/Contacts';
 import { Campaigns } from './pages/Campaigns';
 import { Tags } from './pages/Tags';
-import { MetaAds, MetaReport, GoogleAds } from './pages/Ads';
+import { Marketing } from './pages/Ads';
 import { Pipeline } from './pages/Pipeline';
 import { Settings } from './pages/Settings';
 import { Home } from './pages/Home';
@@ -31,9 +31,7 @@ export type Tab =
   | 'contacts'
   | 'campaigns'
   | 'tags'
-  | 'metaads'
-  | 'metareport'
-  | 'googleads'
+  | 'marketing'
   | 'tasks'
   | 'agenda'
   | 'connect'
@@ -51,9 +49,7 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: 'tags', label: 'Etiquetas', icon: 'tag' },
   { id: 'contacts', label: 'Contatos', icon: 'users' },
   { id: 'campaigns', label: 'Campanhas', icon: 'send' },
-  { id: 'metaads', label: 'Meta ADS', icon: 'share' },
-  { id: 'metareport', label: 'Meta Detalhes', icon: 'list' },
-  { id: 'googleads', label: 'Google ADS', icon: 'grid' },
+  { id: 'marketing', label: 'Marketing', icon: 'share' },
   { id: 'tasks', label: 'Gestão de Tarefas', icon: 'check' },
   { id: 'agenda', label: 'Agendas', icon: 'cal' },
 ];
@@ -123,7 +119,12 @@ export function App() {
 function Shell({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const { user, workspace } = session;
   const isAdmin = user.role === 'admin';
-  const [tab, setTabState] = useState<Tab>(() => (localStorage.getItem(TAB_KEY) as Tab | null) ?? 'home');
+  const [tab, setTabState] = useState<Tab>(() => {
+    const saved = localStorage.getItem(TAB_KEY);
+    // Migração: as antigas abas de anúncios viraram uma só ("Marketing").
+    if (saved === 'metaads' || saved === 'metareport' || saved === 'googleads') return 'marketing';
+    return (saved as Tab | null) ?? 'home';
+  });
   const [waStatus, setWaStatus] = useState<string>('disconnected');
   const [me, setMe] = useState<string | undefined>();
   const [unread, setUnread] = useState(0);
@@ -281,9 +282,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
         {current === 'contacts' && <Contacts />}
         {current === 'campaigns' && <Campaigns connected={connected} />}
         {current === 'tags' && <Tags />}
-        {current === 'metaads' && <MetaAds />}
-        {current === 'metareport' && <MetaReport />}
-        {current === 'googleads' && <GoogleAds />}
+        {current === 'marketing' && <Marketing />}
         {current === 'tasks' && <Tasks />}
         {current === 'agenda' && <Agenda />}
         {current === 'connect' && <Connect status={waStatus} me={me} />}

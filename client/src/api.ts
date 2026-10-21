@@ -671,6 +671,8 @@ export const api = {
     conversionActionId?: string;
     conversionName?: string;
   }) => req('/ads/google', { method: 'PATCH', body: JSON.stringify(data) }),
+  adsGoogleBreakdown: (preset = 'last_30d') =>
+    req<{ configured: boolean; error?: string; campaigns?: MetaAdNode[] }>(`/ads/google/breakdown?preset=${preset}`),
   adsGoogleOauthUrl: () => req<{ available: boolean; url?: string }>('/ads/google/oauth-url'),
   adsGoogleCustomers: () => req<{ customers: { id: string; name: string }[]; error?: string }>('/ads/google/customers'),
   adsGoogleConversionActions: () => req<{ actions: { id: string; name: string }[]; error?: string }>('/ads/google/conversion-actions'),

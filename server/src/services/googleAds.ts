@@ -171,6 +171,93 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
   };
 }
 
+/* ------------- Detalhamento campanhas → grupos → anúncios --------------- */
+
+// Cache simples por conta+período (evita bloqueios/rate-limit do Google).
+const gCache = new Map<string, { at: number; data: unknown }>();
+const G_TTL = 5 * 60_000;
+const DATE_LITERAL: Record<string, string> = {
+  today: 'TODAY',
+  yesterday: 'YESTERDAY',
+  last_7d: 'LAST_7_DAYS',
+  last_30d: 'LAST_30_DAYS',
+  this_month: 'THIS_MONTH',
+  maximum: 'LAST_30_DAYS',
+};
+
+/** Árvore campanha → grupo de anúncios → anúncio com métricas (1 consulta). */
+export async function getGoogleAdsBreakdown(customerId: string, refreshToken: string, preset = 'last_30d') {
+  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+  const cid = fmtId(customerId);
+  const during = DATE_LITERAL[preset] || 'LAST_30_DAYS';
+  const ck = `gbrk:${cid}:${during}`;
+  const cached = gCache.get(ck);
+  if (cached && Date.now() - cached.at < G_TTL) return cached.data;
+
+  const access = await accessTokenFrom(refreshToken);
+  const query =
+    'SELECT campaign.id, campaign.name, campaign.status, ad_group.id, ad_group.name, ad_group.status, ' +
+    'ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.status, ' +
+    'metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions ' +
+    `FROM ad_group_ad WHERE segments.date DURING ${during}`;
+
+  const rows: any[] = [];
+  let pageToken = '';
+  for (let page = 0; page < 10; page++) {
+    const r = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
+      method: 'POST',
+      headers: adsHeaders(access),
+      body: JSON.stringify({ query, pageSize: 1000, ...(pageToken ? { pageToken } : {}) }),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error?.message || `Google respondeu ${r.status}`);
+    rows.push(...(j?.results ?? []));
+    pageToken = j?.nextPageToken || '';
+    if (!pageToken) break;
+  }
+
+  type Metr = { spend: number; impressions: number; clicks: number; leads: number; cpc: number };
+  type Node = { id: string; name: string; status?: string; children?: Map<string, Node> } & Metr;
+  const blank = (): Metr => ({ spend: 0, impressions: 0, clicks: 0, leads: 0, cpc: 0 });
+  const add = (n: Node, x: any) => {
+    n.spend += Number(x.costMicros || 0) / 1_000_000;
+    n.impressions += Number(x.impressions || 0);
+    n.clicks += Number(x.clicks || 0);
+    n.leads += Number(x.conversions || 0);
+  };
+  const campaigns = new Map<string, Node>();
+  for (const r of rows) {
+    const c = r.campaign ?? {}, g = r.adGroup ?? {}, a = r.adGroupAd?.ad ?? {}, m = r.metrics ?? {};
+    let camp = campaigns.get(c.id);
+    if (!camp) campaigns.set(c.id, (camp = { id: c.id, name: c.name || c.id, status: c.status, ...blank(), children: new Map() }));
+    add(camp, m);
+    let grp = camp.children!.get(g.id);
+    if (!grp) camp.children!.set(g.id, (grp = { id: g.id, name: g.name || g.id, status: g.status, ...blank(), children: new Map() }));
+    add(grp, m);
+    const adId = a.id || `${g.id}-ad`;
+    let ad = grp.children!.get(adId);
+    if (!ad) grp.children!.set(adId, (ad = { id: adId, name: a.name || `Anúncio ${adId}`, status: r.adGroupAd?.status, ...blank() }));
+    add(ad, m);
+  }
+  const fin = (n: Node) => {
+    n.cpc = n.clicks ? n.spend / n.clicks : 0;
+    const { children, ...flat } = n;
+    return flat;
+  };
+  const tree = [...campaigns.values()]
+    .map((camp) => ({
+      ...fin(camp),
+      adsets: [...camp.children!.values()]
+        .map((grp) => ({ ...fin(grp), ads: [...grp.children!.values()].map(fin).sort((a, b) => b.spend - a.spend) }))
+        .sort((a, b) => b.spend - a.spend),
+    }))
+    .sort((a, b) => b.spend - a.spend);
+
+  const result = { preset, campaigns: tree };
+  gCache.set(ck, { at: Date.now(), data: result });
+  return result;
+}
+
 /* ------------------- Conversões (Enhanced Conversions for Leads) ---------- */
 
 /** Ações de conversão de upload disponíveis na conta (para escolher na UI). */
