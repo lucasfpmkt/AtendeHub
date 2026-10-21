@@ -286,7 +286,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
         {current === 'tasks' && <Tasks />}
         {current === 'agenda' && <Agenda />}
         {current === 'connect' && <Connect status={waStatus} me={me} />}
-        {current === 'settings' && <Settings user={user} workspace={workspace} />}
+        {current === 'settings' && <Settings user={user} workspace={workspace} onLogout={onLogout} />}
         {current === 'clients' && isAdmin && <Clients currentId={workspace.id} isMaster={user.isMaster} />}
       </main>
 
