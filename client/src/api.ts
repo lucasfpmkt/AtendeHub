@@ -359,6 +359,7 @@ export const api = {
     req<Funnel>(`/funnels/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deleteFunnel: (id: string) => req(`/funnels/${id}`, { method: 'DELETE' }),
   board: (funnelId: string) => req<Board>(`/funnels/${funnelId}/board`),
+  stages: () => req<{ id: string; name: string; color: string; funnelId: string; funnelName: string }[]>('/stages'),
   exportFunnel: async (funnelId: string): Promise<Blob> => {
     const token = getToken();
     const res = await fetch(`/api/funnels/${funnelId}/export`, {

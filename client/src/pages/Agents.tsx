@@ -541,6 +541,8 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   const [toast, setToast] = useState('');
   const [confirmClose, setConfirmClose] = useState(false);
   const [fs, setFs] = useState(() => Number(localStorage.getItem('lawhub.editorFont')) || 14.5);
+  const [stages, setStages] = useState<{ name: string; funnelName: string }[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
 
   useEffect(() => {
     const found = allAgents.find((x) => x.id === id);
@@ -549,6 +551,12 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
       setA(structuredClone(found));
     }
   }, [id, allAgents, saved]);
+
+  // Etapas do CRM e etiquetas reais, para os submenus de ação do roteiro.
+  useEffect(() => {
+    api.stages().then((ss) => setStages(ss.map((s) => ({ name: s.name, funnelName: s.funnelName })))).catch(() => {});
+    api.tags().then((ts) => setTags(ts.map((t) => t.name))).catch(() => {});
+  }, []);
 
   const dirty = useMemo(() => a && saved && JSON.stringify(a) !== JSON.stringify(saved), [a, saved]);
 
@@ -660,6 +668,8 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                 onChange={(v) => set('script', v)}
                 fontSize={fs}
                 agents={allAgents.filter((x) => x.active && x.id !== id).map((x) => x.name)}
+                stages={stages}
+                tags={tags}
               />
             </>
           )}
@@ -1238,7 +1248,7 @@ type AtAction = {
   color: string;
   group: string;
   caret?: number;
-  pick?: 'agent'; // abre um submenu para escolher o agente de destino
+  pick?: 'agent' | 'stage' | 'tag'; // abre um submenu para escolher o destino real
 };
 const AT_ACTIONS: AtAction[] = [
   { group: 'Formatação', label: 'Passo', insert: '◆ Passo N — Título\n', icon: 'list', color: '#475569' },
@@ -1246,8 +1256,8 @@ const AT_ACTIONS: AtAction[] = [
   { group: 'Formatação', label: 'Mensagem', insert: '💬 Mensagem: ""', icon: 'chat', color: '#16a34a', caret: -1 },
   { group: 'Ações do agente', label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: ', icon: 'flow', color: '#7c3aed', pick: 'agent' },
   { group: 'Ações do agente', label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', icon: 'power', color: '#dc2626' },
-  { group: 'CRM', label: 'Mudar etapa', insert: '⚡ Ação: Mudar etapa: NOME DA ETAPA', icon: 'kanban', color: '#0891b2' },
-  { group: 'CRM', label: 'Adicionar etiqueta', insert: '⚡ Ação: Adicionar etiqueta: NOME', icon: 'tag', color: '#b71312' },
+  { group: 'CRM', label: 'Mudar etapa', insert: '⚡ Ação: Mudar etapa: ', icon: 'kanban', color: '#0891b2', pick: 'stage' },
+  { group: 'CRM', label: 'Adicionar etiqueta', insert: '⚡ Ação: Adicionar etiqueta: ', icon: 'tag', color: '#b71312', pick: 'tag' },
   { group: 'CRM', label: 'Notificar equipe', insert: '⚡ Ação: Notificar equipe: MOTIVO', icon: 'users', color: '#ea580c' },
 ];
 
@@ -1292,11 +1302,15 @@ function ScriptArea({
   onChange,
   fontSize,
   agents = [],
+  stages = [],
+  tags = [],
 }: {
   value: string;
   onChange: (v: string) => void;
   fontSize: number;
   agents?: string[];
+  stages?: { name: string; funnelName: string }[];
+  tags?: string[];
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const hlRef = useRef<HTMLDivElement>(null);
@@ -1315,10 +1329,20 @@ function ScriptArea({
     return AT_ACTIONS.filter((a) => !q || norm(a.label).includes(q));
   }, [query]);
 
+  // Opções do submenu conforme a ação escolhida (agente / etapa do CRM / etiqueta).
+  const subAll = useMemo((): { name: string; group?: string }[] => {
+    if (sub?.pick === 'stage') return stages.map((s) => ({ name: s.name, group: s.funnelName }));
+    if (sub?.pick === 'tag') return tags.map((t) => ({ name: t }));
+    if (sub?.pick === 'agent') return agents.map((a) => ({ name: a }));
+    return [];
+  }, [sub, agents, stages, tags]);
   const subItems = useMemo(() => {
     const q = norm(subQuery);
-    return agents.filter((n) => !q || norm(n).includes(q));
-  }, [agents, subQuery]);
+    return subAll.filter((o) => !q || norm(o.name).includes(q));
+  }, [subAll, subQuery]);
+  const subEmptyText =
+    sub?.pick === 'stage' ? 'Nenhuma etapa no CRM' : sub?.pick === 'tag' ? 'Nenhuma etiqueta criada' : 'Nenhum agente ativo';
+  const subPlaceholder = sub?.pick === 'stage' ? 'Buscar etapa...' : sub?.pick === 'tag' ? 'Buscar etiqueta...' : 'Buscar agente...';
 
   // Fecha ao clicar fora do menu.
   useEffect(() => {
@@ -1372,9 +1396,12 @@ function ScriptArea({
     });
   };
 
+  const hasOptions = (pick?: AtAction['pick']) =>
+    (pick === 'agent' && agents.length > 0) || (pick === 'stage' && stages.length > 0) || (pick === 'tag' && tags.length > 0);
+
   const choose = (a: AtAction) => {
-    // Ação com seleção (ex.: transferir): abre o submenu em vez de inserir já.
-    if (a.pick === 'agent' && agents.length > 0) {
+    // Ação com seleção (transferir / mudar etapa / etiqueta): abre o submenu.
+    if (a.pick && hasOptions(a.pick)) {
       setSub(a);
       setSubQuery('');
       requestAnimationFrame(() => subRef.current?.focus());
@@ -1383,7 +1410,7 @@ function ScriptArea({
     insertAt(a.insert, a.caret ?? 0);
   };
 
-  const chooseAgent = (name: string) => {
+  const chooseValue = (name: string) => {
     if (!sub) return;
     insertAt(`${sub.insert}${name}`, 0);
   };
@@ -1413,7 +1440,7 @@ function ScriptArea({
       requestAnimationFrame(() => searchRef.current?.focus());
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (subItems[0]) chooseAgent(subItems[0]);
+      if (subItems[0]) chooseValue(subItems[0].name);
     }
   };
 
@@ -1510,18 +1537,19 @@ function ScriptArea({
                   value={subQuery}
                   onChange={(e) => setSubQuery(e.target.value)}
                   onKeyDown={onSubKey}
-                  placeholder="Buscar agente..."
-                  aria-label="Buscar agente"
+                  placeholder={subPlaceholder}
+                  aria-label={subPlaceholder}
                 />
               </div>
               <div className="at-list">
-                {subItems.length === 0 && <div className="at-empty">Nenhum agente ativo</div>}
-                {subItems.map((name) => (
-                  <button key={name} role="menuitem" className="at-item" onClick={() => chooseAgent(name)}>
-                    <span className="at-ic" style={{ color: '#7c3aed', background: '#7c3aed1a' }}>
-                      <Icon name="flow" size={16} />
+                {subItems.length === 0 && <div className="at-empty">{subEmptyText}</div>}
+                {subItems.map((o) => (
+                  <button key={o.name} role="menuitem" className="at-item" onClick={() => chooseValue(o.name)}>
+                    <span className="at-ic" style={{ color: sub.color, background: `${sub.color}1a` }}>
+                      <Icon name={sub.icon} size={16} />
                     </span>
-                    <span className="at-nm">{name}</span>
+                    <span className="at-nm">{o.name}</span>
+                    {o.group && <span className="muted small">{o.group}</span>}
                   </button>
                 ))}
               </div>
