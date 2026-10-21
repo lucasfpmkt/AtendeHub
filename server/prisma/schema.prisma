@@ -52,6 +52,7 @@ model Contact {
   avatarUrl     String?
   notes         String?
   tags          String         @default("")
+  ctwaClid      String         @default("") // id do clique do anúncio (Click-to-WhatsApp)
   stageId       String?
   stage         PipelineStage? @relation(fields: [stageId], references: [id])
   conversations Conversation[]
@@ -306,4 +307,26 @@ model WaConfig {
   cloudToken   String @default("") // token permanente (System User)
   cloudVerify  String @default("") // verify token do webhook
   cloudWabaId  String @default("")
+}
+
+
+/// Integração com Meta Ads (Conversions API + resumo da conta) por cliente.
+model MetaConfig {
+  id               String  @id // = workspaceId
+  adAccountId      String  @default("") // act_...
+  token            String  @default("") // System User token (ads_read + CAPI)
+  pixelId          String  @default("") // dataset/pixel para a Conversions API
+  capiEnabled      Boolean @default(false)
+  qualifiedStageId String  @default("") // etapa que dispara o evento
+  eventName        String  @default("Lead")
+}
+
+/// Integração com Google Ads por cliente (resumo da conta).
+model GoogleAdsConfig {
+  id             String @id // = workspaceId
+  customerId     String @default("")
+  developerToken String @default("")
+  refreshToken   String @default("")
+  clientId       String @default("")
+  clientSecret   String @default("")
 }

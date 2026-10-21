@@ -44,6 +44,7 @@ waWebhookRouter.post('/:ws', async (req, res) => {
           const from = String(msg.from || '').replace(/\D/g, '');
           if (!from) continue;
           const waJid = `${from}@s.whatsapp.net`;
+          const ctwaClid = msg?.referral?.ctwa_clid as string | undefined; // anúncio Click-to-WhatsApp
 
           let body = '';
           let media: InboundMedia | undefined;
@@ -71,6 +72,10 @@ waWebhookRouter.post('/:ws', async (req, res) => {
             waMessageId: msg.id,
             sendText: (to, text) => sendText(ws, to, text),
           }).catch((err) => console.error(`[cloud:${ws}] falha ao processar:`, err));
+          // Após criar/achar o contato, guarda o id do clique do anúncio.
+          if (ctwaClid) {
+            await prisma.contact.updateMany({ where: { workspaceId: ws, waJid }, data: { ctwaClid } }).catch(() => {});
+          }
         }
       }
     }

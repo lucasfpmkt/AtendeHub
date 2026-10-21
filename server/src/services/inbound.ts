@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { saveMedia, type MediaKind } from '../whatsapp/media.js';
+import { maybeFireQualifiedLead } from './metaAds.js';
 
 /** Mídia recebida/enviada já baixada em memória. */
 export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer };
@@ -531,6 +532,8 @@ async function applyStage(ws: string, conversationId: string, stageName: string)
     });
   }
   emit(ws, { type: 'crm:update' });
+  // Lead qualificado → devolve o evento ao Meta Ads (se configurado).
+  void maybeFireQualifiedLead(ws, conv.contactId, target.id).catch(() => {});
   await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
 }
 

@@ -569,4 +569,45 @@ export const api = {
   adminUpdateAdmin: (id: string, data: { name?: string; isMaster?: boolean; workspaceIds?: string[] }) =>
     req(`/admin/admins/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   adminDeleteAdmin: (id: string) => req(`/admin/admins/${id}`, { method: 'DELETE' }),
+
+  // Meta Ads
+  adsMeta: () =>
+    req<{
+      adAccountId: string;
+      pixelId: string;
+      capiEnabled: boolean;
+      qualifiedStageId: string;
+      eventName: string;
+      hasToken: boolean;
+      stages: { id: string; name: string }[];
+    }>('/ads/meta'),
+  adsMetaSave: (data: {
+    adAccountId?: string;
+    token?: string;
+    pixelId?: string;
+    capiEnabled?: boolean;
+    qualifiedStageId?: string;
+    eventName?: string;
+  }) => req('/ads/meta', { method: 'PATCH', body: JSON.stringify(data) }),
+  adsMetaSummary: (preset = 'last_30d') =>
+    req<{
+      configured: boolean;
+      error?: string;
+      spend?: number;
+      impressions?: number;
+      clicks?: number;
+      cpc?: number;
+      ctr?: number;
+      leads?: number;
+      campaigns?: { name: string; status: string; objective?: string }[];
+    }>(`/ads/meta/summary?preset=${preset}`),
+  adsMetaTestCapi: (phone?: string) => req<{ ok: boolean }>('/ads/meta/test-capi', { method: 'POST', body: JSON.stringify({ phone }) }),
+
+  // Google Ads
+  adsGoogle: () =>
+    req<{ customerId: string; clientId: string; hasDeveloperToken: boolean; hasRefreshToken: boolean; hasClientSecret: boolean }>(
+      '/ads/google',
+    ),
+  adsGoogleSave: (data: { customerId?: string; developerToken?: string; refreshToken?: string; clientId?: string; clientSecret?: string }) =>
+    req('/ads/google', { method: 'PATCH', body: JSON.stringify(data) }),
 };
