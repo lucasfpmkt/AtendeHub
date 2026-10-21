@@ -303,6 +303,7 @@ export function GoogleAds() {
   const [cfg, setCfg] = useState<Awaited<ReturnType<typeof api.adsGoogle>> | null>(null);
   const [sum, setSum] = useState<Awaited<ReturnType<typeof api.adsGoogleSummary>> | null>(null);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [convActions, setConvActions] = useState<{ id: string; name: string }[]>([]);
   const [devToken, setDevToken] = useState('');
   const [refresh, setRefresh] = useState('');
   const [secret, setSecret] = useState('');
@@ -317,10 +318,16 @@ export function GoogleAds() {
       .adsGoogleCustomers()
       .then((r) => setCustomers(r.customers || []))
       .catch(() => {});
+  const loadConvActions = () =>
+    api
+      .adsGoogleConversionActions()
+      .then((r) => setConvActions(r.actions || []))
+      .catch(() => {});
   useEffect(() => {
     load();
     loadSum();
     loadCustomers();
+    loadConvActions();
     const p = new URLSearchParams(window.location.search);
     const r = p.get('googleads');
     if (r) {
@@ -380,6 +387,33 @@ export function GoogleAds() {
     await api.adsGoogleSave({ customerId: id, customerName: c?.name || '' }).catch(() => {});
     setCfg((prev) => (prev ? { ...prev, customerId: id, customerName: c?.name || '' } : prev));
     loadSum();
+    loadConvActions();
+  };
+  const saveConv = async () => {
+    if (!cfg) return;
+    setMsg(null);
+    try {
+      const action = convActions.find((a) => a.id === cfg.conversionActionId);
+      await api.adsGoogleSave({
+        conversionsEnabled: cfg.conversionsEnabled,
+        qualifiedStageId: cfg.qualifiedStageId,
+        conversionActionId: cfg.conversionActionId,
+        conversionName: action?.name || cfg.conversionName,
+      });
+      setMsg({ ok: true, text: 'Retorno de conversões salvo.' });
+      load();
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    }
+  };
+  const testConv = async () => {
+    setMsg(null);
+    try {
+      await api.adsGoogleTestConversion();
+      setMsg({ ok: true, text: 'Conversão de teste enviada ao Google.' });
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    }
   };
 
   if (!cfg) return <div className="page muted">Carregando…</div>;
@@ -490,6 +524,65 @@ export function GoogleAds() {
             </table>
           </div>
         )}
+
+        {/* Retorno de conversões (lead qualificado → Google Ads) */}
+        <div className="card stack">
+          <h3 className="card-title">
+            <Icon name="crm" /> Retorno de leads qualificados
+          </h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={cfg.conversionsEnabled}
+              onChange={(e) => setCfg({ ...cfg, conversionsEnabled: e.target.checked })}
+              style={{ width: 16, flex: 'none' }}
+            />
+            Enviar conversão ao Google quando o lead chega na etapa qualificada
+          </label>
+          <div className="duo">
+            <div className="field-sm">
+              <span>Etapa que conta como "qualificado"</span>
+              <select value={cfg.qualifiedStageId} onChange={(e) => setCfg({ ...cfg, qualifiedStageId: e.target.value })}>
+                <option value="">Selecione…</option>
+                {cfg.stages.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field-sm">
+              <span>Ação de conversão</span>
+              {convActions.length > 0 ? (
+                <select value={cfg.conversionActionId} onChange={(e) => setCfg({ ...cfg, conversionActionId: e.target.value })}>
+                  <option value="">Selecione…</option>
+                  {convActions.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={cfg.conversionActionId}
+                  onChange={(e) => setCfg({ ...cfg, conversionActionId: e.target.value })}
+                  placeholder="ID da ação de conversão"
+                />
+              )}
+            </div>
+          </div>
+          <span className="muted small">
+            Usa <b>Enhanced Conversions for Leads</b> (telefone com hash) — a ação de conversão precisa estar criada na conta do
+            Google Ads e habilitada para esse uso. Sem gclid, a atribuição é por dados do lead.
+          </span>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="primary" onClick={saveConv}>
+              Salvar
+            </button>
+            <button onClick={testConv}>Testar conversão</button>
+            {msg && <span className={`small ${msg.ok ? 'ok-text' : 'late-text'}`}>{msg.text}</span>}
+          </div>
+        </div>
 
         {/* Modo manual (credenciais) — fallback quando não há OAuth no servidor. */}
         {(!cfg.oauthAvailable || showAdvanced) && (

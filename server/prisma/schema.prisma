@@ -337,4 +337,9 @@ model GoogleAdsConfig {
   clientSecret   String @default("")
   connectedVia   String @default("") // "oauth" | "manual" | ""
   connectedEmail String @default("") // conta Google conectada (OAuth)
+  // Retorno de conversões (Enhanced Conversions for Leads) na etapa qualificada.
+  conversionsEnabled Boolean @default(false)
+  qualifiedStageId   String  @default("") // etapa que dispara a conversão
+  conversionActionId String  @default("") // id da ação de conversão (upload)
+  conversionName     String  @default("") // nome amigável da ação escolhida
 }

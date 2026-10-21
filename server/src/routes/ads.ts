@@ -18,6 +18,8 @@ import {
   exchangeGoogleCode,
   listAccessibleCustomers,
   getGoogleAdsSummary,
+  listConversionActions,
+  uploadLeadConversion,
 } from '../services/googleAds.js';
 import { enc, dec } from '../crypto.js';
 import { env, metaOauthEnabled, googleOauthEnabled } from '../env.js';
@@ -168,6 +170,11 @@ adsRouter.get('/google', async (req, res) => {
   const ws = wsOf(req);
   let cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
   if (!cfg) cfg = await prisma.googleAdsConfig.create({ data: { id: ws } });
+  const stages = await prisma.pipelineStage.findMany({
+    where: { workspaceId: ws },
+    orderBy: { order: 'asc' },
+    select: { id: true, name: true },
+  });
   const { developerToken, refreshToken, clientSecret, ...safe } = cfg;
   res.json({
     ...safe,
@@ -176,7 +183,38 @@ adsRouter.get('/google', async (req, res) => {
     hasClientSecret: Boolean(clientSecret),
     oauthAvailable: googleOauthEnabled,
     developerTokenReady: Boolean(env.googleAdsDeveloperToken),
+    stages,
   });
+});
+
+// Ações de conversão de upload (para escolher qual disparar no qualificado).
+adsRouter.get('/google/conversion-actions', async (req, res) => {
+  const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.refreshToken || !cfg?.customerId) return res.json({ actions: [] });
+  try {
+    res.json({ actions: await listConversionActions(cfg.customerId, dec(cfg.refreshToken)) });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// Teste manual do envio de conversão.
+adsRouter.post('/google/test-conversion', async (req, res) => {
+  const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.refreshToken || !cfg?.customerId || !cfg?.conversionActionId) {
+    return res.status(400).json({ error: 'Conecte a conta e escolha a ação de conversão antes de testar.' });
+  }
+  try {
+    await uploadLeadConversion({
+      customerId: cfg.customerId,
+      refreshToken: dec(cfg.refreshToken),
+      conversionActionId: cfg.conversionActionId,
+      phone: String(req.body?.phone || '5500000000000'),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });
 
 // URL do consentimento do Google (o front redireciona o navegador para cá).
@@ -216,10 +254,15 @@ adsRouter.post('/google/disconnect', async (req, res) => {
 
 adsRouter.patch('/google', async (req, res) => {
   const ws = wsOf(req);
-  const { customerId, customerName, developerToken, refreshToken, clientId, clientSecret } = req.body ?? {};
+  const { customerId, customerName, developerToken, refreshToken, clientId, clientSecret, conversionsEnabled, qualifiedStageId, conversionActionId, conversionName } =
+    req.body ?? {};
   const data: Record<string, unknown> = {};
   if (typeof customerId === 'string') data.customerId = customerId.trim();
   if (typeof customerName === 'string') data.customerName = customerName.trim();
+  if (typeof conversionsEnabled === 'boolean') data.conversionsEnabled = conversionsEnabled;
+  if (typeof qualifiedStageId === 'string') data.qualifiedStageId = qualifiedStageId;
+  if (typeof conversionActionId === 'string') data.conversionActionId = conversionActionId.trim();
+  if (typeof conversionName === 'string') data.conversionName = conversionName.trim();
   if (typeof clientId === 'string') data.clientId = clientId.trim();
   if (typeof developerToken === 'string' && developerToken.trim()) data.developerToken = enc(developerToken.trim());
   if (typeof refreshToken === 'string' && refreshToken.trim()) {

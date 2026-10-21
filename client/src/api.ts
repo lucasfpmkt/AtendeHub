@@ -630,6 +630,11 @@ export const api = {
       hasClientSecret: boolean;
       oauthAvailable: boolean;
       developerTokenReady: boolean;
+      conversionsEnabled: boolean;
+      qualifiedStageId: string;
+      conversionActionId: string;
+      conversionName: string;
+      stages: { id: string; name: string }[];
     }>('/ads/google'),
   adsGoogleSave: (data: {
     customerId?: string;
@@ -638,9 +643,16 @@ export const api = {
     refreshToken?: string;
     clientId?: string;
     clientSecret?: string;
+    conversionsEnabled?: boolean;
+    qualifiedStageId?: string;
+    conversionActionId?: string;
+    conversionName?: string;
   }) => req('/ads/google', { method: 'PATCH', body: JSON.stringify(data) }),
   adsGoogleOauthUrl: () => req<{ available: boolean; url?: string }>('/ads/google/oauth-url'),
   adsGoogleCustomers: () => req<{ customers: { id: string; name: string }[]; error?: string }>('/ads/google/customers'),
+  adsGoogleConversionActions: () => req<{ actions: { id: string; name: string }[]; error?: string }>('/ads/google/conversion-actions'),
+  adsGoogleTestConversion: (phone?: string) =>
+    req<{ ok: boolean }>('/ads/google/test-conversion', { method: 'POST', body: JSON.stringify({ phone }) }),
   adsGoogleDisconnect: () => req<{ ok: boolean }>('/ads/google/disconnect', { method: 'POST' }),
   adsGoogleSummary: () =>
     req<{
