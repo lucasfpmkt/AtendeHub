@@ -1,11 +1,17 @@
 import { prisma } from '../db.js';
 
+// Funil padrão de um escritório de advocacia (todo cliente novo já vem com ele).
 const DEFAULT_STAGES = [
   { name: 'Recepção', color: '#64748b' },
-  { name: 'Em análise', color: '#f59e0b' },
-  { name: 'Proposta enviada', color: '#3b82f6' },
-  { name: 'Fechado', color: '#16a34a' },
-  { name: 'Perdido', color: '#b71312' },
+  { name: 'Análise de Viabilidade', color: '#f59e0b' },
+  { name: 'Oferta do Contrato', color: '#3b82f6' },
+  { name: 'Enviou Contrato', color: '#eab308' },
+  { name: 'Contrato Assinado', color: '#16a34a' },
+  { name: 'Aguardando Agendamento', color: '#6366f1' },
+  { name: 'Agendamento Feito', color: '#14b8a6' },
+  { name: 'Desqualificado', color: '#dc2626' },
+  { name: 'Não Tem Interesse', color: '#9ca3af' },
+  { name: 'Já é Cliente do Escritório', color: '#a855f7' },
 ];
 
 /** Cria um funil (no cliente indicado) com um conjunto de etapas padrão. */

@@ -181,6 +181,19 @@ crmRouter.get('/funnels', async (req, res) => {
   res.json(await prisma.funnel.findMany({ where: { workspaceId: wsOf(req) }, orderBy: { order: 'asc' } }));
 });
 
+// Todas as etapas do cliente (com o nome do funil) — usado no editor do roteiro.
+crmRouter.get('/stages', async (req, res) => {
+  const ws = wsOf(req);
+  const funnels = await prisma.funnel.findMany({
+    where: { workspaceId: ws },
+    orderBy: { order: 'asc' },
+    include: { stages: { orderBy: { order: 'asc' } } },
+  });
+  const out: { id: string; name: string; color: string; funnelId: string; funnelName: string }[] = [];
+  for (const f of funnels) for (const s of f.stages) out.push({ id: s.id, name: s.name, color: s.color, funnelId: f.id, funnelName: f.name });
+  res.json(out);
+});
+
 crmRouter.post('/funnels', async (req, res) => {
   const name = String(req.body?.name ?? 'Novo funil').trim();
   res.json(await createFunnelWithDefaults(wsOf(req), name));
