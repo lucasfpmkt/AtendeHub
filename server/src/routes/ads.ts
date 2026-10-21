@@ -22,10 +22,13 @@ import {
   getGoogleAdsBreakdown,
   listConversionActions,
   uploadLeadConversion,
+  googleGlobalReady,
+  googleOauthReady,
+  resolveClientGoogleCreds,
 } from '../services/googleAds.js';
 import { findQualifiedStageId } from '../services/crmSeed.js';
 import { enc, dec } from '../crypto.js';
-import { env, metaOauthEnabled, googleOauthEnabled } from '../env.js';
+import { env, metaOauthEnabled } from '../env.js';
 
 export const adsRouter = Router();
 // Routers PÚBLICOS só para o retorno do OAuth (o provedor redireciona o
@@ -186,14 +189,8 @@ adsRouter.post('/meta/test-capi', async (req, res) => {
 });
 
 /* ----------------------------- Google Ads ------------------------------ */
-// Credenciais do Google: por padrão globais (MCC) — só o Customer ID muda por
-// cliente. Usa o valor salvo no cliente e, se vazio, cai no global do servidor.
-function googleCreds(cfg: { refreshToken?: string | null; developerToken?: string | null } | null) {
-  const refreshToken = cfg?.refreshToken ? dec(cfg.refreshToken) : env.googleRefreshToken;
-  const developerToken = cfg?.developerToken ? dec(cfg.developerToken) : env.googleAdsDeveloperToken;
-  return { refreshToken, developerToken };
-}
-const googleReady = () => Boolean(env.googleRefreshToken && env.googleAdsDeveloperToken);
+// Credenciais do Google: por padrão globais (MCC, definidas na aba Clientes) —
+// só o Customer ID muda por cliente. resolveClientGoogleCreds faz a resolução.
 adsRouter.get('/google', async (req, res) => {
   const ws = wsOf(req);
   let cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
@@ -213,9 +210,9 @@ adsRouter.get('/google', async (req, res) => {
     hasDeveloperToken: Boolean(developerToken),
     hasRefreshToken: Boolean(refreshToken),
     hasClientSecret: Boolean(clientSecret),
-    oauthAvailable: googleOauthEnabled,
+    oauthAvailable: await googleOauthReady(),
     developerTokenReady: Boolean(env.googleAdsDeveloperToken || developerToken),
-    globalReady: googleReady(), // MCC global configurada: só falta o Customer ID
+    globalReady: await googleGlobalReady(), // MCC global configurada: só falta o Customer ID
     stages,
   });
 });
@@ -223,7 +220,7 @@ adsRouter.get('/google', async (req, res) => {
 // Ações de conversão de upload (para escolher qual disparar no qualificado).
 adsRouter.get('/google/conversion-actions', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  const { refreshToken, developerToken } = googleCreds(cfg);
+  const { refreshToken, developerToken } = await resolveClientGoogleCreds(cfg);
   if (!refreshToken || !cfg?.customerId) return res.json({ actions: [] });
   try {
     res.json({ actions: await listConversionActions(cfg.customerId, refreshToken, developerToken) });
@@ -235,7 +232,7 @@ adsRouter.get('/google/conversion-actions', async (req, res) => {
 // Teste manual do envio de conversão.
 adsRouter.post('/google/test-conversion', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  const { refreshToken, developerToken } = googleCreds(cfg);
+  const { refreshToken, developerToken } = await resolveClientGoogleCreds(cfg);
   if (!refreshToken || !cfg?.customerId || !cfg?.conversionActionId) {
     return res.status(400).json({ error: 'Conecte a conta e escolha a ação de conversão antes de testar.' });
   }
@@ -255,15 +252,15 @@ adsRouter.post('/google/test-conversion', async (req, res) => {
 
 // URL do consentimento do Google (o front redireciona o navegador para cá).
 adsRouter.get('/google/oauth-url', async (req, res) => {
-  if (!googleOauthEnabled) return res.json({ available: false });
+  if (!(await googleOauthReady())) return res.json({ available: false });
   const state = signOauthState(wsOf(req));
-  res.json({ available: true, url: googleLoginUrl(oauthRedirectUri(req, 'google'), state) });
+  res.json({ available: true, url: await googleLoginUrl(oauthRedirectUri(req, 'google'), state) });
 });
 
 // Contas do Google Ads acessíveis pela conta conectada (para escolher qual).
 adsRouter.get('/google/customers', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  const { refreshToken, developerToken } = googleCreds(cfg);
+  const { refreshToken, developerToken } = await resolveClientGoogleCreds(cfg);
   if (!refreshToken) return res.json({ customers: [] });
   try {
     res.json({ customers: await listAccessibleCustomers(refreshToken, developerToken) });
@@ -274,7 +271,7 @@ adsRouter.get('/google/customers', async (req, res) => {
 
 adsRouter.get('/google/breakdown', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  const { refreshToken, developerToken } = googleCreds(cfg);
+  const { refreshToken, developerToken } = await resolveClientGoogleCreds(cfg);
   if (!refreshToken || !cfg?.customerId) return res.json({ configured: false });
   try {
     const data = await getGoogleAdsBreakdown(cfg.customerId, refreshToken, String(req.query.preset || 'last_30d'), developerToken);
@@ -286,7 +283,7 @@ adsRouter.get('/google/breakdown', async (req, res) => {
 
 adsRouter.get('/google/summary', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  const { refreshToken, developerToken } = googleCreds(cfg);
+  const { refreshToken, developerToken } = await resolveClientGoogleCreds(cfg);
   if (!refreshToken || !cfg?.customerId) return res.json({ configured: false });
   try {
     res.json({ configured: true, ...(await getGoogleAdsSummary(cfg.customerId, refreshToken, developerToken)) });

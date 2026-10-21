@@ -561,6 +561,13 @@ export const api = {
       mediaHasKey: boolean;
       mediaReady: boolean;
       mediaModel: string;
+      gadsClientId: string;
+      gadsLoginCustomerId: string;
+      gadsHasSecret: boolean;
+      gadsHasDeveloperToken: boolean;
+      gadsHasRefreshToken: boolean;
+      gadsReady: boolean;
+      gadsOauthReady: boolean;
       providers: AiProvider[];
     }>('/admin/ai'),
   adminUpdateAi: (data: {
@@ -578,8 +585,28 @@ export const api = {
     mediaApiKey?: string;
     mediaModel?: string;
     clearMediaKey?: boolean;
+    gadsClientId?: string;
+    gadsClientSecret?: string;
+    gadsDeveloperToken?: string;
+    gadsLoginCustomerId?: string;
+    gadsRefreshToken?: string;
+    clearGadsSecret?: boolean;
+    clearGadsDeveloperToken?: boolean;
+    clearGadsRefreshToken?: boolean;
   }) =>
-    req<{ providerConnected: boolean; hasKey: boolean; crmConnected: boolean; crmHasKey: boolean; mediaHasKey: boolean; mediaReady: boolean }>('/admin/ai', {
+    req<{
+      providerConnected: boolean;
+      hasKey: boolean;
+      crmConnected: boolean;
+      crmHasKey: boolean;
+      mediaHasKey: boolean;
+      mediaReady: boolean;
+      gadsReady: boolean;
+      gadsOauthReady: boolean;
+      gadsHasSecret: boolean;
+      gadsHasDeveloperToken: boolean;
+      gadsHasRefreshToken: boolean;
+    }>('/admin/ai', {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),

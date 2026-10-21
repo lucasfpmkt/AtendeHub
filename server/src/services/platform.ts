@@ -21,6 +21,15 @@ export type PlatformPatch = {
   mediaApiKey?: string;
   mediaModel?: string;
   clearMediaKey?: boolean;
+  // Google Ads global (MCC)
+  gadsClientId?: string;
+  gadsClientSecret?: string;
+  gadsDeveloperToken?: string;
+  gadsLoginCustomerId?: string;
+  gadsRefreshToken?: string;
+  clearGadsSecret?: boolean;
+  clearGadsDeveloperToken?: boolean;
+  clearGadsRefreshToken?: boolean;
 };
 
 export async function updatePlatformConfig(data: PlatformPatch) {
@@ -40,5 +49,16 @@ export async function updatePlatformConfig(data: PlatformPatch) {
   if (typeof data.mediaModel === 'string') patch.mediaModel = data.mediaModel.trim();
   if (data.clearMediaKey) patch.mediaApiKey = '';
   else if (typeof data.mediaApiKey === 'string' && data.mediaApiKey.trim()) patch.mediaApiKey = enc(data.mediaApiKey.trim());
+
+  // Google Ads global (MCC)
+  if (typeof data.gadsClientId === 'string') patch.gadsClientId = data.gadsClientId.trim();
+  if (typeof data.gadsLoginCustomerId === 'string') patch.gadsLoginCustomerId = data.gadsLoginCustomerId.replace(/\D/g, '');
+  if (data.clearGadsSecret) patch.gadsClientSecret = '';
+  else if (typeof data.gadsClientSecret === 'string' && data.gadsClientSecret.trim()) patch.gadsClientSecret = enc(data.gadsClientSecret.trim());
+  if (data.clearGadsDeveloperToken) patch.gadsDeveloperToken = '';
+  else if (typeof data.gadsDeveloperToken === 'string' && data.gadsDeveloperToken.trim()) patch.gadsDeveloperToken = enc(data.gadsDeveloperToken.trim());
+  if (data.clearGadsRefreshToken) patch.gadsRefreshToken = '';
+  else if (typeof data.gadsRefreshToken === 'string' && data.gadsRefreshToken.trim()) patch.gadsRefreshToken = enc(data.gadsRefreshToken.trim());
+
   return prisma.platformConfig.update({ where: { id: 'global' }, data: patch });
 }

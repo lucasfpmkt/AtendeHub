@@ -425,6 +425,15 @@ function PlatformAI() {
   const [mediaHasKey, setMediaHasKey] = useState(false);
   const [mediaReady, setMediaReady] = useState(false);
   const [mediaMsg, setMediaMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Google Ads global (MCC)
+  const [gadsClientId, setGadsClientId] = useState('');
+  const [gadsLoginCustomerId, setGadsLoginCustomerId] = useState('');
+  const [gadsSecret, setGadsSecret] = useState('');
+  const [gadsDevToken, setGadsDevToken] = useState('');
+  const [gadsRefresh, setGadsRefresh] = useState('');
+  const [gadsHas, setGadsHas] = useState({ secret: false, dev: false, refresh: false });
+  const [gadsReady, setGadsReady] = useState(false);
+  const [gadsMsg, setGadsMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [crmMsg, setCrmMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [reclass, setReclass] = useState<string | null>(null);
@@ -449,8 +458,33 @@ function PlatformAI() {
       setMediaHasKey(c.mediaHasKey);
       setMediaReady(c.mediaReady);
       setMediaModel(c.mediaModel || '');
+      setGadsClientId(c.gadsClientId || '');
+      setGadsLoginCustomerId(c.gadsLoginCustomerId || '');
+      setGadsHas({ secret: c.gadsHasSecret, dev: c.gadsHasDeveloperToken, refresh: c.gadsHasRefreshToken });
+      setGadsReady(c.gadsReady);
     });
   }, []);
+
+  const saveGads = async () => {
+    setGadsMsg(null);
+    try {
+      const r = await api.adminUpdateAi({
+        gadsClientId,
+        gadsLoginCustomerId,
+        ...(gadsSecret.trim() ? { gadsClientSecret: gadsSecret.trim() } : {}),
+        ...(gadsDevToken.trim() ? { gadsDeveloperToken: gadsDevToken.trim() } : {}),
+        ...(gadsRefresh.trim() ? { gadsRefreshToken: gadsRefresh.trim() } : {}),
+      });
+      setGadsHas({ secret: r.gadsHasSecret, dev: r.gadsHasDeveloperToken, refresh: r.gadsHasRefreshToken });
+      setGadsReady(r.gadsReady);
+      setGadsSecret('');
+      setGadsDevToken('');
+      setGadsRefresh('');
+      setGadsMsg({ ok: true, text: r.gadsReady ? 'Salvo — Google Ads pronto para todos os clientes.' : 'Salvo.' });
+    } catch (x) {
+      setGadsMsg({ ok: false, text: (x as Error).message });
+    }
+  };
 
   const saveMedia = async () => {
     const r = await api.adminUpdateAi({
@@ -612,6 +646,55 @@ function PlatformAI() {
             </button>
           )}
           {mediaMsg && <span className={`small ${mediaMsg.ok ? 'ok-text' : 'late-text'}`}>{mediaMsg.text}</span>}
+        </div>
+      </div>
+
+      {/* Google Ads global (MCC) — vale para todos; por cliente só o Customer ID. */}
+      <div className="card stack">
+        <div className="row between">
+          <h4 className="card-title" style={{ margin: 0 }}>
+            <Icon name="grid" /> Google Ads (global / MCC)
+          </h4>
+          <span className={`pill ${gadsReady ? 'ok' : 'warn'}`}>{gadsReady ? 'pronto' : 'não configurado'}</span>
+        </div>
+        <p className="muted small">
+          Como todos os seus clientes estão na mesma <b>MCC</b>, preencha aqui uma vez só. Em cada cliente, na aba Marketing → Google,
+          você só escolhe o <b>Customer ID</b>. (Não precisa mexer no Easypanel.)
+        </p>
+        <div className="duo">
+          <div className="field-sm">
+            <span>OAuth Client ID</span>
+            <input value={gadsClientId} onChange={(e) => setGadsClientId(e.target.value)} placeholder="....apps.googleusercontent.com" />
+          </div>
+          <div className="field-sm">
+            <span>ID da conta MCC (login-customer-id)</span>
+            <input value={gadsLoginCustomerId} onChange={(e) => setGadsLoginCustomerId(e.target.value)} placeholder="só números" />
+          </div>
+        </div>
+        <div className="duo">
+          <div className="field-sm">
+            <span>Client Secret</span>
+            <input type="password" value={gadsSecret} onChange={(e) => setGadsSecret(e.target.value)} placeholder={gadsHas.secret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+          </div>
+          <div className="field-sm">
+            <span>Developer Token</span>
+            <input type="password" value={gadsDevToken} onChange={(e) => setGadsDevToken(e.target.value)} placeholder={gadsHas.dev ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+          </div>
+        </div>
+        <div className="field-sm">
+          <span>
+            Refresh Token da MCC{' '}
+            <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noreferrer" className="small">
+              (OAuth Playground)
+            </a>
+          </span>
+          <input type="password" value={gadsRefresh} onChange={(e) => setGadsRefresh(e.target.value)} placeholder={gadsHas.refresh ? '•••••••• (salvo)' : 'cole o refresh token (1//...)'} autoComplete="off" />
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="primary" onClick={saveGads}>
+            Salvar Google Ads
+          </button>
+          {gadsMsg && <span className={`small ${gadsMsg.ok ? 'ok-text' : 'late-text'}`}>{gadsMsg.text}</span>}
         </div>
       </div>
 
