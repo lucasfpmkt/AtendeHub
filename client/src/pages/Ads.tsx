@@ -661,16 +661,25 @@ function MetricCells({ n }: { n: { spend: number; impressions: number; clicks: n
   );
 }
 
-export function MetaReport() {
+function BreakdownView({
+  fetcher,
+  title,
+  midLabel,
+  hint,
+}: {
+  fetcher: (preset: string) => Promise<{ configured: boolean; error?: string; campaigns?: import('../api').MetaAdNode[] }>;
+  title: string;
+  midLabel: string;
+  hint: string;
+}) {
   const [preset, setPreset] = useState('last_30d');
-  const [data, setData] = useState<Awaited<ReturnType<typeof api.adsMetaBreakdown>> | null>(null);
+  const [data, setData] = useState<Awaited<ReturnType<typeof fetcher>> | null>(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   const load = (p = preset) => {
     setLoading(true);
-    api
-      .adsMetaBreakdown(p)
+    fetcher(p)
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -689,11 +698,11 @@ export function MetaReport() {
   const campaigns = data?.campaigns ?? [];
 
   return (
-    <div className="page">
+    <div className="page" style={{ paddingTop: 10 }}>
       <div className="page-head">
         <div>
-          <h1 className="h1">Meta ADS · Detalhamento</h1>
-          <p className="sub">Campanhas, conjuntos e anúncios com métricas. Dados em cache por ~5 min para não sobrecarregar a Meta.</p>
+          <h2 className="h1" style={{ fontSize: 18 }}>{title}</h2>
+          <p className="sub">Campanhas, {midLabel.toLowerCase()}s e anúncios com métricas. Em cache ~5 min para não sobrecarregar a API.</p>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <select value={preset} onChange={(e) => setPreset(e.target.value)} style={{ maxWidth: 160 }}>
@@ -709,9 +718,7 @@ export function MetaReport() {
         </div>
       </div>
 
-      {data && !data.configured && (
-        <div className="alert">Conecte a conta na aba <b>Meta ADS</b> primeiro (login com o Meta ou token).</div>
-      )}
+      {data && !data.configured && <div className="alert">{hint}</div>}
       {data?.error && <div className="alert">{data.error}</div>}
 
       {data?.configured && (
@@ -719,7 +726,7 @@ export function MetaReport() {
           <table className="table tree-table">
             <thead>
               <tr>
-                <th>Campanha / Conjunto / Anúncio</th>
+                <th>Campanha / {midLabel} / Anúncio</th>
                 <th>Status</th>
                 <th className="num">Investimento</th>
                 <th className="num">Impressões</th>
@@ -798,4 +805,56 @@ export function MetaReport() {
 // Agrupa linhas sem adicionar nós ao DOM (tabela).
 function FragmentRows({ children }: { children: ReactNode }) {
   return <>{children}</>;
+}
+
+/* ===================== Marketing (Meta + Google) ===================== */
+export function Marketing() {
+  const [net, setNet] = useState<'meta' | 'google'>(() => ((localStorage.getItem('lawhub.mkt.net') as 'meta' | 'google') || 'meta'));
+  const [view, setView] = useState<'resumo' | 'detalhes'>('resumo');
+  const pickNet = (n: 'meta' | 'google') => {
+    setNet(n);
+    localStorage.setItem('lawhub.mkt.net', n);
+  };
+
+  return (
+    <>
+      <div className="mkt-bar">
+        <div className="segmented">
+          <button className={net === 'meta' ? 'active' : ''} onClick={() => pickNet('meta')}>
+            <Icon name="share" size={15} /> Meta
+          </button>
+          <button className={net === 'google' ? 'active' : ''} onClick={() => pickNet('google')}>
+            <Icon name="grid" size={15} /> Google
+          </button>
+        </div>
+        <div className="segmented">
+          <button className={view === 'resumo' ? 'active' : ''} onClick={() => setView('resumo')}>
+            Resumo
+          </button>
+          <button className={view === 'detalhes' ? 'active' : ''} onClick={() => setView('detalhes')}>
+            Detalhamento
+          </button>
+        </div>
+      </div>
+
+      {net === 'meta' && view === 'resumo' && <MetaAds />}
+      {net === 'meta' && view === 'detalhes' && (
+        <BreakdownView
+          fetcher={(p) => api.adsMetaBreakdown(p)}
+          title="Meta · Detalhamento"
+          midLabel="Conjunto"
+          hint="Conecte a conta em Meta · Resumo primeiro (login com o Meta ou token)."
+        />
+      )}
+      {net === 'google' && view === 'resumo' && <GoogleAds />}
+      {net === 'google' && view === 'detalhes' && (
+        <BreakdownView
+          fetcher={(p) => api.adsGoogleBreakdown(p)}
+          title="Google · Detalhamento"
+          midLabel="Grupo"
+          hint="Conecte a conta em Google · Resumo primeiro (login com o Google)."
+        />
+      )}
+    </>
+  );
 }

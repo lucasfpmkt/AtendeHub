@@ -19,6 +19,7 @@ import {
   exchangeGoogleCode,
   listAccessibleCustomers,
   getGoogleAdsSummary,
+  getGoogleAdsBreakdown,
   listConversionActions,
   uploadLeadConversion,
 } from '../services/googleAds.js';
@@ -245,6 +246,17 @@ adsRouter.get('/google/customers', async (req, res) => {
     res.json({ customers: await listAccessibleCustomers(dec(cfg.refreshToken)) });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+adsRouter.get('/google/breakdown', async (req, res) => {
+  const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.refreshToken || !cfg?.customerId) return res.json({ configured: false });
+  try {
+    const data = await getGoogleAdsBreakdown(cfg.customerId, dec(cfg.refreshToken), String(req.query.preset || 'last_30d'));
+    res.json({ configured: true, ...data });
+  } catch (err) {
+    res.status(400).json({ configured: true, error: (err as Error).message });
   }
 });
 
