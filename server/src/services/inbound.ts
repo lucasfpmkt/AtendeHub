@@ -101,7 +101,10 @@ export async function ensureDealForContact(ws: string, contactId: string) {
       stageSince: new Date(),
     },
   });
-  if (stage) await prisma.contact.update({ where: { id: contactId }, data: { stageId: stage.id } }).catch(() => {});
+  if (stage) {
+    await prisma.contact.update({ where: { id: contactId }, data: { stageId: stage.id } }).catch(() => {});
+    await syncStageTag(ws, contactId, stage.id).catch(() => {});
+  }
   emit(ws, { type: 'crm:update' });
   } finally {
     dealLocks.delete(key);
@@ -585,13 +588,55 @@ async function applyStage(ws: string, conversationId: string, stageName: string)
       },
     });
   }
+  // Etiqueta de etapa SEMPRE sincronizada: remove a da etapa anterior e aplica a atual.
+  await syncStageTag(ws, conv.contactId, target.id);
   emit(ws, { type: 'crm:update' });
-  // Etiqueta automática da etapa (ex.: "Qualificado") — com a cor definida no catálogo.
-  if (target.autoTag?.trim()) await applyTag(ws, conversationId, target.autoTag.trim());
   // Lead qualificado → devolve o evento ao Meta Ads e ao Google Ads (se configurados).
   void maybeFireQualifiedLead(ws, conv.contactId, target.id).catch(() => {});
   void maybeFireGoogleConversion(ws, conv.contactId, target.id).catch(() => {});
   await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
+}
+
+/**
+ * Mantém a etiqueta de etapa do contato SEMPRE igual à etapa atual: remove
+ * qualquer etiqueta que seja a "etiqueta automática" de alguma etapa e aplica
+ * a da etapa de destino. Etiquetas manuais (que não são de nenhuma etapa) são
+ * preservadas. Chamado por todos os caminhos que mudam a etapa (IA, CRM, etc.).
+ */
+export async function syncStageTag(ws: string, contactId: string, stageId: string | null | undefined) {
+  const stages = await prisma.pipelineStage.findMany({ where: { workspaceId: ws }, select: { id: true, autoTag: true } });
+  const stageTagNorms = new Set(stages.map((s) => s.autoTag?.trim()).filter(Boolean).map((t) => normalize(t!)));
+  const newTag = (stageId ? stages.find((s) => s.id === stageId)?.autoTag : '')?.trim() || '';
+
+  const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+  if (!contact) return;
+  const current = (contact.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+  // Mantém só as etiquetas que NÃO são de etapa; depois junta a da etapa atual.
+  const kept = current.filter((t) => !stageTagNorms.has(normalize(t)));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of [...kept, ...(newTag ? [newTag] : [])]) {
+    const k = normalize(t);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(t);
+    }
+  }
+  const joined = out.join(', ');
+  if (joined !== (contact.tags ?? '')) {
+    await prisma.contact.update({ where: { id: contactId }, data: { tags: joined } });
+  }
+  if (newTag) {
+    const exists = await prisma.tag.findFirst({ where: { workspaceId: ws, name: newTag } });
+    if (!exists) await prisma.tag.create({ data: { workspaceId: ws, name: newTag, color: '#b71312' } }).catch(() => {});
+  }
+  // Atualiza a lista do CRM e as conversas abertas desse contato na caixa de entrada.
+  emit(ws, { type: 'crm:update' });
+  const convs = await prisma.conversation.findMany({ where: { workspaceId: ws, contactId }, select: { id: true } });
+  for (const c of convs) {
+    const updated = await prisma.conversation.findUnique({ where: { id: c.id }, include: { contact: true } });
+    if (updated) emit(ws, { type: 'conversation:update', conversation: updated });
+  }
 }
 
 /** Adiciona uma etiqueta ao contato (e ao catálogo de etiquetas, se for nova). */

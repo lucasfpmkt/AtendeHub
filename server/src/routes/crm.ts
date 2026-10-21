@@ -6,7 +6,7 @@ import { wsOf } from '../auth.js';
 import { sendFromConversation } from '../whatsapp/session.js';
 import { mediaFilePath } from '../whatsapp/media.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
-import { cancelPendingReply, systemNote } from '../services/inbound.js';
+import { cancelPendingReply, systemNote, syncStageTag } from '../services/inbound.js';
 
 /**
  * CRM do cliente aberto. Toda consulta filtra por workspaceId; antes de
@@ -33,7 +33,10 @@ crmRouter.patch('/contacts/:id', async (req, res) => {
   if (!(await prisma.contact.findFirst({ where: { id: req.params.id, workspaceId: ws } }))) return notFound(res);
   const { name, notes, tags, stageId } = req.body ?? {};
   if (stageId && !(await prisma.pipelineStage.findFirst({ where: { id: stageId, workspaceId: ws } }))) return notFound(res);
-  res.json(await prisma.contact.update({ where: { id: req.params.id }, data: { name, notes, tags, stageId } }));
+  const contact = await prisma.contact.update({ where: { id: req.params.id }, data: { name, notes, tags, stageId } });
+  // Mudou de etapa manualmente: sincroniza a etiqueta de etapa (mantém as manuais).
+  if (stageId !== undefined) await syncStageTag(ws, req.params.id, stageId).catch(() => {});
+  res.json(await prisma.contact.findUnique({ where: { id: req.params.id } }) ?? contact);
 });
 
 // LGPD: exporta todos os dados de um contato (direito de acesso/portabilidade).
@@ -355,6 +358,10 @@ crmRouter.post('/deals', async (req, res) => {
     },
     include: { contact: true },
   });
+  if (stageId && deal.contactId) {
+    await prisma.contact.update({ where: { id: deal.contactId }, data: { stageId } }).catch(() => {});
+    await syncStageTag(ws, deal.contactId, stageId).catch(() => {});
+  }
   res.json(deal);
 });
 
@@ -378,6 +385,11 @@ crmRouter.patch('/deals/:id', async (req, res) => {
     },
     include: { contact: true },
   });
+  // Arrastou/moveu o negócio de etapa: espelha no contato e sincroniza a etiqueta.
+  if (stageId !== undefined && deal.contactId) {
+    await prisma.contact.update({ where: { id: deal.contactId }, data: { stageId: stageId || null } }).catch(() => {});
+    await syncStageTag(ws, deal.contactId, stageId || null).catch(() => {});
+  }
   res.json(deal);
 });
 
