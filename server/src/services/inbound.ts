@@ -639,6 +639,29 @@ export async function syncStageTag(ws: string, contactId: string, stageId: strin
   }
 }
 
+/**
+ * Backfill (startup): toda etapa sem etiqueta automática ganha uma = nome da
+ * etapa, na cor dela, e garante a etiqueta no catálogo. Se algo mudou, re-
+ * sincroniza os contatos para a etapa atual, deixando tudo consistente já.
+ */
+export async function backfillStageTags() {
+  const stages = await prisma.pipelineStage.findMany();
+  let changed = false;
+  for (const s of stages) {
+    const tag = (s.autoTag?.trim() || s.name).trim();
+    if (!s.autoTag?.trim()) {
+      await prisma.pipelineStage.update({ where: { id: s.id }, data: { autoTag: s.name } }).catch(() => {});
+      changed = true;
+    }
+    const existing = await prisma.tag.findFirst({ where: { workspaceId: s.workspaceId, name: tag } });
+    if (!existing) await prisma.tag.create({ data: { workspaceId: s.workspaceId, name: tag, color: s.color } }).catch(() => {});
+  }
+  if (!changed) return;
+  const contacts = await prisma.contact.findMany({ where: { stageId: { not: null } }, select: { id: true, workspaceId: true, stageId: true } });
+  for (const c of contacts) await syncStageTag(c.workspaceId, c.id, c.stageId).catch(() => {});
+  console.log(`[crm] etiquetas de etapa preenchidas; ${contacts.length} contatos sincronizados.`);
+}
+
 /** Adiciona uma etiqueta ao contato (e ao catálogo de etiquetas, se for nova). */
 async function applyTag(ws: string, conversationId: string, tagName: string) {
   const name = tagName.trim();

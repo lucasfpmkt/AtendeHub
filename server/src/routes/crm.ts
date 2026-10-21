@@ -290,15 +290,14 @@ crmRouter.post('/funnels/:id/stages', async (req, res) => {
   const ws = wsOf(req);
   if (!(await prisma.funnel.findFirst({ where: { id: req.params.id, workspaceId: ws } }))) return notFound(res);
   const count = await prisma.pipelineStage.count({ where: { funnelId: req.params.id } });
+  const name = String(req.body?.name ?? 'Nova etapa');
+  const color = String(req.body?.color ?? '#64748b');
+  // Por padrão, a etiqueta automática da etapa = nome da etapa (cor da etapa).
+  const autoTag = typeof req.body?.autoTag === 'string' ? req.body.autoTag.trim() : name;
   const stage = await prisma.pipelineStage.create({
-    data: {
-      name: String(req.body?.name ?? 'Nova etapa'),
-      color: String(req.body?.color ?? '#64748b'),
-      order: count,
-      funnelId: req.params.id,
-      workspaceId: ws,
-    },
+    data: { name, color, order: count, funnelId: req.params.id, workspaceId: ws, autoTag },
   });
+  if (autoTag) await prisma.tag.create({ data: { workspaceId: ws, name: autoTag, color } }).catch(() => {});
   res.json(stage);
 });
 

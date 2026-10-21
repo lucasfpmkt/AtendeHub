@@ -12,6 +12,7 @@ import { prisma } from './db.js';
 import { mediaFilePath } from './whatsapp/media.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { startFollowupLoop } from './services/followup.js';
+import { backfillStageTags } from './services/inbound.js';
 import { ensureTenancy } from './services/tenancy.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
@@ -111,6 +112,7 @@ server.listen(env.port, async () => {
   if (env.serveClient) console.log('  Servindo frontend compilado (client/dist)');
   console.log('');
   await ensureTenancy();
+  await backfillStageTags().catch((e) => console.error('[crm] backfill de etiquetas falhou:', e));
   if (env.adminPassword === 'admin') {
     console.warn('[segurança] Senha de admin padrão ("admin") em uso. Defina ADMIN_PASSWORD no ambiente e troque a senha.');
   }
