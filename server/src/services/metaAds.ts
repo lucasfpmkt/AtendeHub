@@ -1,9 +1,107 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { prisma } from '../db.js';
 import { dec } from '../crypto.js';
+import { env } from '../env.js';
 
-const GRAPH = `https://graph.facebook.com/${process.env.GRAPH_VERSION ?? 'v21.0'}`;
+const GRAPH = `https://graph.facebook.com/${env.graphVersion}`;
 const sha256 = (s: string) => createHash('sha256').update(s.trim().toLowerCase()).digest('hex');
+
+/* --------------------------- OAuth (login Meta) ------------------------- */
+
+const b64url = (b: Buffer | string) =>
+  Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** Estado assinado para o OAuth: carrega o workspace e expira em 15 min. */
+export function signOauthState(ws: string): string {
+  const payload = b64url(JSON.stringify({ ws, n: randomBytes(8).toString('hex'), exp: Date.now() + 15 * 60_000 }));
+  const sig = b64url(createHmac('sha256', env.appSecret).update(payload).digest());
+  return `${payload}.${sig}`;
+}
+
+/** Valida o estado e devolve o workspace, ou null. */
+export function verifyOauthState(state?: string | null): string | null {
+  if (!state) return null;
+  const [payload, sig] = state.split('.');
+  if (!payload || !sig) return null;
+  const expected = b64url(createHmac('sha256', env.appSecret).update(payload).digest());
+  if (sig.length !== expected.length) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64').toString());
+    if (typeof data.exp !== 'number' || data.exp <= Date.now() || !data.ws) return null;
+    return String(data.ws);
+  } catch {
+    return null;
+  }
+}
+
+/** Monta a URL do diálogo de login do Facebook. */
+export function metaLoginUrl(redirectUri: string, state: string): string {
+  const scope = 'ads_read,ads_management,business_management';
+  const q = new URLSearchParams({
+    client_id: env.fbAppId,
+    redirect_uri: redirectUri,
+    state,
+    scope,
+    response_type: 'code',
+  });
+  return `https://www.facebook.com/${env.graphVersion}/dialog/oauth?${q}`;
+}
+
+/** Troca o code pelo token de curta duração e depois pelo de longa duração. */
+export async function exchangeCodeForToken(code: string, redirectUri: string): Promise<{ token: string; expiresAt: number | null }> {
+  const shortQ = new URLSearchParams({
+    client_id: env.fbAppId,
+    client_secret: env.fbAppSecret,
+    redirect_uri: redirectUri,
+    code,
+  });
+  const shortResp = await fetch(`${GRAPH}/oauth/access_token?${shortQ}`);
+  const short: any = await shortResp.json().catch(() => ({}));
+  if (!shortResp.ok || !short.access_token) throw new Error(short?.error?.message || 'Falha ao obter o token do Meta.');
+
+  const longQ = new URLSearchParams({
+    grant_type: 'fb_exchange_token',
+    client_id: env.fbAppId,
+    client_secret: env.fbAppSecret,
+    fb_exchange_token: short.access_token,
+  });
+  const longResp = await fetch(`${GRAPH}/oauth/access_token?${longQ}`);
+  const long: any = await longResp.json().catch(() => ({}));
+  const token = long.access_token || short.access_token;
+  const expiresIn = Number(long.expires_in || short.expires_in || 0);
+  return { token, expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null };
+}
+
+/** Nome do usuário Meta conectado (para exibir "Conectado como …"). */
+export async function getMetaUserName(token: string): Promise<string> {
+  try {
+    const r = await fetch(`${GRAPH}/me?fields=name&access_token=${encodeURIComponent(token)}`);
+    const d: any = await r.json().catch(() => ({}));
+    return d?.name || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Lista as contas de anúncios que o usuário conectado administra. */
+export async function listMetaAdAccounts(token: string): Promise<{ id: string; name: string }[]> {
+  const r = await fetch(`${GRAPH}/me/adaccounts?fields=account_id,name&limit=200&access_token=${encodeURIComponent(token)}`);
+  const d: any = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d?.error?.message || `Meta respondeu ${r.status}`);
+  return (d?.data ?? []).map((a: any) => ({ id: a.account_id ? `act_${a.account_id}` : a.id, name: a.name || a.id }));
+}
+
+/** Primeiro pixel/dataset da conta (para preencher a Conversions API sozinho). */
+export async function firstPixelOf(adAccountId: string, token: string): Promise<string> {
+  const acct = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  try {
+    const r = await fetch(`${GRAPH}/${acct}/adspixels?fields=id,name&limit=1&access_token=${encodeURIComponent(token)}`);
+    const d: any = await r.json().catch(() => ({}));
+    return d?.data?.[0]?.id || '';
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Envia um evento de conversão (lead qualificado) para a Meta via Conversions API.

@@ -53,6 +53,19 @@ export const env = {
 
   // Quando "1", o backend também serve o frontend compilado (client/dist).
   serveClient: process.env.SERVE_CLIENT === '1',
+
+  // App do Meta (Facebook Login) — habilita o "Conectar com o Meta" (OAuth).
+  // Sem isso, cai no modo manual (colar token). Um único app serve todos os
+  // clientes; cada cliente apenas faz login e escolhe a conta de anúncios.
+  fbAppId: process.env.FB_APP_ID?.trim() ?? '',
+  fbAppSecret: process.env.FB_APP_SECRET?.trim() ?? '',
+  // Versão da Graph API usada no OAuth e nas chamadas de anúncios.
+  graphVersion: process.env.GRAPH_VERSION?.trim() || 'v21.0',
+  // URL pública do app (para o redirect do OAuth). Se vazio, é derivado do
+  // próprio request (protocolo+host), então normalmente não precisa definir.
+  publicUrl: process.env.PUBLIC_URL?.trim().replace(/\/+$/, '') ?? '',
 };
+
+export const metaOauthEnabled = Boolean(env.fbAppId && env.fbAppSecret);
 
 export const aiEnabled = Boolean(env.anthropicKey);

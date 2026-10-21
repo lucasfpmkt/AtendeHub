@@ -578,21 +578,30 @@ export const api = {
   adsMeta: () =>
     req<{
       adAccountId: string;
+      adAccountName: string;
       pixelId: string;
       capiEnabled: boolean;
       qualifiedStageId: string;
       eventName: string;
       hasToken: boolean;
+      oauthAvailable: boolean;
+      connectedVia: string;
+      connectedName: string;
+      tokenExpiresAt: number | null;
       stages: { id: string; name: string }[];
     }>('/ads/meta'),
   adsMetaSave: (data: {
     adAccountId?: string;
+    adAccountName?: string;
     token?: string;
     pixelId?: string;
     capiEnabled?: boolean;
     qualifiedStageId?: string;
     eventName?: string;
   }) => req('/ads/meta', { method: 'PATCH', body: JSON.stringify(data) }),
+  adsMetaOauthUrl: () => req<{ available: boolean; url?: string }>('/ads/meta/oauth-url'),
+  adsMetaAccounts: () => req<{ accounts: { id: string; name: string }[]; error?: string }>('/ads/meta/accounts'),
+  adsMetaDisconnect: () => req<{ ok: boolean }>('/ads/meta/disconnect', { method: 'POST' }),
   adsMetaSummary: (preset = 'last_30d') =>
     req<{
       configured: boolean;

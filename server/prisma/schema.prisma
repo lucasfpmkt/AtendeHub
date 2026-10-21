@@ -315,11 +315,15 @@ model WaConfig {
 model MetaConfig {
   id               String  @id // = workspaceId
   adAccountId      String  @default("") // act_...
-  token            String  @default("") // System User token (ads_read + CAPI)
+  adAccountName    String  @default("") // nome amigável da conta escolhida
+  token            String  @default("") // token (System User manual OU OAuth de usuário)
   pixelId          String  @default("") // dataset/pixel para a Conversions API
   capiEnabled      Boolean @default(false)
   qualifiedStageId String  @default("") // etapa que dispara o evento
   eventName        String  @default("Lead")
+  connectedVia     String  @default("") // "oauth" | "manual" | ""
+  connectedName    String  @default("") // nome do usuário Meta conectado (OAuth)
+  tokenExpiresAt   BigInt? // expiração do token longo (ms epoch), quando OAuth
 }
 
 /// Integração com Google Ads por cliente (resumo da conta).
