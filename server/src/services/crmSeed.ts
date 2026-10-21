@@ -27,7 +27,12 @@ export async function createFunnelWithDefaults(workspaceId: string, name: string
       order: i,
       funnelId: funnel.id,
       workspaceId,
+      autoTag: s.name, // já nasce com a etiqueta automática = nome da etapa
     })),
   });
+  // Garante a etiqueta no catálogo, na cor da etapa.
+  for (const s of DEFAULT_STAGES) {
+    await prisma.tag.create({ data: { workspaceId, name: s.name, color: s.color } }).catch(() => {});
+  }
   return funnel;
 }
