@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { Icon } from '../icons';
 import { Kpi } from './Home';
@@ -636,4 +636,166 @@ export function GoogleAds() {
       </div>
     </div>
   );
+}
+
+/* ===================== Meta ADS — Detalhamento ===================== */
+const PRESETS: { id: string; label: string }[] = [
+  { id: 'today', label: 'Hoje' },
+  { id: 'yesterday', label: 'Ontem' },
+  { id: 'last_7d', label: '7 dias' },
+  { id: 'last_30d', label: '30 dias' },
+  { id: 'this_month', label: 'Este mês' },
+  { id: 'maximum', label: 'Máximo' },
+];
+const isLive = (s?: string) => /ACTIVE|ENABLED/i.test(s || '');
+
+function MetricCells({ n }: { n: { spend: number; impressions: number; clicks: number; leads: number; cpc: number } }) {
+  return (
+    <>
+      <td className="num">{BRL(n.spend)}</td>
+      <td className="num">{NUM(n.impressions)}</td>
+      <td className="num">{NUM(n.clicks)}</td>
+      <td className="num">{NUM(n.leads)}</td>
+      <td className="num">{n.cpc ? BRL(n.cpc) : '—'}</td>
+    </>
+  );
+}
+
+export function MetaReport() {
+  const [preset, setPreset] = useState('last_30d');
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.adsMetaBreakdown>> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+
+  const load = (p = preset) => {
+    setLoading(true);
+    api
+      .adsMetaBreakdown(p)
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    load(preset); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
+
+  const toggle = (id: string) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const campaigns = data?.campaigns ?? [];
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1 className="h1">Meta ADS · Detalhamento</h1>
+          <p className="sub">Campanhas, conjuntos e anúncios com métricas. Dados em cache por ~5 min para não sobrecarregar a Meta.</p>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <select value={preset} onChange={(e) => setPreset(e.target.value)} style={{ maxWidth: 160 }}>
+            {PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => load(preset)} disabled={loading}>
+            <Icon name="refresh" size={14} /> {loading ? 'Atualizando…' : 'Atualizar'}
+          </button>
+        </div>
+      </div>
+
+      {data && !data.configured && (
+        <div className="alert">Conecte a conta na aba <b>Meta ADS</b> primeiro (login com o Meta ou token).</div>
+      )}
+      {data?.error && <div className="alert">{data.error}</div>}
+
+      {data?.configured && (
+        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
+          <table className="table tree-table">
+            <thead>
+              <tr>
+                <th>Campanha / Conjunto / Anúncio</th>
+                <th>Status</th>
+                <th className="num">Investimento</th>
+                <th className="num">Impressões</th>
+                <th className="num">Cliques</th>
+                <th className="num">Leads</th>
+                <th className="num">CPC</th>
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.map((camp) => {
+                const cOpen = open.has(camp.id);
+                return (
+                  <FragmentRows key={camp.id}>
+                    <tr className="tree-row lvl-camp" onClick={() => toggle(camp.id)}>
+                      <td>
+                        <span className="tree-name">
+                          <Icon name={cOpen ? 'chev' : 'right'} size={13} />
+                          <b>{camp.name}</b>
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`pill ${isLive(camp.status) ? 'ok' : ''}`}>{camp.status || '—'}</span>
+                      </td>
+                      <MetricCells n={camp} />
+                    </tr>
+                    {cOpen &&
+                      (camp.adsets ?? []).map((adset) => {
+                        const aOpen = open.has(adset.id);
+                        return (
+                          <FragmentRows key={adset.id}>
+                            <tr className="tree-row lvl-adset" onClick={() => toggle(adset.id)}>
+                              <td>
+                                <span className="tree-name" style={{ paddingLeft: 20 }}>
+                                  <Icon name={aOpen ? 'chev' : 'right'} size={12} />
+                                  {adset.name}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`pill ${isLive(adset.status) ? 'ok' : ''}`}>{adset.status || '—'}</span>
+                              </td>
+                              <MetricCells n={adset} />
+                            </tr>
+                            {aOpen &&
+                              (adset.ads ?? []).map((ad) => (
+                                <tr key={ad.id} className="tree-row lvl-ad">
+                                  <td>
+                                    <span className="tree-name" style={{ paddingLeft: 42 }}>
+                                      <Icon name="doc" size={12} /> {ad.name}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`pill ${isLive(ad.status) ? 'ok' : ''}`}>{ad.status || '—'}</span>
+                                  </td>
+                                  <MetricCells n={ad} />
+                                </tr>
+                              ))}
+                          </FragmentRows>
+                        );
+                      })}
+                  </FragmentRows>
+                );
+              })}
+              {campaigns.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="muted">Nenhum dado no período.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Agrupa linhas sem adicionar nós ao DOM (tabela).
+function FragmentRows({ children }: { children: ReactNode }) {
+  return <>{children}</>;
 }

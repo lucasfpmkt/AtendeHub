@@ -196,6 +196,21 @@ export interface Tag {
   color: string;
 }
 
+export interface MetaAdMetrics {
+  id: string;
+  name: string;
+  status?: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  cpc: number;
+  ctr: number;
+}
+export interface MetaAdNode extends MetaAdMetrics {
+  adsets?: (MetaAdMetrics & { ads?: MetaAdMetrics[] })[];
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -616,6 +631,12 @@ export const api = {
       campaigns?: { name: string; status: string; objective?: string }[];
     }>(`/ads/meta/summary?preset=${preset}`),
   adsMetaTestCapi: (phone?: string) => req<{ ok: boolean }>('/ads/meta/test-capi', { method: 'POST', body: JSON.stringify({ phone }) }),
+  adsMetaBreakdown: (preset = 'last_30d') =>
+    req<{
+      configured: boolean;
+      error?: string;
+      campaigns?: MetaAdNode[];
+    }>(`/ads/meta/breakdown?preset=${preset}`),
 
   // Google Ads
   adsGoogle: () =>

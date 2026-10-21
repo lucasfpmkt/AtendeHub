@@ -9,7 +9,7 @@ import { Inbox } from './pages/Inbox';
 import { Contacts } from './pages/Contacts';
 import { Campaigns } from './pages/Campaigns';
 import { Tags } from './pages/Tags';
-import { MetaAds, GoogleAds } from './pages/Ads';
+import { MetaAds, MetaReport, GoogleAds } from './pages/Ads';
 import { Pipeline } from './pages/Pipeline';
 import { Settings } from './pages/Settings';
 import { Home } from './pages/Home';
@@ -32,6 +32,7 @@ export type Tab =
   | 'campaigns'
   | 'tags'
   | 'metaads'
+  | 'metareport'
   | 'googleads'
   | 'tasks'
   | 'agenda'
@@ -51,6 +52,7 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: 'contacts', label: 'Contatos', icon: 'users' },
   { id: 'campaigns', label: 'Campanhas', icon: 'send' },
   { id: 'metaads', label: 'Meta ADS', icon: 'share' },
+  { id: 'metareport', label: 'Meta Detalhes', icon: 'list' },
   { id: 'googleads', label: 'Google ADS', icon: 'grid' },
   { id: 'tasks', label: 'Gestão de Tarefas', icon: 'check' },
   { id: 'agenda', label: 'Agendas', icon: 'cal' },
@@ -280,6 +282,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
         {current === 'campaigns' && <Campaigns connected={connected} />}
         {current === 'tags' && <Tags />}
         {current === 'metaads' && <MetaAds />}
+        {current === 'metareport' && <MetaReport />}
         {current === 'googleads' && <GoogleAds />}
         {current === 'tasks' && <Tasks />}
         {current === 'agenda' && <Agenda />}
