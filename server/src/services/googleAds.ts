@@ -10,6 +10,14 @@ const OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
 const ADS_SCOPE = 'https://www.googleapis.com/auth/adwords';
 const api = () => `https://googleads.googleapis.com/${env.googleAdsVersion}`;
 
+// Extrai a mensagem detalhada de um erro do Google Ads (vem aninhada, com código).
+function gAdsError(d: any, status: number): string {
+  const inner = d?.error?.details?.[0]?.errors?.[0];
+  const code = inner?.errorCode ? String(Object.values(inner.errorCode)[0] ?? '') : '';
+  const parts = [d?.error?.message, inner?.message, code].filter(Boolean);
+  return parts.length ? parts.join(' · ') : `Google respondeu ${status}`;
+}
+
 /**
  * Credenciais GLOBAIS do Google Ads (MCC). Prioridade: o que o admin salvou na
  * aba Clientes (PlatformConfig) e, se vazio, a variável de ambiente.
@@ -128,7 +136,7 @@ export async function listAccessibleCustomers(refreshToken: string, developerTok
   const access = await accessTokenFrom(refreshToken, g);
   const resp = await fetch(`${api()}/customers:listAccessibleCustomers`, { headers: adsHeaders(access, dt, g.loginCustomerId) });
   const data: any = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
+  if (!resp.ok) throw new Error(gAdsError(data, resp.status));
   const ids: string[] = (data?.resourceNames ?? []).map((r: string) => r.split('/')[1]).filter(Boolean);
   // Busca o nome descritivo de cada conta (best-effort).
   const out: { id: string; name: string }[] = [];
@@ -169,7 +177,7 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
     body: JSON.stringify({ query: metricsQuery }),
   });
   const m: any = await mResp.json().catch(() => ({}));
-  if (!mResp.ok) throw new Error(m?.error?.message || `Google respondeu ${mResp.status}`);
+  if (!mResp.ok) throw new Error(gAdsError(m, mResp.status));
   const agg = (m?.results ?? []).reduce(
     (a: any, r: any) => {
       const x = r.metrics ?? {};
@@ -247,7 +255,7 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
       body: JSON.stringify({ query, pageSize: 1000, ...(pageToken ? { pageToken } : {}) }),
     });
     const j: any = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error?.message || `Google respondeu ${r.status}`);
+    if (!r.ok) throw new Error(gAdsError(j, r.status));
     rows.push(...(j?.results ?? []));
     pageToken = j?.nextPageToken || '';
     if (!pageToken) break;
@@ -314,7 +322,7 @@ export async function listConversionActions(customerId: string, refreshToken: st
     }),
   });
   const data: any = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
+  if (!resp.ok) throw new Error(gAdsError(data, resp.status));
   return (data?.results ?? [])
     .map((r: any) => ({ id: String(r.conversionAction?.id ?? ''), name: r.conversionAction?.name || String(r.conversionAction?.id ?? '') }))
     .filter((x: any) => x.id);
@@ -364,7 +372,7 @@ export async function uploadLeadConversion(params: {
     body: JSON.stringify(body),
   });
   const data: any = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
+  if (!resp.ok) throw new Error(gAdsError(data, resp.status));
   // partialFailureError traz erros por-item mesmo com HTTP 200.
   if (data?.partialFailureError?.message) throw new Error(data.partialFailureError.message);
   return data;
