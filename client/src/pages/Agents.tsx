@@ -1323,26 +1323,44 @@ function ScriptArea({
   // Submenu de seleção (ex.: escolher o agente de destino).
   const [sub, setSub] = useState<AtAction | null>(null);
   const [subQuery, setSubQuery] = useState('');
+  // Para "Mudar etapa": 1º escolhe o funil, depois a etapa dele.
+  const [subFunnel, setSubFunnel] = useState<string | null>(null);
 
   const items = useMemo(() => {
     const q = norm(query);
     return AT_ACTIONS.filter((a) => !q || norm(a.label).includes(q));
   }, [query]);
 
+  // Funis (nome + nº de etapas), derivados das etapas do CRM, preservando a ordem.
+  const funnelList = useMemo(() => {
+    const order: string[] = [];
+    const count = new Map<string, number>();
+    for (const s of stages) {
+      if (!count.has(s.funnelName)) order.push(s.funnelName);
+      count.set(s.funnelName, (count.get(s.funnelName) ?? 0) + 1);
+    }
+    return order.map((name) => ({ name, count: count.get(name) ?? 0 }));
+  }, [stages]);
+
   // Opções do submenu conforme a ação escolhida (agente / etapa do CRM / etiqueta).
+  // Para etapa: primeiro lista funis; depois, as etapas do funil escolhido.
   const subAll = useMemo((): { name: string; group?: string }[] => {
-    if (sub?.pick === 'stage') return stages.map((s) => ({ name: s.name, group: s.funnelName }));
+    if (sub?.pick === 'stage') {
+      if (!subFunnel) return funnelList.map((f) => ({ name: f.name, group: `${f.count} etapa${f.count === 1 ? '' : 's'}` }));
+      return stages.filter((s) => s.funnelName === subFunnel).map((s) => ({ name: s.name }));
+    }
     if (sub?.pick === 'tag') return tags.map((t) => ({ name: t }));
     if (sub?.pick === 'agent') return agents.map((a) => ({ name: a }));
     return [];
-  }, [sub, agents, stages, tags]);
+  }, [sub, subFunnel, funnelList, agents, stages, tags]);
   const subItems = useMemo(() => {
     const q = norm(subQuery);
     return subAll.filter((o) => !q || norm(o.name).includes(q));
   }, [subAll, subQuery]);
   const subEmptyText =
-    sub?.pick === 'stage' ? 'Nenhuma etapa no CRM' : sub?.pick === 'tag' ? 'Nenhuma etiqueta criada' : 'Nenhum agente ativo';
-  const subPlaceholder = sub?.pick === 'stage' ? 'Buscar etapa...' : sub?.pick === 'tag' ? 'Buscar etiqueta...' : 'Buscar agente...';
+    sub?.pick === 'stage' ? (subFunnel ? 'Nenhuma etapa neste funil' : 'Nenhum funil no CRM') : sub?.pick === 'tag' ? 'Nenhuma etiqueta criada' : 'Nenhum agente ativo';
+  const subPlaceholder =
+    sub?.pick === 'stage' ? (subFunnel ? 'Buscar etapa...' : 'Buscar funil...') : sub?.pick === 'tag' ? 'Buscar etiqueta...' : 'Buscar agente...';
 
   // Fecha ao clicar fora do menu.
   useEffect(() => {
@@ -1365,6 +1383,7 @@ function ScriptArea({
       setQuery('');
       setSub(null);
       setSubQuery('');
+      setSubFunnel(null);
       setIdx(0);
       requestAnimationFrame(() => searchRef.current?.focus());
     }
@@ -1375,6 +1394,7 @@ function ScriptArea({
     setQuery('');
     setSub(null);
     setSubQuery('');
+    setSubFunnel(null);
     requestAnimationFrame(() => ref.current?.focus());
   };
 
@@ -1390,6 +1410,7 @@ function ScriptArea({
     setQuery('');
     setSub(null);
     setSubQuery('');
+    setSubFunnel(null);
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(caret, caret);
@@ -1415,6 +1436,17 @@ function ScriptArea({
     insertAt(`${sub.insert}${name}`, 0);
   };
 
+  // Seleção no submenu: para etapa, 1º clique escolhe o funil; 2º a etapa.
+  const onSubPick = (name: string) => {
+    if (sub?.pick === 'stage' && !subFunnel) {
+      setSubFunnel(name);
+      setSubQuery('');
+      requestAnimationFrame(() => subRef.current?.focus());
+      return;
+    }
+    chooseValue(name);
+  };
+
   const onSearchKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -1436,11 +1468,18 @@ function ScriptArea({
   const onSubKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
-      setSub(null); // volta ao menu principal
-      requestAnimationFrame(() => searchRef.current?.focus());
+      if (sub?.pick === 'stage' && subFunnel) {
+        // Volta da lista de etapas para a de funis.
+        setSubFunnel(null);
+        setSubQuery('');
+        requestAnimationFrame(() => subRef.current?.focus());
+      } else {
+        setSub(null); // volta ao menu principal
+        requestAnimationFrame(() => searchRef.current?.focus());
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (subItems[0]) chooseValue(subItems[0].name);
+      if (subItems[0]) onSubPick(subItems[0].name);
     }
   };
 
@@ -1530,6 +1569,18 @@ function ScriptArea({
 
           {sub && (
             <div className="at-menu at-sub" role="menu">
+              {sub.pick === 'stage' && subFunnel && (
+                <button
+                  className="at-crumb"
+                  onClick={() => {
+                    setSubFunnel(null);
+                    setSubQuery('');
+                    requestAnimationFrame(() => subRef.current?.focus());
+                  }}
+                >
+                  <Icon name="left" size={14} /> <b>{subFunnel}</b> · escolha a etapa
+                </button>
+              )}
               <div className="at-search">
                 <Icon name="search" size={15} />
                 <input
@@ -1543,19 +1594,23 @@ function ScriptArea({
               </div>
               <div className="at-list">
                 {subItems.length === 0 && <div className="at-empty">{subEmptyText}</div>}
-                {subItems.map((o) => (
-                  <button key={o.name} role="menuitem" className="at-item" onClick={() => chooseValue(o.name)}>
-                    <span className="at-ic" style={{ color: sub.color, background: `${sub.color}1a` }}>
-                      <Icon name={sub.icon} size={16} />
-                    </span>
-                    <span className="at-nm">{o.name}</span>
-                    {o.group && <span className="muted small">{o.group}</span>}
-                  </button>
-                ))}
+                {subItems.map((o) => {
+                  const isFunnel = sub.pick === 'stage' && !subFunnel;
+                  return (
+                    <button key={o.name} role="menuitem" className="at-item" onClick={() => onSubPick(o.name)}>
+                      <span className="at-ic" style={{ color: sub.color, background: `${sub.color}1a` }}>
+                        <Icon name={isFunnel ? 'crm' : sub.icon} size={16} />
+                      </span>
+                      <span className="at-nm">{o.name}</span>
+                      {o.group && <span className="muted small at-grp">{o.group}</span>}
+                      {isFunnel && <Icon name="right" size={15} />}
+                    </button>
+                  );
+                })}
               </div>
               <div className="at-foot">
                 <span>
-                  <b>Enter</b> inserir
+                  <b>Enter</b> {sub.pick === 'stage' && !subFunnel ? 'abrir' : 'inserir'}
                 </span>
                 <span>
                   <b>Esc</b> voltar
