@@ -797,7 +797,7 @@ function BreakdownView({
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((camp) => {
+              {activeFirst(campaigns).map((camp) => {
                 const cOpen = open.has(camp.id);
                 return (
                   <FragmentRows key={camp.id}>
@@ -814,7 +814,7 @@ function BreakdownView({
                       <MetricCells n={camp} />
                     </tr>
                     {cOpen &&
-                      (camp.adsets ?? []).map((adset) => {
+                      activeFirst(camp.adsets ?? []).map((adset) => {
                         const aOpen = open.has(adset.id);
                         return (
                           <FragmentRows key={adset.id}>
@@ -831,7 +831,7 @@ function BreakdownView({
                               <MetricCells n={adset} />
                             </tr>
                             {aOpen &&
-                              (adset.ads ?? []).map((ad) => (
+                              activeFirst(adset.ads ?? []).map((ad) => (
                                 <tr key={ad.id} className="tree-row lvl-ad">
                                   <td>
                                     <span className="tree-name" style={{ paddingLeft: 42 }}>
