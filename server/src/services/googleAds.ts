@@ -260,7 +260,7 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
     const r = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
       method: 'POST',
       headers: adsHeaders(access, dt, g.loginCustomerId),
-      body: JSON.stringify({ query, pageSize: 1000, ...(pageToken ? { pageToken } : {}) }),
+      body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
     });
     const j: any = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(gAdsError(j, r.status));
