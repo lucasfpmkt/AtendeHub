@@ -180,6 +180,14 @@ adsRouter.post('/meta/test-capi', async (req, res) => {
 });
 
 /* ----------------------------- Google Ads ------------------------------ */
+// Credenciais do Google: por padrão globais (MCC) — só o Customer ID muda por
+// cliente. Usa o valor salvo no cliente e, se vazio, cai no global do servidor.
+function googleCreds(cfg: { refreshToken?: string | null; developerToken?: string | null } | null) {
+  const refreshToken = cfg?.refreshToken ? dec(cfg.refreshToken) : env.googleRefreshToken;
+  const developerToken = cfg?.developerToken ? dec(cfg.developerToken) : env.googleAdsDeveloperToken;
+  return { refreshToken, developerToken };
+}
+const googleReady = () => Boolean(env.googleRefreshToken && env.googleAdsDeveloperToken);
 adsRouter.get('/google', async (req, res) => {
   const ws = wsOf(req);
   let cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
@@ -196,7 +204,8 @@ adsRouter.get('/google', async (req, res) => {
     hasRefreshToken: Boolean(refreshToken),
     hasClientSecret: Boolean(clientSecret),
     oauthAvailable: googleOauthEnabled,
-    developerTokenReady: Boolean(env.googleAdsDeveloperToken),
+    developerTokenReady: Boolean(env.googleAdsDeveloperToken || developerToken),
+    globalReady: googleReady(), // MCC global configurada: só falta o Customer ID
     stages,
   });
 });
@@ -204,9 +213,10 @@ adsRouter.get('/google', async (req, res) => {
 // Ações de conversão de upload (para escolher qual disparar no qualificado).
 adsRouter.get('/google/conversion-actions', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  if (!cfg?.refreshToken || !cfg?.customerId) return res.json({ actions: [] });
+  const { refreshToken, developerToken } = googleCreds(cfg);
+  if (!refreshToken || !cfg?.customerId) return res.json({ actions: [] });
   try {
-    res.json({ actions: await listConversionActions(cfg.customerId, dec(cfg.refreshToken)) });
+    res.json({ actions: await listConversionActions(cfg.customerId, refreshToken, developerToken) });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -215,13 +225,15 @@ adsRouter.get('/google/conversion-actions', async (req, res) => {
 // Teste manual do envio de conversão.
 adsRouter.post('/google/test-conversion', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  if (!cfg?.refreshToken || !cfg?.customerId || !cfg?.conversionActionId) {
+  const { refreshToken, developerToken } = googleCreds(cfg);
+  if (!refreshToken || !cfg?.customerId || !cfg?.conversionActionId) {
     return res.status(400).json({ error: 'Conecte a conta e escolha a ação de conversão antes de testar.' });
   }
   try {
     await uploadLeadConversion({
       customerId: cfg.customerId,
-      refreshToken: dec(cfg.refreshToken),
+      refreshToken,
+      developerToken,
       conversionActionId: cfg.conversionActionId,
       phone: String(req.body?.phone || '5500000000000'),
     });
@@ -241,9 +253,10 @@ adsRouter.get('/google/oauth-url', async (req, res) => {
 // Contas do Google Ads acessíveis pela conta conectada (para escolher qual).
 adsRouter.get('/google/customers', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  if (!cfg?.refreshToken) return res.json({ customers: [] });
+  const { refreshToken, developerToken } = googleCreds(cfg);
+  if (!refreshToken) return res.json({ customers: [] });
   try {
-    res.json({ customers: await listAccessibleCustomers(dec(cfg.refreshToken)) });
+    res.json({ customers: await listAccessibleCustomers(refreshToken, developerToken) });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -251,9 +264,10 @@ adsRouter.get('/google/customers', async (req, res) => {
 
 adsRouter.get('/google/breakdown', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  if (!cfg?.refreshToken || !cfg?.customerId) return res.json({ configured: false });
+  const { refreshToken, developerToken } = googleCreds(cfg);
+  if (!refreshToken || !cfg?.customerId) return res.json({ configured: false });
   try {
-    const data = await getGoogleAdsBreakdown(cfg.customerId, dec(cfg.refreshToken), String(req.query.preset || 'last_30d'));
+    const data = await getGoogleAdsBreakdown(cfg.customerId, refreshToken, String(req.query.preset || 'last_30d'), developerToken);
     res.json({ configured: true, ...data });
   } catch (err) {
     res.status(400).json({ configured: true, error: (err as Error).message });
@@ -262,9 +276,10 @@ adsRouter.get('/google/breakdown', async (req, res) => {
 
 adsRouter.get('/google/summary', async (req, res) => {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
-  if (!cfg?.refreshToken || !cfg?.customerId) return res.json({ configured: false });
+  const { refreshToken, developerToken } = googleCreds(cfg);
+  if (!refreshToken || !cfg?.customerId) return res.json({ configured: false });
   try {
-    res.json({ configured: true, ...(await getGoogleAdsSummary(cfg.customerId, dec(cfg.refreshToken))) });
+    res.json({ configured: true, ...(await getGoogleAdsSummary(cfg.customerId, refreshToken, developerToken)) });
   } catch (err) {
     res.status(400).json({ configured: true, error: (err as Error).message });
   }
