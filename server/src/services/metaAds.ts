@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { prisma } from '../db.js';
 import { dec } from '../crypto.js';
 import { env } from '../env.js';
+import { findQualifiedStageId } from './crmSeed.js';
 
 const GRAPH = `https://graph.facebook.com/${env.graphVersion}`;
 const sha256 = (s: string) => createHash('sha256').update(s.trim().toLowerCase()).digest('hex');
@@ -149,8 +150,10 @@ export async function sendCapiLead(params: {
 /** Dispara o evento de lead qualificado se o cliente configurou e a etapa bate. */
 export async function maybeFireQualifiedLead(ws: string, contactId: string, stageId: string) {
   const cfg = await prisma.metaConfig.findUnique({ where: { id: ws } });
-  if (!cfg || !cfg.capiEnabled || !cfg.pixelId || !cfg.token || !cfg.qualifiedStageId) return;
-  if (cfg.qualifiedStageId !== stageId) return;
+  if (!cfg || !cfg.capiEnabled || !cfg.pixelId || !cfg.token) return;
+  // Etapa qualificada: a escolhida, ou por padrão a etapa "Lead Qualificado".
+  const qualifiedId = cfg.qualifiedStageId || (await findQualifiedStageId(ws));
+  if (!qualifiedId || qualifiedId !== stageId) return;
   const contact = await prisma.contact.findUnique({ where: { id: contactId } });
   if (!contact?.phone) return;
   try {

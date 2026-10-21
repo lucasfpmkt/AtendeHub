@@ -46,6 +46,12 @@ const isQualifiedStage = (name: string) => {
   return n.includes('qualificad') && !n.includes('desqualific');
 };
 
+/** Id da etapa de "Lead Qualificado" do cliente (a 1ª encontrada), ou null. */
+export async function findQualifiedStageId(workspaceId: string): Promise<string | null> {
+  const stages = await prisma.pipelineStage.findMany({ where: { workspaceId }, orderBy: { order: 'asc' } });
+  return stages.find((s) => isQualifiedStage(s.name))?.id ?? null;
+}
+
 /**
  * Garante que todo funil tenha uma etapa "Lead Qualificado". Se o funil já tem
  * qualquer etapa de qualificado, não mexe. Senão, insere "Lead Qualificado"

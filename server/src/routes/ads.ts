@@ -23,6 +23,7 @@ import {
   listConversionActions,
   uploadLeadConversion,
 } from '../services/googleAds.js';
+import { findQualifiedStageId } from '../services/crmSeed.js';
 import { enc, dec } from '../crypto.js';
 import { env, metaOauthEnabled, googleOauthEnabled } from '../env.js';
 
@@ -43,6 +44,11 @@ adsRouter.get('/meta', async (req, res) => {
   const ws = wsOf(req);
   let cfg = await prisma.metaConfig.findUnique({ where: { id: ws } });
   if (!cfg) cfg = await prisma.metaConfig.create({ data: { id: ws } });
+  // Pré-seleciona a etapa "Lead Qualificado" quando ainda não há uma escolhida.
+  if (!cfg.qualifiedStageId) {
+    const qid = await findQualifiedStageId(ws);
+    if (qid) cfg = await prisma.metaConfig.update({ where: { id: ws }, data: { qualifiedStageId: qid } });
+  }
   const stages = await prisma.pipelineStage.findMany({
     where: { workspaceId: ws },
     orderBy: { order: 'asc' },
@@ -192,6 +198,10 @@ adsRouter.get('/google', async (req, res) => {
   const ws = wsOf(req);
   let cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
   if (!cfg) cfg = await prisma.googleAdsConfig.create({ data: { id: ws } });
+  if (!cfg.qualifiedStageId) {
+    const qid = await findQualifiedStageId(ws);
+    if (qid) cfg = await prisma.googleAdsConfig.update({ where: { id: ws }, data: { qualifiedStageId: qid } });
+  }
   const stages = await prisma.pipelineStage.findMany({
     where: { workspaceId: ws },
     orderBy: { order: 'asc' },
