@@ -389,6 +389,22 @@ export function GoogleAds() {
     loadSum();
     loadConvActions();
   };
+  // MCC global: salva só o Customer ID (a conta do cliente dentro da MCC).
+  // Se havia uma conexão pessoal (OAuth), remove para usar as credenciais da MCC.
+  const saveClientAccount = async () => {
+    if (!cfg) return;
+    setMsg(null);
+    try {
+      if (cfg.connectedVia === 'oauth') await api.adsGoogleDisconnect().catch(() => {});
+      await api.adsGoogleSave({ customerId: cfg.customerId.trim(), customerName: '' });
+      setMsg({ ok: true, text: 'Conta do cliente salva.' });
+      load();
+      loadSum();
+      loadConvActions();
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    }
+  };
   const saveConv = async () => {
     if (!cfg) return;
     setMsg(null);
@@ -429,8 +445,8 @@ export function GoogleAds() {
         </div>
       </div>
 
-      {/* Login direto com o Google (OAuth) */}
-      {cfg.oauthAvailable && (
+      {/* Login direto com o Google (OAuth) — só quando NÃO há MCC global. */}
+      {cfg.oauthAvailable && !cfg.globalReady && (
         <div className="card" style={{ marginBottom: 14 }}>
           {connected ? (
             <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
@@ -483,38 +499,35 @@ export function GoogleAds() {
         </div>
       )}
 
-      {/* MCC global no servidor: só escolher a conta do cliente */}
-      {cfg.globalReady && !connected && (
+      {/* MCC global no servidor: você só digita o Customer ID da conta do cliente. */}
+      {cfg.globalReady && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <div>
               <h3 className="card-title" style={{ margin: 0 }}>
-                <Icon name="grid" /> Conta do cliente
+                <Icon name="grid" /> Conta do cliente (na sua MCC)
               </h3>
-              <span className="muted small">As credenciais da sua MCC já estão no servidor — escolha só a conta de anúncios deste cliente.</span>
+              <span className="muted small">
+                As credenciais da MCC já estão no servidor — informe só o <b>Customer ID</b> da conta deste cliente dentro da MCC.
+              </span>
             </div>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {customers.length > 0 ? (
-                <select value={cfg.customerId} onChange={(e) => pickCustomer(e.target.value)} style={{ maxWidth: 360 }}>
-                  <option value="">Selecione a conta…</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.id})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  value={cfg.customerId}
-                  onChange={(e) => setCfg({ ...cfg, customerId: e.target.value })}
-                  onBlur={() => cfg.customerId && pickCustomer(cfg.customerId)}
-                  placeholder="Customer ID (123-456-7890)"
-                  style={{ maxWidth: 220 }}
-                />
-              )}
-              {cfg.customerName && <span className="pill ok">{cfg.customerName}</span>}
+              <input
+                value={cfg.customerId}
+                onChange={(e) => setCfg({ ...cfg, customerId: e.target.value })}
+                placeholder="123-456-7890"
+                style={{ maxWidth: 200 }}
+              />
+              <button className="primary" onClick={saveClientAccount} disabled={!cfg.customerId.trim()}>
+                Salvar
+              </button>
             </div>
           </div>
+          {cfg.connectedVia === 'oauth' && (
+            <span className="muted small" style={{ marginTop: 8, display: 'block' }}>
+              Há uma conexão pessoal ({cfg.connectedEmail}) ativa — ao salvar, ela é removida e passa a usar as credenciais da MCC.
+            </span>
+          )}
         </div>
       )}
 
