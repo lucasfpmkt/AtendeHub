@@ -1,4 +1,35 @@
 import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+
+/**
+ * Segredo que assina os tokens de login. Se APP_SECRET não for definido,
+ * gera um aleatório e PERSISTE no volume (para os tokens sobreviverem a
+ * restarts) — assim o sistema é seguro por padrão, sem depender de config.
+ */
+function resolveAppSecret(): string {
+  const fromEnv = process.env.APP_SECRET?.trim();
+  if (fromEnv && fromEnv !== 'dev-secret-troque-em-producao') return fromEnv;
+  const base = process.env.WA_AUTH_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../auth_info');
+  const file = `${base}-secret`;
+  try {
+    const existing = fs.readFileSync(file, 'utf8').trim();
+    if (existing) return existing;
+  } catch {
+    /* ainda não existe */
+  }
+  const secret = randomBytes(32).toString('hex');
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, secret, { mode: 0o600 });
+    console.warn('[segurança] APP_SECRET não definido — gerado e salvo em', file);
+  } catch {
+    console.warn('[segurança] APP_SECRET não definido e não foi possível persistir; usando um segredo em memória (logins caem no restart).');
+  }
+  return secret;
+}
 
 export const env = {
   port: Number(process.env.PORT ?? 3001),
@@ -18,7 +49,7 @@ export const env = {
   defaultWorkspaceName: process.env.DEFAULT_WORKSPACE_NAME ?? 'Law Mídias',
   // "0" desliga o botão "Criar conta" da tela de login.
   allowSignup: process.env.ALLOW_SIGNUP !== '0',
-  appSecret: process.env.APP_SECRET ?? 'dev-secret-troque-em-producao',
+  appSecret: resolveAppSecret(),
 
   // Quando "1", o backend também serve o frontend compilado (client/dist).
   serveClient: process.env.SERVE_CLIENT === '1',

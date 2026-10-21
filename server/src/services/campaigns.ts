@@ -43,6 +43,11 @@ export async function audienceLabel(ws: string, audience: Audience): Promise<str
 
 /** Cria a campanha e dispara em segundo plano com throttle (evita bloqueio). */
 export async function startCampaign(ws: string, body: string, audience: Audience, template?: CampaignTemplate) {
+  const workspace = await prisma.workspace.findUnique({ where: { id: ws }, select: { active: true, expiresAt: true } });
+  const today = new Date().toISOString().slice(0, 10);
+  if (!workspace?.active || (workspace.expiresAt && workspace.expiresAt < today)) {
+    throw new Error('Conta inativa ou vencida — não é possível disparar campanhas.');
+  }
   const targets = await resolveTargets(ws, audience);
   const label = await audienceLabel(ws, audience);
   const cloud = template ? cloudOf(ws) : undefined; // template exige a API Oficial

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { wsOf } from '../auth.js';
 import { prisma } from '../db.js';
 import { getMetaAdsSummary, sendCapiLead } from '../services/metaAds.js';
+import { enc, dec } from '../crypto.js';
 
 export const adsRouter = Router();
 
@@ -28,7 +29,7 @@ adsRouter.patch('/meta', async (req, res) => {
   if (typeof qualifiedStageId === 'string') data.qualifiedStageId = qualifiedStageId;
   if (typeof eventName === 'string') data.eventName = eventName.trim() || 'Lead';
   if (typeof capiEnabled === 'boolean') data.capiEnabled = capiEnabled;
-  if (typeof token === 'string' && token.trim()) data.token = token.trim();
+  if (typeof token === 'string' && token.trim()) data.token = enc(token.trim());
   await prisma.metaConfig.upsert({ where: { id: ws }, update: data, create: { id: ws, ...data } });
   res.json({ ok: true });
 });
@@ -37,7 +38,7 @@ adsRouter.get('/meta/summary', async (req, res) => {
   const cfg = await prisma.metaConfig.findUnique({ where: { id: wsOf(req) } });
   if (!cfg?.adAccountId || !cfg?.token) return res.json({ configured: false });
   try {
-    const summary = await getMetaAdsSummary(cfg.adAccountId, cfg.token, String(req.query.preset || 'last_30d'));
+    const summary = await getMetaAdsSummary(cfg.adAccountId, dec(cfg.token), String(req.query.preset || 'last_30d'));
     res.json({ configured: true, ...summary });
   } catch (err) {
     res.status(400).json({ configured: true, error: (err as Error).message });
@@ -49,7 +50,7 @@ adsRouter.post('/meta/test-capi', async (req, res) => {
   const cfg = await prisma.metaConfig.findUnique({ where: { id: wsOf(req) } });
   if (!cfg?.pixelId || !cfg?.token) return res.status(400).json({ error: 'Informe o Pixel/Dataset ID e o token.' });
   try {
-    await sendCapiLead({ pixelId: cfg.pixelId, token: cfg.token, eventName: cfg.eventName, phone: String(req.body?.phone || '5500000000000') });
+    await sendCapiLead({ pixelId: cfg.pixelId, token: dec(cfg.token), eventName: cfg.eventName, phone: String(req.body?.phone || '5500000000000') });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -71,9 +72,9 @@ adsRouter.patch('/google', async (req, res) => {
   const data: Record<string, unknown> = {};
   if (typeof customerId === 'string') data.customerId = customerId.trim();
   if (typeof clientId === 'string') data.clientId = clientId.trim();
-  if (typeof developerToken === 'string' && developerToken.trim()) data.developerToken = developerToken.trim();
-  if (typeof refreshToken === 'string' && refreshToken.trim()) data.refreshToken = refreshToken.trim();
-  if (typeof clientSecret === 'string' && clientSecret.trim()) data.clientSecret = clientSecret.trim();
+  if (typeof developerToken === 'string' && developerToken.trim()) data.developerToken = enc(developerToken.trim());
+  if (typeof refreshToken === 'string' && refreshToken.trim()) data.refreshToken = enc(refreshToken.trim());
+  if (typeof clientSecret === 'string' && clientSecret.trim()) data.clientSecret = enc(clientSecret.trim());
   await prisma.googleAdsConfig.upsert({ where: { id: ws }, update: data, create: { id: ws, ...data } });
   res.json({ ok: true });
 });
