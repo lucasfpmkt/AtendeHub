@@ -619,9 +619,38 @@ export const api = {
 
   // Google Ads
   adsGoogle: () =>
-    req<{ customerId: string; clientId: string; hasDeveloperToken: boolean; hasRefreshToken: boolean; hasClientSecret: boolean }>(
-      '/ads/google',
-    ),
-  adsGoogleSave: (data: { customerId?: string; developerToken?: string; refreshToken?: string; clientId?: string; clientSecret?: string }) =>
-    req('/ads/google', { method: 'PATCH', body: JSON.stringify(data) }),
+    req<{
+      customerId: string;
+      customerName: string;
+      clientId: string;
+      connectedVia: string;
+      connectedEmail: string;
+      hasDeveloperToken: boolean;
+      hasRefreshToken: boolean;
+      hasClientSecret: boolean;
+      oauthAvailable: boolean;
+      developerTokenReady: boolean;
+    }>('/ads/google'),
+  adsGoogleSave: (data: {
+    customerId?: string;
+    customerName?: string;
+    developerToken?: string;
+    refreshToken?: string;
+    clientId?: string;
+    clientSecret?: string;
+  }) => req('/ads/google', { method: 'PATCH', body: JSON.stringify(data) }),
+  adsGoogleOauthUrl: () => req<{ available: boolean; url?: string }>('/ads/google/oauth-url'),
+  adsGoogleCustomers: () => req<{ customers: { id: string; name: string }[]; error?: string }>('/ads/google/customers'),
+  adsGoogleDisconnect: () => req<{ ok: boolean }>('/ads/google/disconnect', { method: 'POST' }),
+  adsGoogleSummary: () =>
+    req<{
+      configured: boolean;
+      error?: string;
+      spend?: number;
+      impressions?: number;
+      clicks?: number;
+      conversions?: number;
+      cpc?: number;
+      campaigns?: { name: string; status: string }[];
+    }>('/ads/google/summary'),
 };

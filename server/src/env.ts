@@ -64,8 +64,20 @@ export const env = {
   // URL pública do app (para o redirect do OAuth). Se vazio, é derivado do
   // próprio request (protocolo+host), então normalmente não precisa definir.
   publicUrl: process.env.PUBLIC_URL?.trim().replace(/\/+$/, '') ?? '',
+
+  // Google Ads (login direto / OAuth). clientId+secret são do app do LawHub
+  // (um só serve todos os clientes) e o developer token é da conta MCC.
+  googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() ?? '',
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? '',
+  googleAdsDeveloperToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim() ?? '',
+  // ID da conta gerenciadora (MCC) — enviado como login-customer-id, se houver.
+  googleLoginCustomerId: (process.env.GOOGLE_LOGIN_CUSTOMER_ID ?? '').replace(/\D/g, ''),
+  googleAdsVersion: process.env.GOOGLE_ADS_VERSION?.trim() || 'v17',
 };
 
 export const metaOauthEnabled = Boolean(env.fbAppId && env.fbAppSecret);
+// OAuth do Google precisa do client do app; o developer token é exigido para
+// ler dados, mas o login já funciona sem ele (o resumo é que fica pendente).
+export const googleOauthEnabled = Boolean(env.googleClientId && env.googleClientSecret);
 
 export const aiEnabled = Boolean(env.anthropicKey);

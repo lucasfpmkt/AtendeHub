@@ -13,18 +13,25 @@ import {
   listMetaAdAccounts,
   firstPixelOf,
 } from '../services/metaAds.js';
+import {
+  googleLoginUrl,
+  exchangeGoogleCode,
+  listAccessibleCustomers,
+  getGoogleAdsSummary,
+} from '../services/googleAds.js';
 import { enc, dec } from '../crypto.js';
-import { env, metaOauthEnabled } from '../env.js';
+import { env, metaOauthEnabled, googleOauthEnabled } from '../env.js';
 
 export const adsRouter = Router();
-// Router PÚBLICO só para o retorno do OAuth (a Meta redireciona o navegador,
-// sem o token de sessão no header). Montado em /api/ads/meta/callback.
+// Routers PÚBLICOS só para o retorno do OAuth (o provedor redireciona o
+// navegador, sem token de sessão). Montados em /api/ads/<provedor>/callback.
 export const metaOauthRouter = Router();
+export const googleOauthRouter = Router();
 
 /** redirect_uri do OAuth — fixo por app; usa PUBLIC_URL ou deriva do request. */
-function oauthRedirectUri(req: Request): string {
+function oauthRedirectUri(req: Request, provider: 'meta' | 'google' = 'meta'): string {
   const base = env.publicUrl || `${req.protocol}://${req.get('host')}`;
-  return `${base}/api/ads/meta/callback`;
+  return `${base}/api/ads/${provider}/callback`;
 }
 
 /* ------------------------------ Meta Ads ------------------------------- */
@@ -162,18 +169,102 @@ adsRouter.get('/google', async (req, res) => {
   let cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
   if (!cfg) cfg = await prisma.googleAdsConfig.create({ data: { id: ws } });
   const { developerToken, refreshToken, clientSecret, ...safe } = cfg;
-  res.json({ ...safe, hasDeveloperToken: Boolean(developerToken), hasRefreshToken: Boolean(refreshToken), hasClientSecret: Boolean(clientSecret) });
+  res.json({
+    ...safe,
+    hasDeveloperToken: Boolean(developerToken),
+    hasRefreshToken: Boolean(refreshToken),
+    hasClientSecret: Boolean(clientSecret),
+    oauthAvailable: googleOauthEnabled,
+    developerTokenReady: Boolean(env.googleAdsDeveloperToken),
+  });
+});
+
+// URL do consentimento do Google (o front redireciona o navegador para cá).
+adsRouter.get('/google/oauth-url', async (req, res) => {
+  if (!googleOauthEnabled) return res.json({ available: false });
+  const state = signOauthState(wsOf(req));
+  res.json({ available: true, url: googleLoginUrl(oauthRedirectUri(req, 'google'), state) });
+});
+
+// Contas do Google Ads acessíveis pela conta conectada (para escolher qual).
+adsRouter.get('/google/customers', async (req, res) => {
+  const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.refreshToken) return res.json({ customers: [] });
+  try {
+    res.json({ customers: await listAccessibleCustomers(dec(cfg.refreshToken)) });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+adsRouter.get('/google/summary', async (req, res) => {
+  const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.refreshToken || !cfg?.customerId) return res.json({ configured: false });
+  try {
+    res.json({ configured: true, ...(await getGoogleAdsSummary(cfg.customerId, dec(cfg.refreshToken))) });
+  } catch (err) {
+    res.status(400).json({ configured: true, error: (err as Error).message });
+  }
+});
+
+adsRouter.post('/google/disconnect', async (req, res) => {
+  await prisma.googleAdsConfig
+    .update({ where: { id: wsOf(req) }, data: { refreshToken: '', customerId: '', customerName: '', connectedVia: '', connectedEmail: '' } })
+    .catch(() => {});
+  res.json({ ok: true });
 });
 
 adsRouter.patch('/google', async (req, res) => {
   const ws = wsOf(req);
-  const { customerId, developerToken, refreshToken, clientId, clientSecret } = req.body ?? {};
+  const { customerId, customerName, developerToken, refreshToken, clientId, clientSecret } = req.body ?? {};
   const data: Record<string, unknown> = {};
   if (typeof customerId === 'string') data.customerId = customerId.trim();
+  if (typeof customerName === 'string') data.customerName = customerName.trim();
   if (typeof clientId === 'string') data.clientId = clientId.trim();
   if (typeof developerToken === 'string' && developerToken.trim()) data.developerToken = enc(developerToken.trim());
-  if (typeof refreshToken === 'string' && refreshToken.trim()) data.refreshToken = enc(refreshToken.trim());
+  if (typeof refreshToken === 'string' && refreshToken.trim()) {
+    data.refreshToken = enc(refreshToken.trim());
+    data.connectedVia = 'manual';
+  }
   if (typeof clientSecret === 'string' && clientSecret.trim()) data.clientSecret = enc(clientSecret.trim());
   await prisma.googleAdsConfig.upsert({ where: { id: ws }, update: data, create: { id: ws, ...data } });
   res.json({ ok: true });
+});
+
+// Retorno PÚBLICO do login com o Google (OAuth).
+googleOauthRouter.get('/', async (req, res) => {
+  const back = (ok: string) => res.redirect(`${env.publicUrl || ''}/?googleads=${ok}#googleads`);
+  const ws = verifyOauthState(req.query.state as string | undefined);
+  if (req.query.error) return back('cancelado');
+  if (!ws || !req.query.code) return back('erro');
+  try {
+    const { refreshToken, email } = await exchangeGoogleCode(String(req.query.code), oauthRedirectUri(req, 'google'));
+    let first: { id: string; name: string } | undefined;
+    try {
+      first = (await listAccessibleCustomers(refreshToken))[0];
+    } catch {
+      /* sem developer token ainda: salva o login mesmo assim */
+    }
+    await prisma.googleAdsConfig.upsert({
+      where: { id: ws },
+      update: {
+        refreshToken: enc(refreshToken),
+        connectedVia: 'oauth',
+        connectedEmail: email,
+        ...(first ? { customerId: first.id, customerName: first.name } : {}),
+      },
+      create: {
+        id: ws,
+        refreshToken: enc(refreshToken),
+        connectedVia: 'oauth',
+        connectedEmail: email,
+        customerId: first?.id ?? '',
+        customerName: first?.name ?? '',
+      },
+    });
+    back('ok');
+  } catch (err) {
+    console.error('[google-oauth] callback falhou:', (err as Error).message);
+    back('erro');
+  }
 });

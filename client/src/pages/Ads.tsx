@@ -301,14 +301,36 @@ export function MetaAds() {
 /* ============================= Google Ads ============================= */
 export function GoogleAds() {
   const [cfg, setCfg] = useState<Awaited<ReturnType<typeof api.adsGoogle>> | null>(null);
+  const [sum, setSum] = useState<Awaited<ReturnType<typeof api.adsGoogleSummary>> | null>(null);
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const [devToken, setDevToken] = useState('');
   const [refresh, setRefresh] = useState('');
   const [secret, setSecret] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const load = () => api.adsGoogle().then(setCfg).catch(() => {});
+  const loadSum = () => api.adsGoogleSummary().then(setSum).catch(() => {});
+  const loadCustomers = () =>
+    api
+      .adsGoogleCustomers()
+      .then((r) => setCustomers(r.customers || []))
+      .catch(() => {});
   useEffect(() => {
     load();
+    loadSum();
+    loadCustomers();
+    const p = new URLSearchParams(window.location.search);
+    const r = p.get('googleads');
+    if (r) {
+      setMsg(
+        r === 'ok'
+          ? { ok: true, text: 'Conta do Google conectada!' }
+          : { ok: false, text: r === 'cancelado' ? 'Login cancelado.' : 'Não foi possível conectar. Tente novamente.' },
+      );
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   const save = async () => {
@@ -327,59 +349,197 @@ export function GoogleAds() {
       setSecret('');
       setMsg({ ok: true, text: 'Salvo.' });
       load();
+      loadSum();
     } catch (x) {
       setMsg({ ok: false, text: (x as Error).message });
     }
   };
+  const connectGoogle = async () => {
+    setConnecting(true);
+    setMsg(null);
+    try {
+      const r = await api.adsGoogleOauthUrl();
+      if (r.available && r.url) window.location.href = r.url;
+      else setMsg({ ok: false, text: 'Login com o Google não está disponível neste servidor.' });
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setConnecting(false);
+    }
+  };
+  const disconnectGoogle = async () => {
+    if (!confirm('Desconectar a conta do Google? O resumo para até reconectar.')) return;
+    await api.adsGoogleDisconnect().catch(() => {});
+    setCustomers([]);
+    setMsg({ ok: true, text: 'Conta desconectada.' });
+    load();
+    loadSum();
+  };
+  const pickCustomer = async (id: string) => {
+    const c = customers.find((x) => x.id === id);
+    await api.adsGoogleSave({ customerId: id, customerName: c?.name || '' }).catch(() => {});
+    setCfg((prev) => (prev ? { ...prev, customerId: id, customerName: c?.name || '' } : prev));
+    loadSum();
+  };
 
   if (!cfg) return <div className="page muted">Carregando…</div>;
+
+  const connected = cfg.connectedVia === 'oauth';
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1 className="h1">Google ADS</h1>
-          <p className="sub">Conecte a conta do Google Ads do cliente para o resumo.</p>
+          <p className="sub">Conecte a conta do Google Ads do cliente e veja o resumo.</p>
         </div>
       </div>
 
-      <div className="alert" style={{ marginBottom: 14 }}>
-        A integração do Google Ads exige credenciais de API (developer token + OAuth). Preencha abaixo; o resumo de dados é
-        liberado assim que as credenciais forem validadas.
+      {/* Login direto com o Google (OAuth) */}
+      {cfg.oauthAvailable && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          {connected ? (
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div className="row" style={{ gap: 10 }}>
+                <span className="pill ok">
+                  <Icon name="grid" size={14} /> Conectado
+                </span>
+                <div>
+                  <b>{cfg.connectedEmail || 'Conta do Google'}</b>
+                  <div className="muted small">{cfg.customerName ? `Conta: ${cfg.customerName}` : cfg.customerId || 'Escolha a conta'}</div>
+                </div>
+              </div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {customers.length > 1 && (
+                  <select value={cfg.customerId} onChange={(e) => pickCustomer(e.target.value)} style={{ maxWidth: 260 }}>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button onClick={connectGoogle} disabled={connecting}>
+                  Reconectar
+                </button>
+                <button className="danger-text" onClick={disconnectGoogle}>
+                  Desconectar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <h3 className="card-title" style={{ margin: 0 }}>
+                  <Icon name="grid" /> Conectar com o Google
+                </h3>
+                <span className="muted small">Faça login com a conta do Google do cliente — sem colar refresh token.</span>
+              </div>
+              <button className="primary" onClick={connectGoogle} disabled={connecting}>
+                <Icon name="grid" size={16} /> {connecting ? 'Abrindo…' : 'Entrar com o Google'}
+              </button>
+            </div>
+          )}
+          {connected && !cfg.developerTokenReady && (
+            <div className="alert" style={{ marginTop: 10 }}>
+              Login feito, mas o <b>developer token</b> do Google Ads ainda não está configurado no servidor — o resumo fica
+              indisponível até o admin definir <code>GOOGLE_ADS_DEVELOPER_TOKEN</code>.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resumo da conta */}
+      <div className="kpis">
+        <Kpi label="Investimento (30d)" value={sum?.configured && sum.spend != null ? BRL(sum.spend) : '—'} hint="últimos 30 dias" icon="grid" />
+        <Kpi label="Conversões" value={sum?.configured && sum.conversions != null ? NUM(Math.round(sum.conversions)) : '—'} hint="resultados" icon="users" />
+        <Kpi label="Cliques" value={sum?.configured && sum.clicks != null ? NUM(sum.clicks) : '—'} hint="no anúncio" icon="right" />
+        <Kpi label="Impressões" value={sum?.configured && sum.impressions != null ? NUM(sum.impressions) : '—'} hint="alcance" icon="grid" />
+        <Kpi label="CPC" value={sum?.configured && sum.cpc != null ? BRL(sum.cpc) : '—'} hint="custo por clique" icon="crm" />
+      </div>
+      {sum?.error && <div className="alert" style={{ marginTop: 12 }}>{sum.error}</div>}
+
+      <div className="grid2" style={{ marginTop: 14 }}>
+        {sum?.configured && sum.campaigns && (
+          <div className="card">
+            <h3 className="card-title">
+              <Icon name="list" /> Campanhas
+            </h3>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Campanha</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sum.campaigns.map((c, i) => (
+                  <tr key={i}>
+                    <td>{c.name}</td>
+                    <td>
+                      <span className={`pill ${/ENABLED/i.test(c.status) ? 'ok' : ''}`}>{c.status}</span>
+                    </td>
+                  </tr>
+                ))}
+                {sum.campaigns.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="muted">Nenhuma campanha nos últimos 30 dias.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Modo manual (credenciais) — fallback quando não há OAuth no servidor. */}
+        {(!cfg.oauthAvailable || showAdvanced) && (
+          <div className="card stack">
+            <h3 className="card-title">
+              <Icon name="settings" /> Credenciais do Google Ads (manual)
+            </h3>
+            <div className="field-sm">
+              <span>Customer ID (ex.: 123-456-7890)</span>
+              <input value={cfg.customerId} onChange={(e) => setCfg({ ...cfg, customerId: e.target.value })} placeholder="123-456-7890" />
+            </div>
+            <div className="field-sm">
+              <span>OAuth Client ID</span>
+              <input value={cfg.clientId} onChange={(e) => setCfg({ ...cfg, clientId: e.target.value })} placeholder="....apps.googleusercontent.com" />
+            </div>
+            <div className="duo">
+              <div className="field-sm">
+                <span>Client Secret</span>
+                <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.hasClientSecret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+              </div>
+              <div className="field-sm">
+                <span>Developer Token</span>
+                <input type="password" value={devToken} onChange={(e) => setDevToken(e.target.value)} placeholder={cfg.hasDeveloperToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+              </div>
+            </div>
+            <div className="field-sm">
+              <span>Refresh Token (OAuth)</span>
+              <input type="password" value={refresh} onChange={(e) => setRefresh(e.target.value)} placeholder={cfg.hasRefreshToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="primary" onClick={save}>
+                Salvar credenciais
+              </button>
+              {msg && <span className={`small ${msg.ok ? 'ok-text' : 'late-text'}`}>{msg.text}</span>}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="card stack" style={{ maxWidth: 640 }}>
-        <h3 className="card-title">
-          <Icon name="settings" /> Credenciais do Google Ads
-        </h3>
-        <div className="field-sm">
-          <span>Customer ID (ex.: 123-456-7890)</span>
-          <input value={cfg.customerId} onChange={(e) => setCfg({ ...cfg, customerId: e.target.value })} placeholder="123-456-7890" />
-        </div>
-        <div className="field-sm">
-          <span>OAuth Client ID</span>
-          <input value={cfg.clientId} onChange={(e) => setCfg({ ...cfg, clientId: e.target.value })} placeholder="....apps.googleusercontent.com" />
-        </div>
-        <div className="duo">
-          <div className="field-sm">
-            <span>Client Secret</span>
-            <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.hasClientSecret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
-          </div>
-          <div className="field-sm">
-            <span>Developer Token</span>
-            <input type="password" value={devToken} onChange={(e) => setDevToken(e.target.value)} placeholder={cfg.hasDeveloperToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
-          </div>
-        </div>
-        <div className="field-sm">
-          <span>Refresh Token (OAuth)</span>
-          <input type="password" value={refresh} onChange={(e) => setRefresh(e.target.value)} placeholder={cfg.hasRefreshToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button className="primary" onClick={save}>
-            Salvar credenciais
+      <div className="row" style={{ gap: 12, marginTop: 10, alignItems: 'center' }}>
+        {cfg.oauthAvailable && (
+          <button
+            className="small"
+            style={{ padding: 0, background: 'none', border: 0, color: 'var(--brand, #2563eb)', cursor: 'pointer' }}
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? '− Ocultar modo manual (credenciais)' : '+ Modo manual (colar credenciais)'}
           </button>
-          {msg && <span className={`small ${msg.ok ? 'ok-text' : 'late-text'}`}>{msg.text}</span>}
-        </div>
+        )}
+        {msg && !showAdvanced && <span className={`small ${msg.ok ? 'ok-text' : 'late-text'}`}>{msg.text}</span>}
       </div>
     </div>
   );
