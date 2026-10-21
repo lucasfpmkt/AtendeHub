@@ -75,7 +75,7 @@ export const env = {
   // Refresh token GLOBAL da MCC: um só serve todos os clientes (só o Customer
   // ID muda por cliente). Se vazio, usa o refresh token salvo por cliente.
   googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN?.trim() ?? '',
-  googleAdsVersion: process.env.GOOGLE_ADS_VERSION?.trim() || 'v17',
+  googleAdsVersion: process.env.GOOGLE_ADS_VERSION?.trim() || 'v26',
 };
 
 export const metaOauthEnabled = Boolean(env.fbAppId && env.fbAppSecret);
