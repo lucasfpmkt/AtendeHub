@@ -650,12 +650,14 @@ const PRESETS: { id: string; label: string }[] = [
 const isLive = (s?: string) => /ACTIVE|ENABLED/i.test(s || '');
 
 function MetricCells({ n }: { n: { spend: number; impressions: number; clicks: number; leads: number; cpc: number } }) {
+  const cpl = n.leads ? n.spend / n.leads : 0;
   return (
     <>
-      <td className="num">{BRL(n.spend)}</td>
+      <td className="num col-lead">{NUM(n.leads)}</td>
+      <td className="num col-cpl">{cpl ? BRL(cpl) : '—'}</td>
+      <td className="num col-cost">{BRL(n.spend)}</td>
       <td className="num">{NUM(n.impressions)}</td>
       <td className="num">{NUM(n.clicks)}</td>
-      <td className="num">{NUM(n.leads)}</td>
       <td className="num">{n.cpc ? BRL(n.cpc) : '—'}</td>
     </>
   );
@@ -728,10 +730,11 @@ function BreakdownView({
               <tr>
                 <th>Campanha / {midLabel} / Anúncio</th>
                 <th>Status</th>
-                <th className="num">Investimento</th>
+                <th className="num col-lead">Leads</th>
+                <th className="num col-cpl">Custo/Lead</th>
+                <th className="num col-cost">Custo</th>
                 <th className="num">Impressões</th>
                 <th className="num">Cliques</th>
-                <th className="num">Leads</th>
                 <th className="num">CPC</th>
               </tr>
             </thead>
@@ -791,7 +794,7 @@ function BreakdownView({
               })}
               {campaigns.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="muted">Nenhum dado no período.</td>
+                  <td colSpan={8} className="muted">Nenhum dado no período.</td>
                 </tr>
               )}
             </tbody>
