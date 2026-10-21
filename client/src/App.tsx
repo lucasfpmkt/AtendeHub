@@ -58,6 +58,7 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
 
 const TAB_KEY = 'lawhub.tab';
 const PICKED_KEY = 'lawhub.pickedWorkspace';
+const RAIL_KEY = 'lawhub.railCollapsed';
 applyBrand();
 
 type Session = { user: SessionUser; workspace: WorkspaceInfo };
@@ -126,11 +127,18 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
   const [unread, setUnread] = useState(0);
   const [picker, setPicker] = useState(() => isAdmin && !sessionStorage.getItem(PICKED_KEY));
   const [inboxContact, setInboxContact] = useState<string | null>(null);
+  const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem(RAIL_KEY) === '1');
 
   const setTab = (t: Tab) => {
     setTabState(t);
     localStorage.setItem(TAB_KEY, t);
   };
+  const toggleRail = () =>
+    setRailCollapsed((v) => {
+      const n = !v;
+      localStorage.setItem(RAIL_KEY, n ? '1' : '0');
+      return n;
+    });
 
   // Abre a conversa de um contato (vindo do CRM).
   const openConversation = (contactId: string) => {
@@ -176,13 +184,21 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
   };
 
   return (
-    <div className="app">
+    <div className={`app ${railCollapsed ? 'rail-collapsed' : ''}`}>
       <nav className="rail" aria-label="Menu principal">
         <div className="rail-brand">
           <img src="/logo.png" alt="" />
           <span className="wordmark label">
             Law<b>Hub</b>
           </span>
+          <button
+            className="rail-toggle"
+            onClick={toggleRail}
+            aria-label={railCollapsed ? 'Expandir menu' : 'Recolher menu'}
+            title={railCollapsed ? 'Expandir menu' : 'Recolher menu'}
+          >
+            <Icon name={railCollapsed ? 'right' : 'left'} size={16} />
+          </button>
         </div>
         {NAV.map((t) => (
           <button

@@ -259,6 +259,20 @@ button.pill { cursor: pointer; }
 .rail-brand { display: flex; align-items: center; gap: 10px; padding: 2px 4px 14px; min-height: 52px; }
 .rail-brand img { width: 36px; height: 36px; border-radius: 9px; flex: none; }
 .rail-brand .wordmark { font-size: 19px; font-weight: 800; letter-spacing: -0.04em; white-space: nowrap; }
+.rail-toggle { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--g-200); background: var(--g-0); color: var(--g-500); cursor: pointer; flex: none; }
+.rail-toggle:hover { background: var(--g-100); color: var(--g-900); }
+
+/* Desktop: botão recolhe a barra para a versão só de ícones. */
+@media (min-width: 861px) {
+  .app.rail-collapsed { grid-template-columns: 64px minmax(0, 1fr); }
+  .app.rail-collapsed .rail { width: 64px; }
+  .app.rail-collapsed .rail .label { display: none; }
+  .app.rail-collapsed .rail-brand { justify-content: center; padding: 2px 0 14px; }
+  .app.rail-collapsed .rail-brand img, .app.rail-collapsed .rail-brand .wordmark { display: none; }
+  .app.rail-collapsed .rail-toggle { margin: 0 auto; }
+  .app.rail-collapsed .rail-link, .app.rail-collapsed .rail-ws { justify-content: center; }
+  .app.rail-collapsed .rail-ws .st { display: none; }
+}
 .wordmark b { color: var(--p-600); font-weight: 800; }
 .rail-link {
   position: relative;
