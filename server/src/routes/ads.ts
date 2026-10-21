@@ -277,7 +277,7 @@ adsRouter.get('/google/breakdown', async (req, res) => {
     const data = await getGoogleAdsBreakdown(cfg.customerId, refreshToken, String(req.query.preset || 'last_30d'), developerToken);
     res.json({ configured: true, ...data });
   } catch (err) {
-    res.status(400).json({ configured: true, error: (err as Error).message });
+    res.json({ configured: true, error: (err as Error).message });
   }
 });
 
@@ -288,7 +288,7 @@ adsRouter.get('/google/summary', async (req, res) => {
   try {
     res.json({ configured: true, ...(await getGoogleAdsSummary(cfg.customerId, refreshToken, developerToken)) });
   } catch (err) {
-    res.status(400).json({ configured: true, error: (err as Error).message });
+    res.json({ configured: true, error: (err as Error).message });
   }
 });
 
