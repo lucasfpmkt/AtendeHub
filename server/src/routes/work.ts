@@ -3,6 +3,7 @@ import { prisma } from '../db.js';
 import { wsOf } from '../auth.js';
 import { dec } from '../crypto.js';
 import { getMetaAdsSummary } from '../services/metaAds.js';
+import { getGoogleAdsSummary, resolveClientGoogleCreds } from '../services/googleAds.js';
 
 /** Tarefas, Agenda, Mensagens rápidas, Automação por palavras e Dashboard — por cliente. */
 export const workRouter = Router();
@@ -211,15 +212,29 @@ workRouter.get('/dashboard', async (req, res) => {
 
   // Resultados atribuídos pelo Meta Ads (conversas iniciadas) no mesmo período,
   // para comparar com as conversas que realmente chegaram no WhatsApp.
+  const adsPreset = days <= 7 ? 'last_7d' : days <= 15 ? 'last_14d' : 'last_30d';
   let metaResults: number | null = null;
   const metaCfg = await prisma.metaConfig.findUnique({ where: { id: ws } });
   if (metaCfg?.adAccountId && metaCfg?.token) {
-    const preset = days <= 7 ? 'last_7d' : days <= 15 ? 'last_14d' : 'last_30d';
     try {
-      const summary = await getMetaAdsSummary(metaCfg.adAccountId, dec(metaCfg.token), preset);
+      const summary = await getMetaAdsSummary(metaCfg.adAccountId, dec(metaCfg.token), adsPreset);
       metaResults = summary.leads ?? 0;
     } catch {
       metaResults = null;
+    }
+  }
+  // Leads do Google Ads (conversões) no mesmo período.
+  let googleResults: number | null = null;
+  const gCfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
+  if (gCfg?.customerId) {
+    const { refreshToken, developerToken } = await resolveClientGoogleCreds(gCfg);
+    if (refreshToken) {
+      try {
+        const gs = await getGoogleAdsSummary(gCfg.customerId, refreshToken, developerToken, adsPreset);
+        googleResults = Math.round(gs.conversions ?? 0);
+      } catch {
+        googleResults = null;
+      }
     }
   }
 
@@ -233,7 +248,8 @@ workRouter.get('/dashboard', async (req, res) => {
   res.json({
     messages: { in: messagesIn, out: messagesOut },
     whatsappConversations: periodConvs.length, // conversas que chegaram de fato no WhatsApp
-    metaResults, // resultados atribuídos pelo Meta Ads (ou null se não configurado)
+    metaResults, // leads atribuídos pelo Meta Ads (ou null)
+    googleResults, // leads (conversões) do Google Ads (ou null)
     firstResponseMin: avgFirstResponseMin,
     bySource,
     conversion,

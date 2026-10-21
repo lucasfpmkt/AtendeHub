@@ -53,19 +53,25 @@ export function Dashboard() {
       {/* Comparativo: o que chegou de fato no WhatsApp x o que o Meta contabilizou. */}
       <div className="kpis" style={{ marginTop: 12 }}>
         <Kpi
-          label="Conversas no WhatsApp"
+          label="Conversas Reais"
           value={data.whatsappConversations}
-          hint="chegaram de fato no período"
+          hint="chegaram de fato no WhatsApp"
           icon="chat"
           accent="#16a34a"
         />
-        <Kpi
-          label="Atribuídas pelo Meta Ads"
-          value={data.metaResults ?? '—'}
-          hint={data.metaResults == null ? 'Meta Ads não configurado' : 'resultados contados pela Meta'}
-          icon="share"
-          accent="#2563eb"
-        />
+        {(() => {
+          const hasAds = data.metaResults != null || data.googleResults != null;
+          const leads = (data.metaResults ?? 0) + (data.googleResults ?? 0);
+          return (
+            <Kpi
+              label="Leads"
+              value={hasAds ? leads : '—'}
+              hint={hasAds ? 'Meta + Google Ads' : 'Meta/Google não configurados'}
+              icon="share"
+              accent="#2563eb"
+            />
+          );
+        })()}
       </div>
 
       <div className="grid2">

@@ -169,16 +169,17 @@ export async function listAccessibleCustomers(refreshToken: string, developerTok
 const fmtId = (s: string) => s.replace(/\D/g, '');
 
 /** Resumo da conta (gasto, cliques, impressões, conversões + campanhas). */
-export async function getGoogleAdsSummary(customerId: string, refreshToken: string, developerToken?: string) {
+export async function getGoogleAdsSummary(customerId: string, refreshToken: string, developerToken?: string, preset = 'last_30d') {
   const g = await googleGlobals();
   const dt = (developerToken?.trim() || g.developerToken).trim();
   if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
+  const during = DATE_LITERAL[preset] || 'LAST_30_DAYS';
   const access = await accessTokenFrom(refreshToken, g);
 
   const metricsQuery =
     'SELECT metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.average_cpc ' +
-    'FROM customer WHERE segments.date DURING LAST_30_DAYS';
+    `FROM customer WHERE segments.date DURING ${during}`;
   const mResp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
     headers: adsHeaders(access, dt, g.loginCustomerId),
@@ -199,7 +200,7 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
   );
 
   const campQuery =
-    'SELECT campaign.name, campaign.status FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY campaign.name LIMIT 50';
+    `SELECT campaign.name, campaign.status FROM campaign WHERE segments.date DURING ${during} ORDER BY campaign.name LIMIT 50`;
   const cResp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
     headers: adsHeaders(access, dt, g.loginCustomerId),
@@ -231,6 +232,7 @@ const DATE_LITERAL: Record<string, string> = {
   today: 'TODAY',
   yesterday: 'YESTERDAY',
   last_7d: 'LAST_7_DAYS',
+  last_14d: 'LAST_14_DAYS',
   last_30d: 'LAST_30_DAYS',
   this_month: 'THIS_MONTH',
   maximum: 'LAST_30_DAYS',
