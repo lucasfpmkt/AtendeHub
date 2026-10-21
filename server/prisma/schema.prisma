@@ -330,8 +330,11 @@ model MetaConfig {
 model GoogleAdsConfig {
   id             String @id // = workspaceId
   customerId     String @default("")
+  customerName   String @default("")
   developerToken String @default("")
   refreshToken   String @default("")
   clientId       String @default("")
   clientSecret   String @default("")
+  connectedVia   String @default("") // "oauth" | "manual" | ""
+  connectedEmail String @default("") // conta Google conectada (OAuth)
 }
