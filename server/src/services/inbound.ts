@@ -48,6 +48,16 @@ export function cancelPendingReply(conversationId: string) {
   pending.delete(conversationId);
 }
 
+/** Houve resposta de um humano (operador) nesta conversa nas últimas horas? */
+async function hasRecentHumanReply(conversationId: string, windowMs = 3 * 60 * 60 * 1000): Promise<boolean> {
+  const last = await prisma.message.findFirst({
+    where: { conversationId, direction: 'out', author: 'agent' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  return Boolean(last) && Date.now() - last!.createdAt.getTime() < windowMs;
+}
+
 async function historyOf(conversationId: string): Promise<ChatTurn[]> {
   const msgs = await prisma.message.findMany({
     where: { conversationId, author: { not: 'system' } },
@@ -394,6 +404,21 @@ export async function handleInboundMessage(params: {
   // A IA lê a conversa e reavalia a etapa do lead (em segundo plano).
   void autoMoveStage(ws, conversation.id).catch(() => {});
   if (startedBy) await systemNote(ws, conversation.id, `${startedBy.name} assumiu o atendimento.`);
+
+  // Contato recorrente: se a IA está desligada nesta conversa e NINGUÉM da
+  // equipe respondeu recentemente, reavalia o gatilho da triagem e a IA
+  // assume de novo (sem isso, só contato novo era atendido).
+  if (!conversation.aiEnabled && !startedBy && !(await hasRecentHumanReply(conversation.id))) {
+    const triage = await getActiveTriage(ws);
+    if (triage && (await shouldTriageStart(ws, triage, text))) {
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { aiEnabled: true, assignedAgentId: conversation.assignedAgentId ?? triage.id },
+      });
+      emit(ws, { type: 'conversation:update', conversation });
+      await systemNote(ws, conversation.id, `${triage.name} reassumiu o atendimento (contato recorrente).`);
+    }
+  }
 
   if (!conversation.aiEnabled) {
     // Sem IA: respostas automáticas por palavra-chave.
