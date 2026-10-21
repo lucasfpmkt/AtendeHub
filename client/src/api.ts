@@ -277,6 +277,7 @@ export interface DashboardData {
   messages: { in: number; out: number };
   whatsappConversations: number;
   metaResults: number | null;
+  googleResults: number | null;
   firstResponseMin: number | null;
   bySource: { source: string; count: number }[];
   conversion: { won: number; total: number; rate: number };
