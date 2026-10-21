@@ -400,6 +400,11 @@ function KanbanColumn({
               <span>
                 <Icon name="user" size={13} /> {d.responsavel || 'Sem responsável'}
               </span>
+              {d.agentName && (
+                <span title="Agente de IA da conversa">
+                  <Icon name="bot" size={13} /> {d.agentName}
+                </span>
+              )}
               {d.contact &&
                 (onOpenConversation ? (
                   <button
@@ -416,20 +421,29 @@ function KanbanColumn({
                   <span className="pill wa">WA</span>
                 ))}
             </div>
-            {d.tags && (
-              <div className="tags">
-                {d.tags
-                  .split(',')
-                  .map((t) => t.trim())
-                  .filter(Boolean)
-                  .map((t) => (
+            {(() => {
+              // Etiquetas do contato (onde a IA grava) + etiquetas do negócio, sem repetir.
+              const seen = new Set<string>();
+              const all: string[] = [];
+              for (const raw of `${d.contact?.tags ?? ''},${d.tags ?? ''}`.split(',')) {
+                const t = raw.trim();
+                if (t && !seen.has(t.toLowerCase())) {
+                  seen.add(t.toLowerCase());
+                  all.push(t);
+                }
+              }
+              if (all.length === 0) return null;
+              return (
+                <div className="tags">
+                  {all.map((t) => (
                     <span className="tag" key={t}>
-                      <span className="swatch" style={{ background: tagColor.get(t.toLowerCase()) ?? '#b71312' }} />
+                      <span className="swatch" style={{ background: tagColor.get(t.toLowerCase()) ?? '#16a34a' }} />
                       {t}
                     </span>
                   ))}
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </div>
         ))}
         {stage.deals.length === 0 && <div className="empty-col">Arraste cards para cá</div>}

@@ -223,7 +223,31 @@ crmRouter.get('/funnels/:id/board', async (req, res) => {
     orderBy: { order: 'asc' },
     include: { deals: { orderBy: { createdAt: 'desc' }, include: { contact: true } } },
   });
-  res.json({ funnel, stages });
+
+  // Agente de IA atribuído à conversa de cada contato (para exibir no card).
+  const contactIds = stages.flatMap((s) => s.deals.map((d) => d.contactId).filter(Boolean) as string[]);
+  const agentByContact = new Map<string, string>();
+  if (contactIds.length) {
+    const [convs, agents] = await Promise.all([
+      prisma.conversation.findMany({
+        where: { workspaceId: ws, contactId: { in: contactIds }, assignedAgentId: { not: null } },
+        orderBy: { lastMessageAt: 'desc' },
+        select: { contactId: true, assignedAgentId: true },
+      }),
+      prisma.agent.findMany({ where: { workspaceId: ws }, select: { id: true, name: true } }),
+    ]);
+    const agentName = new Map(agents.map((a) => [a.id, a.name]));
+    for (const c of convs) {
+      if (c.contactId && c.assignedAgentId && !agentByContact.has(c.contactId)) {
+        agentByContact.set(c.contactId, agentName.get(c.assignedAgentId) ?? '');
+      }
+    }
+  }
+  const withAgent = stages.map((s) => ({
+    ...s,
+    deals: s.deals.map((d) => ({ ...d, agentName: (d.contactId && agentByContact.get(d.contactId)) || null })),
+  }));
+  res.json({ funnel, stages: withAgent });
 });
 
 /** Cria negócios na 1ª etapa para contatos com conversa aberta e sem nenhum negócio. */

@@ -170,6 +170,7 @@ export interface Deal {
   stageId?: string | null;
   funnelId?: string | null;
   contact?: Contact | null;
+  agentName?: string | null;
   createdAt: string;
 }
 
