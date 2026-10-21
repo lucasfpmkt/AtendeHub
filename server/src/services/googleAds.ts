@@ -342,17 +342,19 @@ export async function uploadLeadConversion(params: {
 /** Dispara a conversão de lead qualificado no Google Ads (se configurado). */
 export async function maybeFireGoogleConversion(ws: string, contactId: string, stageId: string) {
   const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
-  if (!cfg || !cfg.conversionsEnabled || !cfg.refreshToken || !cfg.customerId || !cfg.conversionActionId) return;
-  if (!cfg.qualifiedStageId || cfg.qualifiedStageId !== stageId) return;
+  const refreshToken = cfg?.refreshToken ? dec(cfg.refreshToken) : env.googleRefreshToken;
+  if (!cfg || !cfg.conversionsEnabled || !refreshToken || !cfg.customerId || !cfg.conversionActionId) return;
+  const qualifiedId = cfg.qualifiedStageId || (await findQualifiedStageId(ws));
+  if (!qualifiedId || qualifiedId !== stageId) return;
   const contact = await prisma.contact.findUnique({ where: { id: contactId } });
   if (!contact?.phone) return;
   try {
     await uploadLeadConversion({
       customerId: cfg.customerId,
-      refreshToken: dec(cfg.refreshToken),
+      refreshToken,
       conversionActionId: cfg.conversionActionId,
       phone: contact.phone,
-      developerToken: cfg.developerToken ? dec(cfg.developerToken) : undefined,
+      developerToken: cfg.developerToken ? dec(cfg.developerToken) : env.googleAdsDeveloperToken,
     });
   } catch (err) {
     console.error(`[google-conv:${ws}] falha ao enviar conversão:`, (err as Error).message);
