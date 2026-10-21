@@ -286,6 +286,9 @@ model PlatformConfig {
   crmBaseUrl  String  @default("")
   crmModel    String  @default("")
   autoStage   Boolean @default(true)
+  // Chave Gemini usada só para entender mídia (transcrever áudio, ler imagem).
+  mediaApiKey String  @default("")
+  mediaModel  String  @default("")
 }
 
 

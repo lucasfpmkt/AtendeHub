@@ -420,6 +420,11 @@ function PlatformAI() {
   const [crmHasKey, setCrmHasKey] = useState(false);
   const [crmConnected, setCrmConnected] = useState(false);
   const [autoStage, setAutoStage] = useState(true);
+  const [mediaApiKey, setMediaApiKey] = useState('');
+  const [mediaModel, setMediaModel] = useState('');
+  const [mediaHasKey, setMediaHasKey] = useState(false);
+  const [mediaReady, setMediaReady] = useState(false);
+  const [mediaMsg, setMediaMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [crmMsg, setCrmMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [reclass, setReclass] = useState<string | null>(null);
@@ -441,8 +446,22 @@ function PlatformAI() {
       setCrmHasKey(c.crmHasKey);
       setCrmConnected(c.crmConnected);
       setAutoStage(c.autoStage);
+      setMediaHasKey(c.mediaHasKey);
+      setMediaReady(c.mediaReady);
+      setMediaModel(c.mediaModel || '');
     });
   }, []);
+
+  const saveMedia = async () => {
+    const r = await api.adminUpdateAi({
+      ...(mediaApiKey.trim() ? { mediaApiKey: mediaApiKey.trim() } : {}),
+      mediaModel,
+    });
+    setMediaHasKey(r.mediaHasKey);
+    setMediaReady(r.mediaReady);
+    setMediaApiKey('');
+    setMediaMsg({ ok: true, text: r.mediaReady ? 'Salvo — IA já entende áudio e imagem.' : 'Salvo.' });
+  };
 
   const pick = (id: string, crm: boolean) => {
     const p = providers.find((x) => x.id === id);
@@ -540,6 +559,62 @@ function PlatformAI() {
         {Conn({ which: 'main' })}
         {Conn({ which: 'crm' })}
       </div>
+
+      {/* IA de mídia: Gemini transcreve áudio e lê imagem. */}
+      <div className="card stack">
+        <div className="row between">
+          <h4 className="card-title" style={{ margin: 0 }}>
+            <Icon name="mic" /> IA de mídia (áudio e imagem)
+          </h4>
+          <span className={`pill ${mediaReady ? 'ok' : 'warn'}`}>{mediaReady ? 'ativa' : 'não configurada'}</span>
+        </div>
+        <p className="muted small">
+          Cole uma chave do <b>Google Gemini</b> para a IA <b>transcrever áudios</b> e <b>ler imagens</b> dos leads (o texto entra na
+          conversa, e o Haiku responde e move a etapa normalmente). Vale para todos os clientes. Se o provedor dos agentes já for
+          Gemini, pode deixar em branco que reaproveita a chave dele.
+        </p>
+        <div className="duo">
+          <div className="field-sm">
+            <span>
+              Chave Gemini (áudio/imagem){' '}
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="small">
+                (onde pegar)
+              </a>
+            </span>
+            <input
+              type="password"
+              value={mediaApiKey}
+              onChange={(e) => setMediaApiKey(e.target.value)}
+              placeholder={mediaHasKey ? '•••••••• (salva)' : 'cole a chave do Gemini'}
+              autoComplete="off"
+            />
+          </div>
+          <div className="field-sm">
+            <span>Modelo</span>
+            <input value={mediaModel} onChange={(e) => setMediaModel(e.target.value)} placeholder="gemini-2.5-flash" />
+          </div>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="primary" onClick={saveMedia}>
+            Salvar
+          </button>
+          {mediaHasKey && (
+            <button
+              className="danger-text"
+              onClick={async () => {
+                const r = await api.adminUpdateAi({ clearMediaKey: true });
+                setMediaHasKey(r.mediaHasKey);
+                setMediaReady(r.mediaReady);
+                setMediaMsg({ ok: true, text: 'Chave de mídia removida.' });
+              }}
+            >
+              Remover chave
+            </button>
+          )}
+          {mediaMsg && <span className={`small ${mediaMsg.ok ? 'ok-text' : 'late-text'}`}>{mediaMsg.text}</span>}
+        </div>
+      </div>
+
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={autoStage} onChange={(e) => { setAutoStage(e.target.checked); api.adminUpdateAi({ autoStage: e.target.checked }); }} style={{ width: 16, flex: 'none' }} />

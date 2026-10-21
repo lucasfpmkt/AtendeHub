@@ -18,6 +18,9 @@ export type PlatformPatch = {
   crmApiKey?: string;
   clearCrmKey?: boolean;
   autoStage?: boolean;
+  mediaApiKey?: string;
+  mediaModel?: string;
+  clearMediaKey?: boolean;
 };
 
 export async function updatePlatformConfig(data: PlatformPatch) {
@@ -34,5 +37,8 @@ export async function updatePlatformConfig(data: PlatformPatch) {
   if (data.clearCrmKey) patch.crmApiKey = '';
   else if (typeof data.crmApiKey === 'string' && data.crmApiKey.trim()) patch.crmApiKey = enc(data.crmApiKey.trim());
   if (typeof data.autoStage === 'boolean') patch.autoStage = data.autoStage;
+  if (typeof data.mediaModel === 'string') patch.mediaModel = data.mediaModel.trim();
+  if (data.clearMediaKey) patch.mediaApiKey = '';
+  else if (typeof data.mediaApiKey === 'string' && data.mediaApiKey.trim()) patch.mediaApiKey = enc(data.mediaApiKey.trim());
   return prisma.platformConfig.update({ where: { id: 'global' }, data: patch });
 }
