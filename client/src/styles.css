@@ -441,6 +441,9 @@ button.conv-item.active { background: var(--p-50); box-shadow: inset 3px 0 0 var
 .conv-top .time { margin-left: auto; font-size: 11px; color: var(--g-400); flex: none; }
 .conv-top .preview { flex: 1; font-size: 12.5px; color: var(--g-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { margin-left: auto; background: var(--ok); color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 0 6px; line-height: 18px; min-width: 18px; text-align: center; flex: none; }
+.conv-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+.conv-meta .tag { font-size: 10.5px; padding: 1px 7px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-meta .tag .swatch { width: 7px; height: 7px; }
 .chat { display: flex; flex-direction: column; height: 100%; background: #efeae2; min-width: 0; min-height: 0; }
 .chat-header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--g-0); border-bottom: 1px solid var(--g-200); flex-wrap: wrap; }
 .chat-actions { margin-left: auto; flex-wrap: wrap; }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, type Agent, type Conversation, type Message, type QuickReply } from '../api';
+import { api, type Agent, type Conversation, type Message, type QuickReply, type Tag } from '../api';
 import { socket } from '../socket';
 import { Icon } from '../icons';
 
@@ -46,6 +46,8 @@ export function Inbox({
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [stages, setStages] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [tagCat, setTagCat] = useState<Tag[]>([]);
   const [quick, setQuick] = useState<QuickReply[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -61,6 +63,17 @@ export function Inbox({
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const agentName = (id?: string | null) => agents.find((a) => a.id === id)?.name;
+  const stageOf = (id?: string | null) => stages.find((s) => s.id === id);
+  const tagColor = useMemo(() => {
+    const m = new Map<string, string>();
+    tagCat.forEach((t) => m.set(t.name.toLowerCase(), t.color));
+    return m;
+  }, [tagCat]);
+  const splitTags = (s?: string | null) =>
+    (s ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
 
   const loadConversations = () => api.conversations().then(setConversations);
 
@@ -78,6 +91,8 @@ export function Inbox({
   useEffect(() => {
     loadConversations();
     api.agents().then((r) => setAgents(r.agents));
+    api.stages().then(setStages).catch(() => {});
+    api.tags().then(setTagCat).catch(() => {});
     api.quickReplies().then(setQuick);
     const onNew = (e: { conversationId: string; message: Message }) => {
       loadConversations();
@@ -238,6 +253,33 @@ export function Inbox({
                     </span>
                     {(c.unread ?? 0) > 0 && <span className="badge">{c.unread}</span>}
                   </span>
+                  {(() => {
+                    const st = stageOf(c.contact.stageId);
+                    const cTags = splitTags(c.contact.tags);
+                    const ag = agentName(c.assignedAgentId);
+                    if (!st && cTags.length === 0 && !ag) return null;
+                    return (
+                      <span className="conv-meta">
+                        {st && (
+                          <span className="tag" style={{ background: `${st.color}22`, color: st.color }}>
+                            <span className="swatch" style={{ background: st.color }} />
+                            {st.name}
+                          </span>
+                        )}
+                        {cTags.map((t) => (
+                          <span className="tag" key={t}>
+                            <span className="swatch" style={{ background: tagColor.get(t.toLowerCase()) ?? '#16a34a' }} />
+                            {t}
+                          </span>
+                        ))}
+                        {ag && (
+                          <span className="tag">
+                            <Icon name="bot" size={11} /> {ag}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })()}
                 </span>
               </button>
             );
