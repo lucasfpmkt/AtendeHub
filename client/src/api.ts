@@ -286,6 +286,12 @@ export const api = {
   waReconnect: () =>
     req<{ status: string; qr: string | null; pairCode: string | null }>('/whatsapp/reconnect', { method: 'POST' }),
   waLogout: () => req('/whatsapp/logout', { method: 'POST' }),
+  waCloud: () =>
+    req<{ channel: string; phoneId: string; wabaId: string; hasToken: boolean; verifyToken: string; webhookUrl: string }>(
+      '/whatsapp/cloud',
+    ),
+  waCloudSave: (data: { channel?: 'qr' | 'cloud'; phoneId?: string; token?: string; wabaId?: string }) =>
+    req<{ ok: boolean }>('/whatsapp/cloud', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Conversas / mensagens
   conversations: () => req<Conversation[]>('/conversations'),
