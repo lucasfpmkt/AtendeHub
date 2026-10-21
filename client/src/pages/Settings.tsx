@@ -3,7 +3,7 @@ import { api, type AiProvider, type SessionUser, type WorkspaceInfo } from '../a
 import { Icon } from '../icons';
 import { getBrand, setBrand, type Brand } from '../prefs';
 
-export function Settings({ user, workspace }: { user: SessionUser; workspace: WorkspaceInfo }) {
+export function Settings({ user, workspace, onLogout }: { user: SessionUser; workspace: WorkspaceInfo; onLogout?: () => void }) {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [connected, setConnected] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -168,6 +168,11 @@ export function Settings({ user, workspace }: { user: SessionUser; workspace: Wo
             {workspace.name} · #{workspace.code}
           </p>
         </div>
+        {onLogout && (
+          <button className="danger-text" onClick={onLogout} title="Sair da conta">
+            <Icon name="logout" size={16} /> Sair
+          </button>
+        )}
       </div>
 
       <div className="settings-grid">
