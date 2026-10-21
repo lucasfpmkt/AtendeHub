@@ -2,6 +2,7 @@ import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { saveMedia, type MediaKind } from '../whatsapp/media.js';
 import { maybeFireQualifiedLead } from './metaAds.js';
+import { maybeFireGoogleConversion } from './googleAds.js';
 
 /** Mídia recebida/enviada já baixada em memória. */
 export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer };
@@ -550,8 +551,9 @@ async function applyStage(ws: string, conversationId: string, stageName: string)
   emit(ws, { type: 'crm:update' });
   // Etiqueta automática da etapa (ex.: "Qualificado") — com a cor definida no catálogo.
   if (target.autoTag?.trim()) await applyTag(ws, conversationId, target.autoTag.trim());
-  // Lead qualificado → devolve o evento ao Meta Ads (se configurado).
+  // Lead qualificado → devolve o evento ao Meta Ads e ao Google Ads (se configurados).
   void maybeFireQualifiedLead(ws, conv.contactId, target.id).catch(() => {});
+  void maybeFireGoogleConversion(ws, conv.contactId, target.id).catch(() => {});
   await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
 }
 

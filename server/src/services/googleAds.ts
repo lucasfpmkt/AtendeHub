@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto';
+import { prisma } from '../db.js';
+import { dec } from '../crypto.js';
 import { env } from '../env.js';
+
+const sha256 = (s: string) => createHash('sha256').update(s.trim().toLowerCase()).digest('hex');
 
 const OAUTH_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
@@ -164,4 +169,93 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
     cpc: agg.clicks ? spend / agg.clicks : 0,
     campaigns,
   };
+}
+
+/* ------------------- Conversões (Enhanced Conversions for Leads) ---------- */
+
+/** Ações de conversão de upload disponíveis na conta (para escolher na UI). */
+export async function listConversionActions(customerId: string, refreshToken: string): Promise<{ id: string; name: string }[]> {
+  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+  const cid = fmtId(customerId);
+  const access = await accessTokenFrom(refreshToken);
+  const resp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
+    method: 'POST',
+    headers: adsHeaders(access),
+    body: JSON.stringify({
+      query:
+        "SELECT conversion_action.id, conversion_action.name, conversion_action.status FROM conversion_action " +
+        "WHERE conversion_action.status = 'ENABLED' ORDER BY conversion_action.name",
+    }),
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
+  return (data?.results ?? [])
+    .map((r: any) => ({ id: String(r.conversionAction?.id ?? ''), name: r.conversionAction?.name || String(r.conversionAction?.id ?? '') }))
+    .filter((x: any) => x.id);
+}
+
+/** Momento no formato exigido pelo Google Ads: "yyyy-MM-dd HH:mm:ss+00:00". */
+function gAdsDateTime(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}+00:00`
+  );
+}
+
+/**
+ * Envia uma conversão de lead usando o telefone (hashed) — Enhanced
+ * Conversions for Leads, sem precisar de gclid. A ação de conversão precisa
+ * estar configurada para esse uso na conta do Google Ads.
+ */
+export async function uploadLeadConversion(params: {
+  customerId: string;
+  refreshToken: string;
+  conversionActionId: string;
+  phone: string;
+  when?: Date;
+}) {
+  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+  const cid = fmtId(params.customerId);
+  const access = await accessTokenFrom(params.refreshToken);
+  const e164 = `+${params.phone.replace(/\D/g, '')}`;
+  const body = {
+    conversions: [
+      {
+        conversionAction: `customers/${cid}/conversionActions/${fmtId(params.conversionActionId)}`,
+        conversionDateTime: gAdsDateTime(params.when ?? new Date()),
+        userIdentifiers: [{ hashedPhoneNumber: sha256(e164) }],
+      },
+    ],
+    partialFailure: true,
+  };
+  const resp = await fetch(`${api()}/customers/${cid}:uploadClickConversions`, {
+    method: 'POST',
+    headers: adsHeaders(access),
+    body: JSON.stringify(body),
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
+  // partialFailureError traz erros por-item mesmo com HTTP 200.
+  if (data?.partialFailureError?.message) throw new Error(data.partialFailureError.message);
+  return data;
+}
+
+/** Dispara a conversão de lead qualificado no Google Ads (se configurado). */
+export async function maybeFireGoogleConversion(ws: string, contactId: string, stageId: string) {
+  const cfg = await prisma.googleAdsConfig.findUnique({ where: { id: ws } });
+  if (!cfg || !cfg.conversionsEnabled || !cfg.refreshToken || !cfg.customerId || !cfg.conversionActionId) return;
+  if (!cfg.qualifiedStageId || cfg.qualifiedStageId !== stageId) return;
+  const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+  if (!contact?.phone) return;
+  try {
+    await uploadLeadConversion({
+      customerId: cfg.customerId,
+      refreshToken: dec(cfg.refreshToken),
+      conversionActionId: cfg.conversionActionId,
+      phone: contact.phone,
+    });
+  } catch (err) {
+    console.error(`[google-conv:${ws}] falha ao enviar conversão:`, (err as Error).message);
+  }
 }
