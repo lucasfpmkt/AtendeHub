@@ -181,9 +181,7 @@ export async function getMetaAdsSummary(adAccountId: string, token: string, pres
   if (!insightsResp.ok) throw new Error(insights?.error?.message || `Meta respondeu ${insightsResp.status}`);
   const row = insights?.data?.[0] ?? {};
   const actions: { action_type: string; value: string }[] = row.actions ?? [];
-  const leads = actions
-    .filter((a) => /lead|messaging_conversation_started|onsite_conversion/.test(a.action_type))
-    .reduce((s, a) => s + Number(a.value || 0), 0);
+  const leads = leadsFrom(actions);
 
   const campResp = await fetch(`${GRAPH}/${acct}/campaigns?fields=name,status,effective_status,objective&limit=50&${auth}`);
   const camp: any = await campResp.json().catch(() => ({}));
@@ -215,10 +213,24 @@ type AdsRow = {
   cpc: number;
   ctr: number;
 };
-const leadsFrom = (actions: { action_type: string; value: string }[] = []) =>
-  actions
-    .filter((a) => /lead|messaging_conversation_started|onsite_conversion/.test(a.action_type))
-    .reduce((s, a) => s + Number(a.value || 0), 0);
+// O Meta devolve a MESMA conversa/lead em vários tipos de ação e janelas de
+// atribuição. Somar tudo infla o número (ex.: 13 vira 73). Então contamos só
+// UM tipo — o "resultado" da campanha — escolhido por prioridade.
+const LEAD_ACTION_PRIORITY = [
+  'onsite_conversion.messaging_conversation_started_7d',
+  'onsite_conversion.messaging_conversation_started',
+  'onsite_conversion.lead_grouped',
+  'leadgen.other',
+  'offsite_conversion.fb_pixel_lead',
+  'lead',
+];
+const leadsFrom = (actions: { action_type: string; value: string }[] = []) => {
+  const byType = new Map(actions.map((a) => [a.action_type, Number(a.value || 0)]));
+  for (const t of LEAD_ACTION_PRIORITY) if (byType.has(t)) return byType.get(t)!;
+  // fallback: qualquer "conversa iniciada", sem somar janelas repetidas.
+  const started = actions.find((a) => /messaging_conversation_started/.test(a.action_type));
+  return started ? Number(started.value || 0) : 0;
+};
 const blank = (): Omit<AdsRow, 'id' | 'name' | 'status'> => ({ spend: 0, impressions: 0, clicks: 0, leads: 0, cpc: 0, ctr: 0 });
 
 /**
