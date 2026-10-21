@@ -206,10 +206,18 @@ function ClientModal({ client, onClose, onSaved }: { client?: AdminWorkspace; on
   const [userName, setUserName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [resetUser, setResetUser] = useState(client?.users.find((u) => u.role === 'user')?.id ?? client?.users[0]?.id ?? '');
+  const firstUser = client?.users.find((u) => u.role === 'user') ?? client?.users[0];
+  const [resetUser, setResetUser] = useState(firstUser?.id ?? '');
+  const [editEmail, setEditEmail] = useState(firstUser?.email ?? '');
   const [newPass, setNewPass] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Ao trocar o usuário selecionado, mostra o e-mail atual dele.
+  const pickUser = (id: string) => {
+    setResetUser(id);
+    setEditEmail(client?.users.find((u) => u.id === id)?.email ?? '');
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,6 +228,10 @@ function ClientModal({ client, onClose, onSaved }: { client?: AdminWorkspace; on
         await api.adminCreateWorkspace({ name, plan, expiresAt: expiresAt || null, userName, email, password });
       } else {
         await api.adminUpdateWorkspace(client.id, { name, plan, expiresAt: expiresAt || null });
+        const curEmail = client.users.find((u) => u.id === resetUser)?.email ?? '';
+        if (resetUser && editEmail.trim() && editEmail.trim() !== curEmail) {
+          await api.adminSetEmail(resetUser, editEmail.trim());
+        }
         if (newPass) await api.adminSetPassword(resetUser, newPass);
       }
       onSaved();
@@ -283,18 +295,31 @@ function ClientModal({ client, onClose, onSaved }: { client?: AdminWorkspace; on
           client.users.length > 0 && (
             <>
               <div className="sec-h" style={{ marginTop: 6 }}>
-                Redefinir senha
+                Login do cliente
               </div>
-              <div className="duo">
+              {client.users.length > 1 && (
                 <div className="field">
                   <label htmlFor="cl-ruser">Usuário</label>
-                  <select id="cl-ruser" value={resetUser} onChange={(e) => setResetUser(e.target.value)}>
+                  <select id="cl-ruser" value={resetUser} onChange={(e) => pickUser(e.target.value)}>
                     {client.users.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.email}
                       </option>
                     ))}
                   </select>
+                </div>
+              )}
+              <div className="duo">
+                <div className="field">
+                  <label htmlFor="cl-email">E-mail (login)</label>
+                  <input
+                    id="cl-email"
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="email@cliente.com"
+                    autoComplete="off"
+                  />
                 </div>
                 <div className="field">
                   <label htmlFor="cl-npass">Nova senha</label>
@@ -308,6 +333,7 @@ function ClientModal({ client, onClose, onSaved }: { client?: AdminWorkspace; on
                   />
                 </div>
               </div>
+              <span className="muted small">Trocar o e-mail altera o login do cliente. A senha fica em branco para manter a atual.</span>
             </>
           )
         )}

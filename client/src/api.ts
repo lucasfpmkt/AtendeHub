@@ -541,6 +541,8 @@ export const api = {
     req(`/admin/workspaces/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
   adminSetPassword: (userId: string, password: string) =>
     req(`/admin/users/${userId}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
+  adminSetEmail: (userId: string, email: string) =>
+    req(`/admin/users/${userId}/email`, { method: 'POST', body: JSON.stringify({ email }) }),
 
   // IA GLOBAL da plataforma (só admin). Vale para todos os clientes.
   adminAiConfig: () =>

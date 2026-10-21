@@ -505,6 +505,11 @@ button.ai-on:hover { background: var(--ai-100); }
 .funnel-item { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 12px; border-radius: var(--r-ctl); cursor: pointer; color: var(--g-700); font-weight: 500; }
 .funnel-item:hover { background: var(--g-100); }
 .funnel-item.active { background: var(--g-100); color: var(--g-900); font-weight: 600; }
+.funnel-item .funnel-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.funnel-item .funnel-actions { display: none; gap: 2px; flex: none; }
+.funnel-item:hover .funnel-actions, .funnel-item.active .funnel-actions { display: inline-flex; }
+.funnel-item .funnel-actions .icon-btn { width: 24px; height: 24px; color: var(--g-500); }
+.funnel-item .funnel-actions .icon-btn:hover { color: var(--g-900); background: var(--g-200); }
 .funnel-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .funnel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--g-0); border-bottom: 1px solid var(--g-200); flex-wrap: wrap; }
 .board { display: flex; gap: 12px; align-items: flex-start; padding: 16px 20px; overflow-x: auto; flex: 1; min-height: 0; }
