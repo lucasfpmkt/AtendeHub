@@ -646,20 +646,49 @@ export async function syncStageTag(ws: string, contactId: string, stageId: strin
  */
 export async function backfillStageTags() {
   const stages = await prisma.pipelineStage.findMany();
-  let changed = false;
+  let filledAutoTag = false;
   for (const s of stages) {
     const tag = (s.autoTag?.trim() || s.name).trim();
     if (!s.autoTag?.trim()) {
       await prisma.pipelineStage.update({ where: { id: s.id }, data: { autoTag: s.name } }).catch(() => {});
-      changed = true;
+      filledAutoTag = true;
     }
     const existing = await prisma.tag.findFirst({ where: { workspaceId: s.workspaceId, name: tag } });
     if (!existing) await prisma.tag.create({ data: { workspaceId: s.workspaceId, name: tag, color: s.color } }).catch(() => {});
   }
-  if (!changed) return;
-  const contacts = await prisma.contact.findMany({ where: { stageId: { not: null } }, select: { id: true, workspaceId: true, stageId: true } });
-  for (const c of contacts) await syncStageTag(c.workspaceId, c.id, c.stageId).catch(() => {});
-  console.log(`[crm] etiquetas de etapa preenchidas; ${contacts.length} contatos sincronizados.`);
+
+  // Alinha a etapa do CONTATO ao estágio do NEGÓCIO mais recente (o quadro do
+  // CRM usa o negócio; antes, arrastar o card não mexia no contato). Assim a
+  // conversa passa a mostrar a mesma etapa que aparece no CRM.
+  const deals = await prisma.deal.findMany({
+    where: { contactId: { not: null }, stageId: { not: null } },
+    orderBy: [{ stageSince: 'desc' }, { createdAt: 'desc' }],
+    select: { contactId: true, stageId: true },
+  });
+  const latest = new Map<string, string>();
+  for (const d of deals) if (d.contactId && d.stageId && !latest.has(d.contactId)) latest.set(d.contactId, d.stageId);
+
+  const touched = new Set<string>();
+  for (const [cid, sid] of latest) {
+    const c = await prisma.contact.findUnique({ where: { id: cid }, select: { stageId: true } });
+    if (c && c.stageId !== sid) {
+      await prisma.contact.update({ where: { id: cid }, data: { stageId: sid } }).catch(() => {});
+      touched.add(cid);
+    }
+  }
+
+  // Re-sincroniza a etiqueta de etapa: tudo, se preencheu autoTag agora; senão
+  // só os contatos cuja etapa foi corrigida (barato nos próximos boots).
+  let toSync: { id: string; workspaceId: string; stageId: string | null }[];
+  if (filledAutoTag) {
+    toSync = await prisma.contact.findMany({ where: { stageId: { not: null } }, select: { id: true, workspaceId: true, stageId: true } });
+  } else if (touched.size) {
+    toSync = await prisma.contact.findMany({ where: { id: { in: [...touched] } }, select: { id: true, workspaceId: true, stageId: true } });
+  } else {
+    return;
+  }
+  for (const c of toSync) await syncStageTag(c.workspaceId, c.id, c.stageId).catch(() => {});
+  console.log(`[crm] etapas alinhadas ao negócio (${touched.size}) e ${toSync.length} contatos re-sincronizados.`);
 }
 
 /** Adiciona uma etiqueta ao contato (e ao catálogo de etiquetas, se for nova). */

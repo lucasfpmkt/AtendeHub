@@ -464,7 +464,8 @@ function KanbanColumn({
             </div>
             {(() => {
               // Etiquetas do contato (onde a IA grava) + etiquetas do negócio, sem repetir.
-              const seen = new Set<string>();
+              // A etapa já é a coluna do card, então não repete o nome dela como etiqueta.
+              const seen = new Set<string>([stage.name.trim().toLowerCase()]);
               const all: string[] = [];
               for (const raw of `${d.contact?.tags ?? ''},${d.tags ?? ''}`.split(',')) {
                 const t = raw.trim();

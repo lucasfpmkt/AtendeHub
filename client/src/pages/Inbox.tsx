@@ -64,6 +64,8 @@ export function Inbox({
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const agentName = (id?: string | null) => agents.find((a) => a.id === id)?.name;
   const stageOf = (id?: string | null) => stages.find((s) => s.id === id);
+  // Nomes de etapa (em minúsculo) — para não repetir a etapa como etiqueta.
+  const stageNameSet = useMemo(() => new Set(stages.map((s) => s.name.trim().toLowerCase())), [stages]);
   const tagColor = useMemo(() => {
     const m = new Map<string, string>();
     tagCat.forEach((t) => m.set(t.name.toLowerCase(), t.color));
@@ -255,7 +257,8 @@ export function Inbox({
                   </span>
                   {(() => {
                     const st = stageOf(c.contact.stageId);
-                    const cTags = splitTags(c.contact.tags);
+                    // A etapa já aparece na pílula; não repete como etiqueta.
+                    const cTags = splitTags(c.contact.tags).filter((t) => !stageNameSet.has(t.toLowerCase()));
                     const ag = agentName(c.assignedAgentId);
                     if (!st && cTags.length === 0 && !ag) return null;
                     return (
