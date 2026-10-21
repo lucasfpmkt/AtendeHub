@@ -297,3 +297,13 @@ model AdminAccess {
 
   @@unique([userId, workspaceId])
 }
+
+/// Conexão de WhatsApp por cliente: QR (Baileys) ou API Oficial (Meta Cloud API).
+model WaConfig {
+  id           String @id // = workspaceId
+  channel      String @default("qr") // qr | cloud
+  cloudPhoneId String @default("") // Phone Number ID (Meta)
+  cloudToken   String @default("") // token permanente (System User)
+  cloudVerify  String @default("") // verify token do webhook
+  cloudWabaId  String @default("")
+}

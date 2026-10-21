@@ -6,6 +6,7 @@ import makeWASocket, {
   type WASocket,
 } from '@whiskeysockets/baileys';
 import { kindLabel, type MediaKind } from './media.js';
+import { sendTextCloud, sendMediaCloud } from './cloud.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -35,6 +36,9 @@ type Session = {
 };
 const sessions = new Map<string, Session>();
 
+// Clientes que usam a API Oficial (Cloud API) em vez do QR/Baileys.
+const cloudInfo = new Map<string, { phoneId: string; token: string }>();
+
 function sessionOf(ws: string): Session {
   let s = sessions.get(ws);
   if (!s) {
@@ -42,6 +46,20 @@ function sessionOf(ws: string): Session {
     sessions.set(ws, s);
   }
   return s;
+}
+
+/** Recarrega o canal de um cliente a partir do banco (QR x Cloud API). */
+export async function refreshChannel(ws: string) {
+  const cfg = await prisma.waConfig.findUnique({ where: { id: ws } });
+  if (cfg?.channel === 'cloud' && cfg.cloudPhoneId.trim() && cfg.cloudToken.trim()) {
+    cloudInfo.set(ws, { phoneId: cfg.cloudPhoneId.trim(), token: cfg.cloudToken.trim() });
+  } else {
+    cloudInfo.delete(ws);
+  }
+}
+
+export function cloudOf(ws: string) {
+  return cloudInfo.get(ws);
 }
 
 /**
@@ -54,12 +72,17 @@ async function authDirOf(ws: string): Promise<string> {
 }
 
 export function getStatus(ws: string) {
+  const cloud = cloudInfo.get(ws);
+  if (cloud) {
+    return { status: 'connected' as WaStatus, me: cloud.phoneId, qr: null, pairCode: null, channel: 'cloud' as const };
+  }
   const s = sessionOf(ws);
   return {
     status: s.status,
     me: s.me,
     qr: s.status === 'qr' ? s.qr : null,
     pairCode: s.status === 'qr' ? (s.pairCode ?? null) : null,
+    channel: 'qr' as const,
   };
 }
 
@@ -283,14 +306,24 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
 
 /** Reabre na subida as conexões que já têm credenciais salvas. */
 export async function startSavedSessions() {
+  // Carrega os canais (Cloud API) antes de iniciar o Baileys.
+  const configs = await prisma.waConfig.findMany();
+  for (const c of configs) {
+    if (c.channel === 'cloud' && c.cloudPhoneId.trim() && c.cloudToken.trim()) {
+      cloudInfo.set(c.id, { phoneId: c.cloudPhoneId.trim(), token: c.cloudToken.trim() });
+    }
+  }
   const all = await prisma.workspace.findMany({ where: { active: true }, select: { id: true } });
   for (const w of all) {
+    if (cloudInfo.has(w.id)) continue; // usa API Oficial: não abre Baileys
     if (existsSync(path.join(await authDirOf(w.id), 'creds.json'))) void startWhatsApp(w.id);
   }
 }
 
-/** Envia texto pelo WhatsApp do cliente. Lança erro se não estiver conectado. */
+/** Envia texto pelo WhatsApp do cliente (QR ou API Oficial). */
 export async function sendText(ws: string, jid: string, text: string): Promise<string | undefined> {
+  const cloud = cloudInfo.get(ws);
+  if (cloud) return sendTextCloud(cloud.phoneId, cloud.token, jid, text);
   const s = sessionOf(ws);
   if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
   const sent = await s.sock.sendMessage(jid, { text });
@@ -303,6 +336,8 @@ export async function sendMedia(
   jid: string,
   opts: { buffer: Buffer; mimetype: string; filename?: string; caption?: string; kind: MediaKind },
 ): Promise<string | undefined> {
+  const cloud = cloudInfo.get(ws);
+  if (cloud) return sendMediaCloud(cloud.phoneId, cloud.token, jid, opts);
   const s = sessionOf(ws);
   if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
   const caption = opts.caption?.trim() || undefined;

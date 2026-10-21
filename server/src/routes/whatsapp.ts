@@ -1,12 +1,49 @@
+import { randomBytes } from 'node:crypto';
 import { Router, raw } from 'express';
 import { wsOf } from '../auth.js';
-import { getStatus, startWhatsApp, logoutWhatsApp, normalizePhone, sendMedia } from '../whatsapp/session.js';
+import { getStatus, startWhatsApp, logoutWhatsApp, normalizePhone, sendMedia, refreshChannel } from '../whatsapp/session.js';
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { saveMedia, kindFromMime } from '../whatsapp/media.js';
 
 /** Conexão de WhatsApp do cliente aberto (cada escritório tem a sua). */
 export const whatsappRouter = Router();
+
+/* --------------------- API Oficial (Meta Cloud API) --------------------- */
+whatsappRouter.get('/cloud', async (req, res) => {
+  const ws = wsOf(req);
+  let cfg = await prisma.waConfig.findUnique({ where: { id: ws } });
+  if (!cfg) cfg = await prisma.waConfig.create({ data: { id: ws, cloudVerify: randomBytes(12).toString('hex') } });
+  if (!cfg.cloudVerify) {
+    cfg = await prisma.waConfig.update({ where: { id: ws }, data: { cloudVerify: randomBytes(12).toString('hex') } });
+  }
+  const host = req.get('x-forwarded-host') || req.get('host');
+  res.json({
+    channel: cfg.channel,
+    phoneId: cfg.cloudPhoneId,
+    wabaId: cfg.cloudWabaId,
+    hasToken: Boolean(cfg.cloudToken),
+    verifyToken: cfg.cloudVerify,
+    webhookUrl: `https://${host}/api/wa/webhook/${ws}`,
+  });
+});
+
+whatsappRouter.patch('/cloud', async (req, res) => {
+  const ws = wsOf(req);
+  const { channel, phoneId, token, wabaId } = req.body ?? {};
+  const data: Record<string, unknown> = {};
+  if (channel === 'qr' || channel === 'cloud') data.channel = channel;
+  if (typeof phoneId === 'string') data.cloudPhoneId = phoneId.trim();
+  if (typeof wabaId === 'string') data.cloudWabaId = wabaId.trim();
+  if (typeof token === 'string' && token.trim()) data.cloudToken = token.trim();
+  await prisma.waConfig.upsert({
+    where: { id: ws },
+    update: data,
+    create: { id: ws, cloudVerify: randomBytes(12).toString('hex'), ...data },
+  });
+  await refreshChannel(ws);
+  res.json({ ok: true, status: getStatus(ws) });
+});
 
 // Envia um arquivo pelo WhatsApp. O corpo é o arquivo bruto; metadados vêm na query.
 // (evita dependência de multipart: o front faz fetch com o File como body)

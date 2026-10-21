@@ -21,12 +21,17 @@ import { aiRouter } from './routes/ai.js';
 import { agentsRouter } from './routes/agents.js';
 import { workRouter } from './routes/work.js';
 import { campaignsRouter } from './routes/campaigns.js';
+import { waWebhookRouter } from './routes/waWebhook.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.set('trust proxy', true); // atrás do proxy do Easypanel (host/protocolo corretos)
 app.use(cors({ origin: env.clientOrigin }));
 app.use(express.json({ limit: '2mb' }));
+
+// Webhook PÚBLICO da API Oficial do WhatsApp (a Meta chama sem token de sessão).
+app.use('/api/wa/webhook', waWebhookRouter);
 
 // Público
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
