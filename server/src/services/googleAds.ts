@@ -15,7 +15,9 @@ function gAdsError(d: any, status: number): string {
   const inner = d?.error?.details?.[0]?.errors?.[0];
   const code = inner?.errorCode ? String(Object.values(inner.errorCode)[0] ?? '') : '';
   const parts = [d?.error?.message, inner?.message, code].filter(Boolean);
-  return parts.length ? parts.join(' · ') : `Google respondeu ${status}`;
+  if (parts.length) return parts.join(' · ');
+  const raw = JSON.stringify(d ?? {}).slice(0, 200);
+  return `Google Ads ${status}${raw && raw !== '{}' ? `: ${raw}` : ''}`;
 }
 
 /**
@@ -112,9 +114,14 @@ async function accessTokenFrom(refreshToken: string, g: GoogleGlobals): Promise<
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
   });
+  if (!g.clientId || !g.clientSecret) throw new Error('OAuth: Client ID/Secret globais não configurados (aba Clientes → Google Ads global).');
+  if (!refreshToken) throw new Error('OAuth: refresh token da MCC não configurado (aba Clientes → Google Ads global).');
   const resp = await fetch(OAUTH_TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
   const data: any = await resp.json().catch(() => ({}));
-  if (!resp.ok || !data.access_token) throw new Error(data?.error_description || 'Não foi possível renovar o acesso ao Google.');
+  if (!resp.ok || !data.access_token) {
+    const detail = data?.error_description || data?.error || JSON.stringify(data).slice(0, 200);
+    throw new Error(`OAuth (renovar acesso) falhou: ${detail}`);
+  }
   return data.access_token;
 }
 
