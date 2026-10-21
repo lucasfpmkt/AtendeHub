@@ -289,6 +289,13 @@ model PlatformConfig {
   // Chave Gemini usada só para entender mídia (transcrever áudio, ler imagem).
   mediaApiKey String  @default("")
   mediaModel  String  @default("")
+  // Google Ads GLOBAL (MCC) — definido pelo admin na aba Clientes. Um para
+  // todos; por cliente muda só o Customer ID. (secret/token/refresh cifrados)
+  gadsClientId        String @default("")
+  gadsClientSecret    String @default("")
+  gadsDeveloperToken  String @default("")
+  gadsLoginCustomerId String @default("")
+  gadsRefreshToken    String @default("")
 }
 
 

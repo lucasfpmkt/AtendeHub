@@ -10,15 +10,58 @@ const OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
 const ADS_SCOPE = 'https://www.googleapis.com/auth/adwords';
 const api = () => `https://googleads.googleapis.com/${env.googleAdsVersion}`;
 
+/**
+ * Credenciais GLOBAIS do Google Ads (MCC). Prioridade: o que o admin salvou na
+ * aba Clientes (PlatformConfig) e, se vazio, a variável de ambiente.
+ */
+export type GoogleGlobals = {
+  clientId: string;
+  clientSecret: string;
+  developerToken: string;
+  loginCustomerId: string;
+  refreshToken: string;
+};
+export async function googleGlobals(): Promise<GoogleGlobals> {
+  const p = await prisma.platformConfig.findUnique({ where: { id: 'global' } });
+  return {
+    clientId: p?.gadsClientId?.trim() || env.googleClientId,
+    clientSecret: dec(p?.gadsClientSecret ?? '').trim() || env.googleClientSecret,
+    developerToken: dec(p?.gadsDeveloperToken ?? '').trim() || env.googleAdsDeveloperToken,
+    loginCustomerId: (p?.gadsLoginCustomerId || '').replace(/\D/g, '') || env.googleLoginCustomerId,
+    refreshToken: dec(p?.gadsRefreshToken ?? '').trim() || env.googleRefreshToken,
+  };
+}
+/** OAuth do Google disponível (tem client id/secret globais). */
+export async function googleOauthReady(): Promise<boolean> {
+  const g = await googleGlobals();
+  return Boolean(g.clientId && g.clientSecret);
+}
+/** MCC global pronta (refresh + developer token) — por cliente só o Customer ID. */
+export async function googleGlobalReady(): Promise<boolean> {
+  const g = await googleGlobals();
+  return Boolean(g.refreshToken && g.developerToken);
+}
+/** Credenciais efetivas de um cliente: as dele e, se vazias, as globais. */
+export async function resolveClientGoogleCreds(cfg: { refreshToken?: string | null; developerToken?: string | null } | null) {
+  const g = await googleGlobals();
+  return {
+    refreshToken: cfg?.refreshToken ? dec(cfg.refreshToken) : g.refreshToken,
+    developerToken: cfg?.developerToken ? dec(cfg.developerToken) : g.developerToken,
+  };
+}
+
+const noDevTokenError = 'Developer token do Google Ads não configurado (defina na aba Clientes, área do admin).';
+
 /** URL do consentimento do Google (pede refresh token offline). */
-export function googleLoginUrl(redirectUri: string, state: string): string {
+export async function googleLoginUrl(redirectUri: string, state: string): Promise<string> {
+  const g = await googleGlobals();
   const q = new URLSearchParams({
-    client_id: env.googleClientId,
+    client_id: g.clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: `${ADS_SCOPE} email`,
     access_type: 'offline',
-    prompt: 'consent', // força vir o refresh_token mesmo em re-login
+    prompt: 'consent',
     include_granted_scopes: 'true',
     state,
   });
@@ -26,22 +69,16 @@ export function googleLoginUrl(redirectUri: string, state: string): string {
 }
 
 /** Troca o code por refresh token (e descobre o e-mail da conta). */
-export async function exchangeGoogleCode(
-  code: string,
-  redirectUri: string,
-): Promise<{ refreshToken: string; email: string }> {
+export async function exchangeGoogleCode(code: string, redirectUri: string): Promise<{ refreshToken: string; email: string }> {
+  const g = await googleGlobals();
   const body = new URLSearchParams({
-    client_id: env.googleClientId,
-    client_secret: env.googleClientSecret,
+    client_id: g.clientId,
+    client_secret: g.clientSecret,
     code,
     grant_type: 'authorization_code',
     redirect_uri: redirectUri,
   });
-  const resp = await fetch(OAUTH_TOKEN, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body,
-  });
+  const resp = await fetch(OAUTH_TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.refresh_token) {
     throw new Error(data?.error_description || data?.error || 'Falha ao obter o refresh token do Google.');
@@ -49,9 +86,7 @@ export async function exchangeGoogleCode(
   let email = '';
   try {
     if (data.access_token) {
-      const r = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-        headers: { authorization: `Bearer ${data.access_token}` },
-      });
+      const r = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${data.access_token}` } });
       const u: any = await r.json().catch(() => ({}));
       email = u?.email || '';
     }
@@ -62,44 +97,36 @@ export async function exchangeGoogleCode(
 }
 
 /** Access token de curta duração a partir do refresh token. */
-async function accessTokenFrom(refreshToken: string): Promise<string> {
+async function accessTokenFrom(refreshToken: string, g: GoogleGlobals): Promise<string> {
   const body = new URLSearchParams({
-    client_id: env.googleClientId,
-    client_secret: env.googleClientSecret,
+    client_id: g.clientId,
+    client_secret: g.clientSecret,
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
   });
-  const resp = await fetch(OAUTH_TOKEN, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body,
-  });
+  const resp = await fetch(OAUTH_TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.access_token) throw new Error(data?.error_description || 'Não foi possível renovar o acesso ao Google.');
   return data.access_token;
 }
 
-// Developer token: usa o do cliente (salvo no formulário manual) e, se não
-// houver, cai no do servidor (variável de ambiente).
-const resolveDevToken = (perClient?: string) => (perClient?.trim() || env.googleAdsDeveloperToken || '').trim();
-const noDevTokenError = 'Developer token do Google Ads não configurado (cole no formulário ou defina no servidor).';
-
-function adsHeaders(accessToken: string, devToken: string): Record<string, string> {
+function adsHeaders(accessToken: string, devToken: string, loginCustomerId: string): Record<string, string> {
   const h: Record<string, string> = {
     authorization: `Bearer ${accessToken}`,
     'developer-token': devToken,
     'content-type': 'application/json',
   };
-  if (env.googleLoginCustomerId) h['login-customer-id'] = env.googleLoginCustomerId;
+  if (loginCustomerId) h['login-customer-id'] = loginCustomerId;
   return h;
 }
 
 /** Contas do Google Ads acessíveis pela conta conectada. */
 export async function listAccessibleCustomers(refreshToken: string, developerToken?: string): Promise<{ id: string; name: string }[]> {
-  const dt = resolveDevToken(developerToken);
+  const g = await googleGlobals();
+  const dt = (developerToken?.trim() || g.developerToken).trim();
   if (!dt) throw new Error(noDevTokenError);
-  const access = await accessTokenFrom(refreshToken);
-  const resp = await fetch(`${api()}/customers:listAccessibleCustomers`, { headers: adsHeaders(access, dt) });
+  const access = await accessTokenFrom(refreshToken, g);
+  const resp = await fetch(`${api()}/customers:listAccessibleCustomers`, { headers: adsHeaders(access, dt, g.loginCustomerId) });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
   const ids: string[] = (data?.resourceNames ?? []).map((r: string) => r.split('/')[1]).filter(Boolean);
@@ -110,7 +137,7 @@ export async function listAccessibleCustomers(refreshToken: string, developerTok
     try {
       const r = await fetch(`${api()}/customers/${id}/googleAds:search`, {
         method: 'POST',
-        headers: adsHeaders(access, dt),
+        headers: adsHeaders(access, dt, g.loginCustomerId),
         body: JSON.stringify({ query: 'SELECT customer.descriptive_name FROM customer LIMIT 1' }),
       });
       const d: any = await r.json().catch(() => ({}));
@@ -127,17 +154,18 @@ const fmtId = (s: string) => s.replace(/\D/g, '');
 
 /** Resumo da conta (gasto, cliques, impressões, conversões + campanhas). */
 export async function getGoogleAdsSummary(customerId: string, refreshToken: string, developerToken?: string) {
-  const dt = resolveDevToken(developerToken);
+  const g = await googleGlobals();
+  const dt = (developerToken?.trim() || g.developerToken).trim();
   if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
-  const access = await accessTokenFrom(refreshToken);
+  const access = await accessTokenFrom(refreshToken, g);
 
   const metricsQuery =
     'SELECT metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.average_cpc ' +
     'FROM customer WHERE segments.date DURING LAST_30_DAYS';
   const mResp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
-    headers: adsHeaders(access, dt),
+    headers: adsHeaders(access, dt, g.loginCustomerId),
     body: JSON.stringify({ query: metricsQuery }),
   });
   const m: any = await mResp.json().catch(() => ({}));
@@ -158,7 +186,7 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
     'SELECT campaign.name, campaign.status FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY campaign.name LIMIT 50';
   const cResp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
-    headers: adsHeaders(access, dt),
+    headers: adsHeaders(access, dt, g.loginCustomerId),
     body: JSON.stringify({ query: campQuery }),
   });
   const c: any = await cResp.json().catch(() => ({}));
@@ -194,7 +222,8 @@ const DATE_LITERAL: Record<string, string> = {
 
 /** Árvore campanha → grupo de anúncios → anúncio com métricas (1 consulta). */
 export async function getGoogleAdsBreakdown(customerId: string, refreshToken: string, preset = 'last_30d', developerToken?: string) {
-  const dt = resolveDevToken(developerToken);
+  const g = await googleGlobals();
+  const dt = (developerToken?.trim() || g.developerToken).trim();
   if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
   const during = DATE_LITERAL[preset] || 'LAST_30_DAYS';
@@ -202,7 +231,7 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
   const cached = gCache.get(ck);
   if (cached && Date.now() - cached.at < G_TTL) return cached.data;
 
-  const access = await accessTokenFrom(refreshToken);
+  const access = await accessTokenFrom(refreshToken, g);
   const query =
     'SELECT campaign.id, campaign.name, campaign.status, ad_group.id, ad_group.name, ad_group.status, ' +
     'ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.status, ' +
@@ -214,7 +243,7 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
   for (let page = 0; page < 10; page++) {
     const r = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
       method: 'POST',
-      headers: adsHeaders(access, dt),
+      headers: adsHeaders(access, dt, g.loginCustomerId),
       body: JSON.stringify({ query, pageSize: 1000, ...(pageToken ? { pageToken } : {}) }),
     });
     const j: any = await r.json().catch(() => ({}));
@@ -270,13 +299,14 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
 
 /** Ações de conversão de upload disponíveis na conta (para escolher na UI). */
 export async function listConversionActions(customerId: string, refreshToken: string, developerToken?: string): Promise<{ id: string; name: string }[]> {
-  const dt = resolveDevToken(developerToken);
+  const g = await googleGlobals();
+  const dt = (developerToken?.trim() || g.developerToken).trim();
   if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
-  const access = await accessTokenFrom(refreshToken);
+  const access = await accessTokenFrom(refreshToken, g);
   const resp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
-    headers: adsHeaders(access, dt),
+    headers: adsHeaders(access, dt, g.loginCustomerId),
     body: JSON.stringify({
       query:
         "SELECT conversion_action.id, conversion_action.name, conversion_action.status FROM conversion_action " +
@@ -312,10 +342,11 @@ export async function uploadLeadConversion(params: {
   when?: Date;
   developerToken?: string;
 }) {
-  const dt = resolveDevToken(params.developerToken);
+  const g = await googleGlobals();
+  const dt = (params.developerToken?.trim() || g.developerToken).trim();
   if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(params.customerId);
-  const access = await accessTokenFrom(params.refreshToken);
+  const access = await accessTokenFrom(params.refreshToken, g);
   const e164 = `+${params.phone.replace(/\D/g, '')}`;
   const body = {
     conversions: [
@@ -329,7 +360,7 @@ export async function uploadLeadConversion(params: {
   };
   const resp = await fetch(`${api()}/customers/${cid}:uploadClickConversions`, {
     method: 'POST',
-    headers: adsHeaders(access, dt),
+    headers: adsHeaders(access, dt, g.loginCustomerId),
     body: JSON.stringify(body),
   });
   const data: any = await resp.json().catch(() => ({}));

@@ -6,6 +6,7 @@ import { dropSession, getStatus } from '../whatsapp/session.js';
 import { getPlatformConfig, updatePlatformConfig } from '../services/platform.js';
 import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
 import { mediaUnderstandingReady } from '../services/mediaAI.js';
+import { googleGlobalReady, googleOauthReady } from '../services/googleAds.js';
 import { reclassifyAllStages } from '../services/inbound.js';
 
 /** Painel do administrador: todos os clientes (workspaces) e seus acessos. */
@@ -14,14 +15,25 @@ export const adminRouter = Router();
 /* ------------------------ IA global da plataforma ------------------------ */
 adminRouter.get('/ai', async (_req, res) => {
   const cfg = await getPlatformConfig();
-  const [llm, crmLlm, mediaReady] = await Promise.all([resolveLlm(), resolveCrmLlm(), mediaUnderstandingReady()]);
-  const { apiKey, crmApiKey, mediaApiKey, ...safe } = cfg;
+  const [llm, crmLlm, mediaReady, gadsReady, gadsOauthReady] = await Promise.all([
+    resolveLlm(),
+    resolveCrmLlm(),
+    mediaUnderstandingReady(),
+    googleGlobalReady(),
+    googleOauthReady(),
+  ]);
+  const { apiKey, crmApiKey, mediaApiKey, gadsClientSecret, gadsDeveloperToken, gadsRefreshToken, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
     crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
     mediaHasKey: Boolean(mediaApiKey && mediaApiKey.trim()),
     mediaReady,
+    gadsHasSecret: Boolean(gadsClientSecret),
+    gadsHasDeveloperToken: Boolean(gadsDeveloperToken),
+    gadsHasRefreshToken: Boolean(gadsRefreshToken),
+    gadsReady,
+    gadsOauthReady,
     providerConnected: llm.ready,
     crmConnected: crmLlm.ready,
     providers: providersPublic(),
@@ -30,14 +42,25 @@ adminRouter.get('/ai', async (_req, res) => {
 
 adminRouter.patch('/ai', async (req, res) => {
   const cfg = await updatePlatformConfig(req.body ?? {});
-  const [llm, crmLlm, mediaReady] = await Promise.all([resolveLlm(), resolveCrmLlm(), mediaUnderstandingReady()]);
-  const { apiKey, crmApiKey, mediaApiKey, ...safe } = cfg;
+  const [llm, crmLlm, mediaReady, gadsReady, gadsOauthReady] = await Promise.all([
+    resolveLlm(),
+    resolveCrmLlm(),
+    mediaUnderstandingReady(),
+    googleGlobalReady(),
+    googleOauthReady(),
+  ]);
+  const { apiKey, crmApiKey, mediaApiKey, gadsClientSecret, gadsDeveloperToken, gadsRefreshToken, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
     crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
     mediaHasKey: Boolean(mediaApiKey && mediaApiKey.trim()),
     mediaReady,
+    gadsHasSecret: Boolean(gadsClientSecret),
+    gadsHasDeveloperToken: Boolean(gadsDeveloperToken),
+    gadsHasRefreshToken: Boolean(gadsRefreshToken),
+    gadsReady,
+    gadsOauthReady,
     providerConnected: llm.ready,
     crmConnected: crmLlm.ready,
   });
