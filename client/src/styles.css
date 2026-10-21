@@ -42,7 +42,7 @@
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --r-card: 12px;
   --r-ctl: 10px;
-  --rail: 64px;
+  --rail: 232px;
 
   /* nomes antigos (usados por páginas existentes) */
   --primary: var(--p-600);
@@ -251,9 +251,11 @@ button.pill { cursor: pointer; }
   padding: 12px 10px;
   gap: 2px;
   transition: width 0.16s ease, box-shadow 0.16s ease;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
-.rail:hover, .rail:focus-within { width: 232px; box-shadow: 8px 0 24px rgba(17, 24, 39, 0.08); background: var(--g-0); }
+/* Desktop: a barra fica fixa e aberta (sem expandir no hover). */
+.rail:hover, .rail:focus-within { box-shadow: none; }
 .rail-brand { display: flex; align-items: center; gap: 10px; padding: 2px 4px 14px; min-height: 52px; }
 .rail-brand img { width: 36px; height: 36px; border-radius: 9px; flex: none; }
 .rail-brand .wordmark { font-size: 19px; font-weight: 800; letter-spacing: -0.04em; white-space: nowrap; }
@@ -284,14 +286,13 @@ button.pill { cursor: pointer; }
 .rail-ws { justify-content: flex-start; gap: 12px; width: 100%; min-height: 44px; padding: 6px 10px; margin-top: 6px; border-radius: var(--r-ctl); border: 1px solid transparent; background: transparent; color: var(--g-500); }
 .rail-ws:hover { background: var(--g-100); border-color: transparent; }
 .rail:hover .rail-ws, .rail:focus-within .rail-ws { border-color: var(--g-200); background: var(--g-50); }
-.rail-ws .st { display: flex; flex-direction: column; text-align: left; line-height: 1.25; opacity: 0; white-space: nowrap; overflow: hidden; min-width: 0; }
+.rail-ws .st { display: flex; flex-direction: column; text-align: left; line-height: 1.25; opacity: 1; white-space: nowrap; overflow: hidden; min-width: 0; }
 .rail:hover .rail-ws .st, .rail:focus-within .rail-ws .st { opacity: 1; }
 .rail-ws .st b { font-size: 11.5px; color: var(--g-700); font-weight: 600; }
 .rail-ws .st small { font-size: 11.5px; color: var(--g-500); overflow: hidden; text-overflow: ellipsis; }
 .user-name { flex: 1; display: flex; flex-direction: column; line-height: 1.2; font-weight: 500; white-space: nowrap; }
 .user-name small { font-size: 11px; color: var(--g-500); font-weight: 400; }
-.rail .label { opacity: 0; transition: opacity 0.12s; white-space: nowrap; }
-.rail:hover .label, .rail:focus-within .label { opacity: 1; }
+.rail .label { opacity: 1; transition: opacity 0.12s; white-space: nowrap; }
 .rail-badge { position: absolute; top: 4px; left: 24px; background: var(--bad); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 0 5px; line-height: 16px; min-width: 16px; text-align: center; }
 .rail-spacer { flex: 1; }
 .rail-status { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); background: transparent; border: 1px solid transparent; min-height: 44px; width: 100%; justify-content: flex-start; }
