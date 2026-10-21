@@ -119,8 +119,9 @@ async function accessTokenFrom(refreshToken: string, g: GoogleGlobals): Promise<
   const resp = await fetch(OAUTH_TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.access_token) {
-    const detail = data?.error_description || data?.error || JSON.stringify(data).slice(0, 200);
-    throw new Error(`OAuth (renovar acesso) falhou: ${detail}`);
+    const detail = [data?.error, data?.error_description].filter(Boolean).join(' · ') || JSON.stringify(data).slice(0, 200);
+    const hint = data?.error === 'invalid_grant' ? ' (o refresh token não combina com o Client ID/Secret, ou foi revogado — gere de novo no mesmo app)' : '';
+    throw new Error(`OAuth (renovar acesso) falhou: ${detail}${hint}`);
   }
   return data.access_token;
 }
