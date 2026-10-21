@@ -50,6 +50,24 @@ export function Dashboard() {
         <Kpi label="Negócios" value={t.deals} hint={BRL(t.pipelineCents)} />
       </div>
 
+      {/* Comparativo: o que chegou de fato no WhatsApp x o que o Meta contabilizou. */}
+      <div className="kpis" style={{ marginTop: 12 }}>
+        <Kpi
+          label="Conversas no WhatsApp"
+          value={data.whatsappConversations}
+          hint="chegaram de fato no período"
+          icon="chat"
+          accent="#16a34a"
+        />
+        <Kpi
+          label="Atribuídas pelo Meta Ads"
+          value={data.metaResults ?? '—'}
+          hint={data.metaResults == null ? 'Meta Ads não configurado' : 'resultados contados pela Meta'}
+          icon="share"
+          accent="#2563eb"
+        />
+      </div>
+
       <div className="grid2">
         <div className="card">
           <h3 className="card-title">

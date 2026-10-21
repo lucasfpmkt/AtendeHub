@@ -275,6 +275,8 @@ export interface KeywordRule {
 export interface DashboardData {
   perDay: { date: string; count: number }[];
   messages: { in: number; out: number };
+  whatsappConversations: number;
+  metaResults: number | null;
   firstResponseMin: number | null;
   bySource: { source: string; count: number }[];
   conversion: { won: number; total: number; rate: number };

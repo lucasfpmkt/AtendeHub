@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../db.js';
 import { wsOf } from '../auth.js';
+import { dec } from '../crypto.js';
+import { getMetaAdsSummary } from '../services/metaAds.js';
 
 /** Tarefas, Agenda, Mensagens rápidas, Automação por palavras e Dashboard — por cliente. */
 export const workRouter = Router();
@@ -207,6 +209,20 @@ workRouter.get('/dashboard', async (req, res) => {
   }
   const bySource = [...sourceMap.entries()].map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count);
 
+  // Resultados atribuídos pelo Meta Ads (conversas iniciadas) no mesmo período,
+  // para comparar com as conversas que realmente chegaram no WhatsApp.
+  let metaResults: number | null = null;
+  const metaCfg = await prisma.metaConfig.findUnique({ where: { id: ws } });
+  if (metaCfg?.adAccountId && metaCfg?.token) {
+    const preset = days <= 7 ? 'last_7d' : days <= 15 ? 'last_14d' : 'last_30d';
+    try {
+      const summary = await getMetaAdsSummary(metaCfg.adAccountId, dec(metaCfg.token), preset);
+      metaResults = summary.leads ?? 0;
+    } catch {
+      metaResults = null;
+    }
+  }
+
   // Conversão: negócios em etapas de "ganho/fechado" vs total.
   const wonRe = /fechad|ganho|won|conclu|contrat/i;
   let won = 0;
@@ -216,6 +232,8 @@ workRouter.get('/dashboard', async (req, res) => {
 
   res.json({
     messages: { in: messagesIn, out: messagesOut },
+    whatsappConversations: periodConvs.length, // conversas que chegaram de fato no WhatsApp
+    metaResults, // resultados atribuídos pelo Meta Ads (ou null se não configurado)
     firstResponseMin: avgFirstResponseMin,
     bySource,
     conversion,

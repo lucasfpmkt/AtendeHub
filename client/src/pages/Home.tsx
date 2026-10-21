@@ -113,18 +113,30 @@ export function Home({ go, connected, userName }: { go: (t: Tab) => void; connec
   );
 }
 
-export function Kpi({ label, value, hint, icon }: { label: string; value?: number | string; hint: string; icon?: string }) {
+export function Kpi({
+  label,
+  value,
+  hint,
+  icon,
+  accent,
+}: {
+  label: string;
+  value?: number | string;
+  hint: string;
+  icon?: string;
+  accent?: string;
+}) {
   return (
-    <div className="card kpi">
+    <div className="card kpi" style={accent ? { borderColor: accent, background: `${accent}0d` } : undefined}>
       <span className="kpi-head">
         {icon && (
-          <span className="kpi-ico">
+          <span className="kpi-ico" style={accent ? { color: accent, background: `${accent}1f` } : undefined}>
             <Icon name={icon} size={16} />
           </span>
         )}
         <span className="kpi-label">{label}</span>
       </span>
-      <span className="kpi-value">{value ?? '—'}</span>
+      <span className="kpi-value" style={accent ? { color: accent } : undefined}>{value ?? '—'}</span>
       <span className="kpi-hint">{hint}</span>
     </div>
   );
