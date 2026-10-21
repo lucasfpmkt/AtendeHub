@@ -457,6 +457,10 @@ button.conv-item.active { background: var(--p-50); box-shadow: inset 3px 0 0 var
 .conv-top .preview { flex: 1; font-size: 12.5px; color: var(--g-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { margin-left: auto; background: var(--ok); color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 0 6px; line-height: 18px; min-width: 18px; text-align: center; flex: none; }
 .mkt-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px 24px 0; }
+/* Lista de campanhas: ~8 visíveis, o resto rola. Cabeçalho fica fixo no topo. */
+.camp-scroll { max-height: 356px; overflow-y: auto; }
+.camp-scroll table { margin: 0; }
+.camp-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--g-0); }
 .tree-table .num { text-align: right; white-space: nowrap; }
 /* Colunas destacadas do detalhamento de anúncios. */
 .tree-table .col-lead { background: rgba(22, 163, 74, 0.12); color: #15803d; font-weight: 600; }

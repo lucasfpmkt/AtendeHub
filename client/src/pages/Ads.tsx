@@ -3,6 +3,12 @@ import { api } from '../api';
 import { Icon } from '../icons';
 import { Kpi } from './Home';
 
+// Ordena campanhas com as ATIVAS primeiro (ENABLED/ACTIVE), mantendo o resto depois.
+const activeFirst = <T extends { status?: string }>(arr: T[]): T[] =>
+  [...arr].sort(
+    (a, b) => (/ENABLED|ACTIVE/i.test(b.status || '') ? 1 : 0) - (/ENABLED|ACTIVE/i.test(a.status || '') ? 1 : 0),
+  );
+
 const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const NUM = (n: number) => n.toLocaleString('pt-BR');
 
@@ -192,31 +198,33 @@ export function MetaAds() {
         {sum?.configured && sum.campaigns && (
           <div className="card">
             <h3 className="card-title">
-              <Icon name="list" /> Campanhas {loadingSum && <span className="muted small">atualizando…</span>}
+              <Icon name="list" /> Campanhas <span className="muted small">({sum.campaigns.length})</span> {loadingSum && <span className="muted small">atualizando…</span>}
             </h3>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Campanha</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sum.campaigns.map((c, i) => (
-                  <tr key={i}>
-                    <td>{c.name}</td>
-                    <td>
-                      <span className={`pill ${/ACTIVE/i.test(c.status) ? 'ok' : ''}`}>{c.status}</span>
-                    </td>
-                  </tr>
-                ))}
-                {sum.campaigns.length === 0 && (
+            <div className="camp-scroll">
+              <table className="table">
+                <thead>
                   <tr>
-                    <td colSpan={2} className="muted">Nenhuma campanha.</td>
+                    <th>Campanha</th>
+                    <th>Status</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {activeFirst(sum.campaigns).map((c, i) => (
+                    <tr key={i}>
+                      <td>{c.name}</td>
+                      <td>
+                        <span className={`pill ${/ACTIVE/i.test(c.status) ? 'ok' : ''}`}>{c.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {sum.campaigns.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="muted">Nenhuma campanha.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -545,31 +553,33 @@ export function GoogleAds() {
         {sum?.configured && sum.campaigns && (
           <div className="card">
             <h3 className="card-title">
-              <Icon name="list" /> Campanhas
+              <Icon name="list" /> Campanhas <span className="muted small">({sum.campaigns.length})</span>
             </h3>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Campanha</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sum.campaigns.map((c, i) => (
-                  <tr key={i}>
-                    <td>{c.name}</td>
-                    <td>
-                      <span className={`pill ${/ENABLED/i.test(c.status) ? 'ok' : ''}`}>{c.status}</span>
-                    </td>
-                  </tr>
-                ))}
-                {sum.campaigns.length === 0 && (
+            <div className="camp-scroll">
+              <table className="table">
+                <thead>
                   <tr>
-                    <td colSpan={2} className="muted">Nenhuma campanha nos últimos 30 dias.</td>
+                    <th>Campanha</th>
+                    <th>Status</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {activeFirst(sum.campaigns).map((c, i) => (
+                    <tr key={i}>
+                      <td>{c.name}</td>
+                      <td>
+                        <span className={`pill ${/ENABLED/i.test(c.status) ? 'ok' : ''}`}>{c.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {sum.campaigns.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="muted">Nenhuma campanha nos últimos 30 dias.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
