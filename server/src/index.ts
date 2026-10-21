@@ -14,6 +14,7 @@ import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { startFollowupLoop } from './services/followup.js';
 import { backfillStageTags } from './services/inbound.js';
 import { ensureTenancy } from './services/tenancy.js';
+import { ensureQualifiedStageInAllFunnels } from './services/crmSeed.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { whatsappRouter } from './routes/whatsapp.js';
@@ -112,6 +113,7 @@ server.listen(env.port, async () => {
   if (env.serveClient) console.log('  Servindo frontend compilado (client/dist)');
   console.log('');
   await ensureTenancy();
+  await ensureQualifiedStageInAllFunnels().catch((e) => console.error('[crm] ensure Lead Qualificado falhou:', e));
   await backfillStageTags().catch((e) => console.error('[crm] backfill de etiquetas falhou:', e));
   if (env.adminPassword === 'admin') {
     console.warn('[segurança] Senha de admin padrão ("admin") em uso. Defina ADMIN_PASSWORD no ambiente e troque a senha.');
