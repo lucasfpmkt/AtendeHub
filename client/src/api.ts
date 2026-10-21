@@ -339,8 +339,14 @@ export const api = {
   // Campanhas (disparo em massa)
   campaigns: () =>
     req<{ id: string; body: string; audience: string; total: number; sent: number; status: string; createdAt: string }[]>('/campaigns'),
-  startCampaign: (body: string, audienceType: 'all' | 'tag' | 'stage', value?: string) =>
-    req<{ id: string; total: number }>('/campaigns', { method: 'POST', body: JSON.stringify({ body, audienceType, value }) }),
+  startCampaign: (
+    body: string,
+    audienceType: 'all' | 'tag' | 'stage',
+    value?: string,
+    template?: { name: string; lang: string; bodyText: string; params: string[] },
+  ) => req<{ id: string; total: number }>('/campaigns', { method: 'POST', body: JSON.stringify({ body, audienceType, value, template }) }),
+  waTemplates: () =>
+    req<{ name: string; language: string; bodyText: string; variables: number }[]>('/whatsapp/cloud/templates'),
 
   // Contatos
   contacts: (q = '') => req<Contact[]>(`/contacts?q=${encodeURIComponent(q)}`),

@@ -64,6 +64,48 @@ export async function downloadCloudMedia(token: string, mediaId: string): Promis
   return { buffer, mimetype: meta.mime_type || 'application/octet-stream' };
 }
 
+export type WaTemplate = { name: string; language: string; bodyText: string; variables: number };
+
+/** Lista os templates APROVADOS da conta (para disparos pela API Oficial). */
+export async function listTemplates(wabaId: string, token: string): Promise<WaTemplate[]> {
+  const resp = await fetch(`${GRAPH}/${wabaId}/message_templates?limit=200`, { headers: { authorization: `Bearer ${token}` } });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error?.message || `WhatsApp API respondeu ${resp.status}`);
+  return (data?.data ?? [])
+    .filter((t: any) => t.status === 'APPROVED')
+    .map((t: any) => {
+      const body = (t.components ?? []).find((c: any) => c.type === 'BODY');
+      const text: string = body?.text ?? '';
+      const variables = (text.match(/\{\{\s*\d+\s*\}\}/g) ?? []).length;
+      return { name: t.name, language: t.language, bodyText: text, variables };
+    });
+}
+
+/** Envia um template aprovado (com parâmetros do corpo, se houver). */
+export async function sendTemplateCloud(
+  phoneId: string,
+  token: string,
+  to: string,
+  name: string,
+  lang: string,
+  params: string[],
+): Promise<string | undefined> {
+  const components = params.length ? [{ type: 'body', parameters: params.map((p) => ({ type: 'text', text: p })) }] : [];
+  const resp = await fetch(`${GRAPH}/${phoneId}/messages`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: digits(to), type: 'template', template: { name, language: { code: lang }, components } }),
+  });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error?.message || `WhatsApp API respondeu ${resp.status}`);
+  return data?.messages?.[0]?.id;
+}
+
+/** Preenche {{1}},{{2}}… do corpo do template com os parâmetros (para o histórico). */
+export function fillTemplateBody(bodyText: string, params: string[]): string {
+  return bodyText.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => params[Number(n) - 1] ?? _m);
+}
+
 /** Marca uma mensagem recebida como lida (opcional, melhora os "vistos"). */
 export async function markReadCloud(phoneId: string, token: string, messageId: string) {
   await fetch(`${GRAPH}/${phoneId}/messages`, {

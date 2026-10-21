@@ -15,6 +15,14 @@ export function Campaigns({ connected }: { connected: boolean }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Templates (API Oficial)
+  const [isCloud, setIsCloud] = useState(false);
+  const [mode, setMode] = useState<'text' | 'template'>('text');
+  const [templates, setTemplates] = useState<Awaited<ReturnType<typeof api.waTemplates>>>([]);
+  const [tplName, setTplName] = useState('');
+  const [tplParams, setTplParams] = useState<string[]>([]);
+  const tpl = templates.find((t) => t.name === tplName);
+
   const load = () => api.campaigns().then(setList).catch(() => {});
 
   useEffect(() => {
@@ -24,19 +32,32 @@ export function Campaigns({ connected }: { connected: boolean }) {
       .funnels()
       .then((fs) => (fs[0] ? api.board(fs[0].id).then((b) => setStages(b.stages)) : null))
       .catch(() => {});
+    api.waStatus().then((s) => {
+      if ((s as { channel?: string }).channel === 'cloud') {
+        setIsCloud(true);
+        api.waTemplates().then(setTemplates).catch(() => {});
+      }
+    });
     const t = setInterval(load, 5000); // acompanha o progresso
     return () => clearInterval(t);
   }, []);
 
+  // Ajusta a quantidade de variáveis ao trocar de template.
+  useEffect(() => {
+    setTplParams(Array(tpl?.variables ?? 0).fill(''));
+  }, [tplName]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const disparar = async () => {
-    if (!body.trim()) return;
+    const usingTpl = mode === 'template' && tpl;
+    if (!usingTpl && !body.trim()) return;
     setBusy(true);
     setMsg(null);
     try {
       const value = aud === 'tag' ? tagValue : aud === 'stage' ? stageValue : undefined;
-      const r = await api.startCampaign(body.trim(), aud, value);
+      const template = usingTpl ? { name: tpl!.name, lang: tpl!.language, bodyText: tpl!.bodyText, params: tplParams } : undefined;
+      const r = await api.startCampaign(usingTpl ? '' : body.trim(), aud, value, template);
       setMsg({ ok: true, text: `Disparo iniciado para ${r.total} contato(s).` });
-      setBody('');
+      if (!usingTpl) setBody('');
       load();
     } catch (x) {
       setMsg({ ok: false, text: (x as Error).message });
@@ -107,10 +128,65 @@ export function Campaigns({ connected }: { connected: boolean }) {
               </select>
             </div>
           )}
-          <div className="field-sm">
-            <span>Mensagem</span>
-            <textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Escreva a mensagem da campanha…" />
-          </div>
+          {isCloud && (
+            <div className="field-sm">
+              <span>Tipo de mensagem</span>
+              <div className="segmented" style={{ alignSelf: 'flex-start' }}>
+                <button className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>
+                  Texto livre
+                </button>
+                <button className={mode === 'template' ? 'active' : ''} onClick={() => setMode('template')}>
+                  Template (API Oficial)
+                </button>
+              </div>
+              <span className="muted small">
+                Na API Oficial, disparos fora da janela de 24h precisam de um <b>template aprovado</b> pela Meta.
+              </span>
+            </div>
+          )}
+
+          {mode === 'template' && isCloud ? (
+            <>
+              <div className="field-sm">
+                <span>Template aprovado</span>
+                <select value={tplName} onChange={(e) => setTplName(e.target.value)}>
+                  <option value="">Selecione…</option>
+                  {templates.map((t) => (
+                    <option key={t.name} value={t.name}>
+                      {t.name} ({t.language})
+                    </option>
+                  ))}
+                </select>
+                {templates.length === 0 && <span className="muted small">Nenhum template aprovado encontrado (confira o WABA ID e o token).</span>}
+              </div>
+              {tpl && (
+                <div className="field-sm">
+                  <span>Prévia</span>
+                  <div className="card" style={{ background: 'var(--g-50)', padding: 10, fontSize: 13, whiteSpace: 'pre-wrap' }}>{tpl.bodyText}</div>
+                </div>
+              )}
+              {tpl && tpl.variables > 0 && (
+                <div className="field-sm">
+                  <span>Variáveis do template (use {'{nome}'} para o nome do contato)</span>
+                  {Array.from({ length: tpl.variables }).map((_, i) => (
+                    <input
+                      key={i}
+                      value={tplParams[i] ?? ''}
+                      onChange={(e) => setTplParams((p) => p.map((x, j) => (j === i ? e.target.value : x)))}
+                      placeholder={`Valor de {{${i + 1}}}`}
+                      style={{ marginTop: i ? 6 : 0 }}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="field-sm">
+              <span>Mensagem</span>
+              <textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Escreva a mensagem da campanha…" />
+            </div>
+          )}
+
           <p className="muted small">
             O envio é espaçado (uma mensagem a cada poucos segundos) para reduzir risco de bloqueio do WhatsApp. Evite disparos
             muito grandes de uma vez.
@@ -119,7 +195,13 @@ export function Campaigns({ connected }: { connected: boolean }) {
             <button
               className="primary"
               onClick={disparar}
-              disabled={busy || !connected || !body.trim() || (aud === 'tag' && !tagValue) || (aud === 'stage' && !stageValue)}
+              disabled={
+                busy ||
+                !connected ||
+                (mode === 'template' && isCloud ? !tpl : !body.trim()) ||
+                (aud === 'tag' && !tagValue) ||
+                (aud === 'stage' && !stageValue)
+              }
             >
               {busy ? 'Iniciando…' : 'Disparar campanha'}
             </button>
