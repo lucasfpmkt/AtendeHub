@@ -3,6 +3,7 @@ import { emit } from '../realtime.js';
 import { saveMedia, type MediaKind } from '../whatsapp/media.js';
 import { maybeFireQualifiedLead } from './metaAds.js';
 import { maybeFireGoogleConversion } from './googleAds.js';
+import { understandMedia } from './mediaAI.js';
 
 /** Mídia recebida/enviada já baixada em memória. */
 export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer };
@@ -337,6 +338,17 @@ export async function handleInboundMessage(params: {
   const { workspaceId: ws, waJid, pushName, body, waMessageId, media, sendText } = params;
   if (!body?.trim() && !media) return;
 
+  // Entende áudio/imagem com o Gemini e usa o texto resultante em tudo
+  // (triagem, resposta da IA, CRM). Se não houver chave de mídia, fica vazio.
+  let text = body ?? '';
+  if (media && (media.kind === 'audio' || media.kind === 'image')) {
+    const understood = await understandMedia(media);
+    if (understood) {
+      const tag = media.kind === 'audio' ? '🎧 Áudio' : '🖼️ Imagem';
+      text = text.trim() ? `${text}\n\n[${tag}: ${understood}]` : `[${tag}] ${understood}`;
+    }
+  }
+
   const phone = phoneFromJid(waJid);
 
   const contact = await prisma.contact.upsert({
@@ -354,7 +366,7 @@ export async function handleInboundMessage(params: {
   if (!conversation) {
     // Conversa nova: a triagem só assume se passar pela porta de entrada (gatilhos).
     const triage = await getActiveTriage(ws);
-    const start = triage ? await shouldTriageStart(ws, triage, body) : false;
+    const start = triage ? await shouldTriageStart(ws, triage, text) : false;
     conversation = await prisma.conversation.create({
       data: {
         workspaceId: ws,
@@ -367,7 +379,7 @@ export async function handleInboundMessage(params: {
   }
 
   const message = await prisma.message.create({
-    data: { conversationId: conversation.id, direction: 'in', author: 'contact', body, waMessageId, ...(await mediaFields(ws, media)) },
+    data: { conversationId: conversation.id, direction: 'in', author: 'contact', body: text, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
   conversation = await prisma.conversation.update({
@@ -386,7 +398,7 @@ export async function handleInboundMessage(params: {
   if (!conversation.aiEnabled) {
     // Sem IA: respostas automáticas por palavra-chave.
     const rules = await prisma.keywordRule.findMany({ where: { workspaceId: ws, active: true } });
-    const lower = body.toLowerCase();
+    const lower = text.toLowerCase();
     const rule = rules.find((r) => r.keyword.trim() && lower.includes(r.keyword.trim().toLowerCase()));
     if (rule) {
       try {

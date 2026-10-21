@@ -558,6 +558,9 @@ export const api = {
       crmHasKey: boolean;
       crmConnected: boolean;
       autoStage: boolean;
+      mediaHasKey: boolean;
+      mediaReady: boolean;
+      mediaModel: string;
       providers: AiProvider[];
     }>('/admin/ai'),
   adminUpdateAi: (data: {
@@ -572,8 +575,11 @@ export const api = {
     crmApiKey?: string;
     clearCrmKey?: boolean;
     autoStage?: boolean;
+    mediaApiKey?: string;
+    mediaModel?: string;
+    clearMediaKey?: boolean;
   }) =>
-    req<{ providerConnected: boolean; hasKey: boolean; crmConnected: boolean; crmHasKey: boolean }>('/admin/ai', {
+    req<{ providerConnected: boolean; hasKey: boolean; crmConnected: boolean; crmHasKey: boolean; mediaHasKey: boolean; mediaReady: boolean }>('/admin/ai', {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),

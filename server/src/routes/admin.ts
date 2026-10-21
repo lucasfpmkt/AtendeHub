@@ -5,6 +5,7 @@ import { createWorkspace } from '../services/tenancy.js';
 import { dropSession, getStatus } from '../whatsapp/session.js';
 import { getPlatformConfig, updatePlatformConfig } from '../services/platform.js';
 import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
+import { mediaUnderstandingReady } from '../services/mediaAI.js';
 import { reclassifyAllStages } from '../services/inbound.js';
 
 /** Painel do administrador: todos os clientes (workspaces) e seus acessos. */
@@ -13,12 +14,14 @@ export const adminRouter = Router();
 /* ------------------------ IA global da plataforma ------------------------ */
 adminRouter.get('/ai', async (_req, res) => {
   const cfg = await getPlatformConfig();
-  const [llm, crmLlm] = await Promise.all([resolveLlm(), resolveCrmLlm()]);
-  const { apiKey, crmApiKey, ...safe } = cfg;
+  const [llm, crmLlm, mediaReady] = await Promise.all([resolveLlm(), resolveCrmLlm(), mediaUnderstandingReady()]);
+  const { apiKey, crmApiKey, mediaApiKey, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
     crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
+    mediaHasKey: Boolean(mediaApiKey && mediaApiKey.trim()),
+    mediaReady,
     providerConnected: llm.ready,
     crmConnected: crmLlm.ready,
     providers: providersPublic(),
@@ -27,12 +30,14 @@ adminRouter.get('/ai', async (_req, res) => {
 
 adminRouter.patch('/ai', async (req, res) => {
   const cfg = await updatePlatformConfig(req.body ?? {});
-  const [llm, crmLlm] = await Promise.all([resolveLlm(), resolveCrmLlm()]);
-  const { apiKey, crmApiKey, ...safe } = cfg;
+  const [llm, crmLlm, mediaReady] = await Promise.all([resolveLlm(), resolveCrmLlm(), mediaUnderstandingReady()]);
+  const { apiKey, crmApiKey, mediaApiKey, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
     crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
+    mediaHasKey: Boolean(mediaApiKey && mediaApiKey.trim()),
+    mediaReady,
     providerConnected: llm.ready,
     crmConnected: crmLlm.ready,
   });
