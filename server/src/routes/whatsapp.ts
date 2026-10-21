@@ -5,6 +5,7 @@ import { getStatus, startWhatsApp, logoutWhatsApp, normalizePhone, sendMedia, re
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
 import { saveMedia, kindFromMime } from '../whatsapp/media.js';
+import { listTemplates } from '../whatsapp/cloud.js';
 
 /** Conexão de WhatsApp do cliente aberto (cada escritório tem a sua). */
 export const whatsappRouter = Router();
@@ -26,6 +27,17 @@ whatsappRouter.get('/cloud', async (req, res) => {
     verifyToken: cfg.cloudVerify,
     webhookUrl: `https://${host}/api/wa/webhook/${ws}`,
   });
+});
+
+// Templates aprovados da conta (para disparos pela API Oficial).
+whatsappRouter.get('/cloud/templates', async (req, res) => {
+  const cfg = await prisma.waConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.cloudToken || !cfg?.cloudWabaId) return res.json([]);
+  try {
+    res.json(await listTemplates(cfg.cloudWabaId, cfg.cloudToken));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });
 
 whatsappRouter.patch('/cloud', async (req, res) => {
