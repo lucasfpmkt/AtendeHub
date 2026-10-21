@@ -6,6 +6,19 @@ import { env } from '../env.js';
 const GRAPH = `https://graph.facebook.com/${env.graphVersion}`;
 const sha256 = (s: string) => createHash('sha256').update(s.trim().toLowerCase()).digest('hex');
 
+/* --------------------------- Cache (evita bloqueios) -------------------- */
+// Guarda respostas da Graph API por alguns minutos, por conta+período, para
+// não chamar o Meta a cada abertura de tela (principal causa de rate-limit).
+const apiCache = new Map<string, { at: number; data: unknown }>();
+const CACHE_TTL = 5 * 60_000;
+function cacheGet<T>(key: string): T | null {
+  const hit = apiCache.get(key);
+  return hit && Date.now() - hit.at < CACHE_TTL ? (hit.data as T) : null;
+}
+function cacheSet(key: string, data: unknown) {
+  apiCache.set(key, { at: Date.now(), data });
+}
+
 /* --------------------------- OAuth (login Meta) ------------------------- */
 
 const b64url = (b: Buffer | string) =>
@@ -156,6 +169,9 @@ export async function maybeFireQualifiedLead(ws: string, contactId: string, stag
 /** Resumo da conta de anúncios (gasto, resultados e campanhas) via Graph API. */
 export async function getMetaAdsSummary(adAccountId: string, token: string, preset = 'last_30d') {
   const acct = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  const ckey = `sum:${acct}:${preset}`;
+  const cached = cacheGet<Record<string, unknown>>(ckey);
+  if (cached) return cached;
   const auth = `access_token=${encodeURIComponent(token)}`;
 
   const insightsResp = await fetch(
@@ -173,7 +189,7 @@ export async function getMetaAdsSummary(adAccountId: string, token: string, pres
   const camp: any = await campResp.json().catch(() => ({}));
   const campaigns = (camp?.data ?? []).map((c: any) => ({ name: c.name, status: c.effective_status || c.status, objective: c.objective }));
 
-  return {
+  const result = {
     spend: Number(row.spend || 0),
     impressions: Number(row.impressions || 0),
     clicks: Number(row.clicks || 0),
@@ -182,4 +198,114 @@ export async function getMetaAdsSummary(adAccountId: string, token: string, pres
     leads,
     campaigns,
   };
+  cacheSet(ckey, result);
+  return result;
+}
+
+/* ---------------- Detalhamento campanhas → conjuntos → anúncios ---------- */
+
+type AdsRow = {
+  id: string;
+  name: string;
+  status?: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  cpc: number;
+  ctr: number;
+};
+const leadsFrom = (actions: { action_type: string; value: string }[] = []) =>
+  actions
+    .filter((a) => /lead|messaging_conversation_started|onsite_conversion/.test(a.action_type))
+    .reduce((s, a) => s + Number(a.value || 0), 0);
+const blank = (): Omit<AdsRow, 'id' | 'name' | 'status'> => ({ spend: 0, impressions: 0, clicks: 0, leads: 0, cpc: 0, ctr: 0 });
+
+/**
+ * Árvore campanha → conjunto → anúncio com métricas, em UMA chamada de
+ * insights (level=ad) + 3 chamadas leves só de status. Resultado em cache
+ * por 5 min para não repetir chamadas e evitar bloqueios/rate-limit.
+ */
+export async function getMetaAdsBreakdown(adAccountId: string, token: string, preset = 'last_30d') {
+  const acct = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  const ckey = `brk:${acct}:${preset}`;
+  const cached = cacheGet<unknown>(ckey);
+  if (cached) return cached;
+  const auth = `access_token=${encodeURIComponent(token)}`;
+
+  // 1) Insights no nível de anúncio — traz nomes de campanha/conjunto/anúncio
+  //    e métricas numa resposta só (paginando até um limite de segurança).
+  const fields =
+    'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,cpc,ctr,actions';
+  let url = `${GRAPH}/${acct}/insights?level=ad&fields=${fields}&date_preset=${preset}&limit=500&${auth}`;
+  const rows: any[] = [];
+  for (let page = 0; page < 10 && url; page++) {
+    const r = await fetch(url);
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error?.message || `Meta respondeu ${r.status}`);
+    rows.push(...(j?.data ?? []));
+    url = j?.paging?.next || '';
+  }
+
+  // 2) Status efetivo de cada nível (chamadas leves, cacheáveis).
+  const statusMap = async (edge: 'campaigns' | 'adsets' | 'ads') => {
+    const r = await fetch(`${GRAPH}/${acct}/${edge}?fields=id,effective_status&limit=500&${auth}`);
+    const j: any = await r.json().catch(() => ({}));
+    const m = new Map<string, string>();
+    for (const e of j?.data ?? []) m.set(e.id, e.effective_status);
+    return m;
+  };
+  const [campStatus, adsetStatus, adStatus] = await Promise.all([statusMap('campaigns'), statusMap('adsets'), statusMap('ads')]);
+
+  // 3) Agrupa em árvore somando métricas.
+  type Node = AdsRow & { children?: Map<string, Node> };
+  const campaigns = new Map<string, Node>();
+  const add = (acc: Node, r: any) => {
+    acc.spend += Number(r.spend || 0);
+    acc.impressions += Number(r.impressions || 0);
+    acc.clicks += Number(r.clicks || 0);
+    acc.leads += leadsFrom(r.actions);
+  };
+  for (const r of rows) {
+    let camp = campaigns.get(r.campaign_id);
+    if (!camp) {
+      camp = { id: r.campaign_id, name: r.campaign_name || r.campaign_id, status: campStatus.get(r.campaign_id), ...blank(), children: new Map() };
+      campaigns.set(r.campaign_id, camp);
+    }
+    add(camp, r);
+    let adset = camp.children!.get(r.adset_id);
+    if (!adset) {
+      adset = { id: r.adset_id, name: r.adset_name || r.adset_id, status: adsetStatus.get(r.adset_id), ...blank(), children: new Map() };
+      camp.children!.set(r.adset_id, adset);
+    }
+    add(adset, r);
+    let ad = adset.children!.get(r.ad_id);
+    if (!ad) {
+      ad = { id: r.ad_id, name: r.ad_name || r.ad_id, status: adStatus.get(r.ad_id), ...blank() };
+      adset.children!.set(r.ad_id, ad);
+    }
+    add(ad, r);
+  }
+
+  const finalize = (n: Node): AdsRow & { adsets?: any[]; ads?: any[] } => {
+    n.cpc = n.clicks ? n.spend / n.clicks : 0;
+    n.ctr = n.impressions ? (n.clicks / n.impressions) * 100 : 0;
+    const { children, ...flat } = n;
+    return { ...flat, ...(children ? {} : {}) } as AdsRow;
+  };
+  const tree = [...campaigns.values()]
+    .map((camp) => ({
+      ...finalize(camp),
+      adsets: [...camp.children!.values()]
+        .map((adset) => ({
+          ...finalize(adset),
+          ads: [...adset.children!.values()].map((ad) => finalize(ad)).sort((a, b) => b.spend - a.spend),
+        }))
+        .sort((a, b) => b.spend - a.spend),
+    }))
+    .sort((a, b) => b.spend - a.spend);
+
+  const result = { preset, campaigns: tree };
+  cacheSet(ckey, result);
+  return result;
 }

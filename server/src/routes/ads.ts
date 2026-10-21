@@ -4,6 +4,7 @@ import { wsOf } from '../auth.js';
 import { prisma } from '../db.js';
 import {
   getMetaAdsSummary,
+  getMetaAdsBreakdown,
   sendCapiLead,
   signOauthState,
   verifyOauthState,
@@ -148,6 +149,18 @@ adsRouter.get('/meta/summary', async (req, res) => {
   try {
     const summary = await getMetaAdsSummary(cfg.adAccountId, dec(cfg.token), String(req.query.preset || 'last_30d'));
     res.json({ configured: true, ...summary });
+  } catch (err) {
+    res.status(400).json({ configured: true, error: (err as Error).message });
+  }
+});
+
+// Detalhamento campanhas → conjuntos → anúncios (1 chamada + cache).
+adsRouter.get('/meta/breakdown', async (req, res) => {
+  const cfg = await prisma.metaConfig.findUnique({ where: { id: wsOf(req) } });
+  if (!cfg?.adAccountId || !cfg?.token) return res.json({ configured: false });
+  try {
+    const data = await getMetaAdsBreakdown(cfg.adAccountId, dec(cfg.token), String(req.query.preset || 'last_30d'));
+    res.json({ configured: true, ...data });
   } catch (err) {
     res.status(400).json({ configured: true, error: (err as Error).message });
   }
