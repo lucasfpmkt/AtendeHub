@@ -83,6 +83,23 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
     await loadFunnels();
     setActiveId(f.id);
   };
+  const renameFunnel = async (f: Funnel) => {
+    const name = prompt('Novo nome do funil:', f.name);
+    if (!name || !name.trim() || name.trim() === f.name) return;
+    await api.renameFunnel(f.id, name.trim());
+    await loadFunnels();
+  };
+  const deleteFunnel = async (f: Funnel) => {
+    if (funnels.length <= 1) {
+      alert('Mantenha ao menos um funil. Crie outro antes de apagar este.');
+      return;
+    }
+    if (!confirm(`Apagar o funil "${f.name}"? Todas as etapas e negócios dele serão apagados. Esta ação não pode ser desfeita.`)) return;
+    await api.deleteFunnel(f.id);
+    const fs = await api.funnels();
+    setFunnels(fs);
+    setActiveId((cur) => (cur === f.id || !cur ? fs[0]?.id ?? null : cur));
+  };
 
   const onDrop = async (targetStageId: string) => {
     setDropStage(null);
@@ -139,7 +156,31 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
             className={`funnel-item ${f.id === activeId ? 'active' : ''}`}
             onClick={() => setActiveId(f.id)}
           >
-            {f.name}
+            <span className="funnel-name">{f.name}</span>
+            <span className="funnel-actions">
+              <button
+                className="icon-btn"
+                title="Renomear funil"
+                aria-label="Renomear funil"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  renameFunnel(f);
+                }}
+              >
+                <Icon name="pen" size={13} />
+              </button>
+              <button
+                className="icon-btn"
+                title="Apagar funil"
+                aria-label="Apagar funil"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteFunnel(f);
+                }}
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </span>
           </div>
         ))}
         <button className="ghost" style={{ width: '100%', marginTop: 8, justifyContent: 'flex-start' }} onClick={addFunnel}>

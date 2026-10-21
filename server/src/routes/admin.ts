@@ -199,6 +199,18 @@ adminRouter.post('/users/:id/password', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Troca o e-mail (login) de um usuário do cliente.
+adminRouter.post('/users/:id/email', async (req, res) => {
+  const email = cleanEmail(req.body?.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing && existing.id !== req.params.id) return res.status(409).json({ error: 'Já existe uma conta com este e-mail.' });
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  await prisma.user.update({ where: { id: req.params.id }, data: { email } });
+  res.json({ ok: true });
+});
+
 /**
  * Exclui um cliente de vez: WhatsApp, logins e todos os dados dele.
  * Exige o nome digitado; não deixa apagar o cliente aberto nem o que
