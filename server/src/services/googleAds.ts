@@ -79,10 +79,15 @@ async function accessTokenFrom(refreshToken: string): Promise<string> {
   return data.access_token;
 }
 
-function adsHeaders(accessToken: string): Record<string, string> {
+// Developer token: usa o do cliente (salvo no formulário manual) e, se não
+// houver, cai no do servidor (variável de ambiente).
+const resolveDevToken = (perClient?: string) => (perClient?.trim() || env.googleAdsDeveloperToken || '').trim();
+const noDevTokenError = 'Developer token do Google Ads não configurado (cole no formulário ou defina no servidor).';
+
+function adsHeaders(accessToken: string, devToken: string): Record<string, string> {
   const h: Record<string, string> = {
     authorization: `Bearer ${accessToken}`,
-    'developer-token': env.googleAdsDeveloperToken,
+    'developer-token': devToken,
     'content-type': 'application/json',
   };
   if (env.googleLoginCustomerId) h['login-customer-id'] = env.googleLoginCustomerId;
@@ -90,10 +95,11 @@ function adsHeaders(accessToken: string): Record<string, string> {
 }
 
 /** Contas do Google Ads acessíveis pela conta conectada. */
-export async function listAccessibleCustomers(refreshToken: string): Promise<{ id: string; name: string }[]> {
-  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+export async function listAccessibleCustomers(refreshToken: string, developerToken?: string): Promise<{ id: string; name: string }[]> {
+  const dt = resolveDevToken(developerToken);
+  if (!dt) throw new Error(noDevTokenError);
   const access = await accessTokenFrom(refreshToken);
-  const resp = await fetch(`${api()}/customers:listAccessibleCustomers`, { headers: adsHeaders(access) });
+  const resp = await fetch(`${api()}/customers:listAccessibleCustomers`, { headers: adsHeaders(access, dt) });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.error?.message || `Google respondeu ${resp.status}`);
   const ids: string[] = (data?.resourceNames ?? []).map((r: string) => r.split('/')[1]).filter(Boolean);
@@ -104,7 +110,7 @@ export async function listAccessibleCustomers(refreshToken: string): Promise<{ i
     try {
       const r = await fetch(`${api()}/customers/${id}/googleAds:search`, {
         method: 'POST',
-        headers: adsHeaders(access),
+        headers: adsHeaders(access, dt),
         body: JSON.stringify({ query: 'SELECT customer.descriptive_name FROM customer LIMIT 1' }),
       });
       const d: any = await r.json().catch(() => ({}));
@@ -120,8 +126,9 @@ export async function listAccessibleCustomers(refreshToken: string): Promise<{ i
 const fmtId = (s: string) => s.replace(/\D/g, '');
 
 /** Resumo da conta (gasto, cliques, impressões, conversões + campanhas). */
-export async function getGoogleAdsSummary(customerId: string, refreshToken: string) {
-  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+export async function getGoogleAdsSummary(customerId: string, refreshToken: string, developerToken?: string) {
+  const dt = resolveDevToken(developerToken);
+  if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
   const access = await accessTokenFrom(refreshToken);
 
@@ -130,7 +137,7 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
     'FROM customer WHERE segments.date DURING LAST_30_DAYS';
   const mResp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
-    headers: adsHeaders(access),
+    headers: adsHeaders(access, dt),
     body: JSON.stringify({ query: metricsQuery }),
   });
   const m: any = await mResp.json().catch(() => ({}));
@@ -151,7 +158,7 @@ export async function getGoogleAdsSummary(customerId: string, refreshToken: stri
     'SELECT campaign.name, campaign.status FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY campaign.name LIMIT 50';
   const cResp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
-    headers: adsHeaders(access),
+    headers: adsHeaders(access, dt),
     body: JSON.stringify({ query: campQuery }),
   });
   const c: any = await cResp.json().catch(() => ({}));
@@ -186,8 +193,9 @@ const DATE_LITERAL: Record<string, string> = {
 };
 
 /** Árvore campanha → grupo de anúncios → anúncio com métricas (1 consulta). */
-export async function getGoogleAdsBreakdown(customerId: string, refreshToken: string, preset = 'last_30d') {
-  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+export async function getGoogleAdsBreakdown(customerId: string, refreshToken: string, preset = 'last_30d', developerToken?: string) {
+  const dt = resolveDevToken(developerToken);
+  if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
   const during = DATE_LITERAL[preset] || 'LAST_30_DAYS';
   const ck = `gbrk:${cid}:${during}`;
@@ -206,7 +214,7 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
   for (let page = 0; page < 10; page++) {
     const r = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
       method: 'POST',
-      headers: adsHeaders(access),
+      headers: adsHeaders(access, dt),
       body: JSON.stringify({ query, pageSize: 1000, ...(pageToken ? { pageToken } : {}) }),
     });
     const j: any = await r.json().catch(() => ({}));
@@ -261,13 +269,14 @@ export async function getGoogleAdsBreakdown(customerId: string, refreshToken: st
 /* ------------------- Conversões (Enhanced Conversions for Leads) ---------- */
 
 /** Ações de conversão de upload disponíveis na conta (para escolher na UI). */
-export async function listConversionActions(customerId: string, refreshToken: string): Promise<{ id: string; name: string }[]> {
-  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+export async function listConversionActions(customerId: string, refreshToken: string, developerToken?: string): Promise<{ id: string; name: string }[]> {
+  const dt = resolveDevToken(developerToken);
+  if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(customerId);
   const access = await accessTokenFrom(refreshToken);
   const resp = await fetch(`${api()}/customers/${cid}/googleAds:search`, {
     method: 'POST',
-    headers: adsHeaders(access),
+    headers: adsHeaders(access, dt),
     body: JSON.stringify({
       query:
         "SELECT conversion_action.id, conversion_action.name, conversion_action.status FROM conversion_action " +
@@ -301,8 +310,10 @@ export async function uploadLeadConversion(params: {
   conversionActionId: string;
   phone: string;
   when?: Date;
+  developerToken?: string;
 }) {
-  if (!env.googleAdsDeveloperToken) throw new Error('Developer token do Google Ads não configurado no servidor.');
+  const dt = resolveDevToken(params.developerToken);
+  if (!dt) throw new Error(noDevTokenError);
   const cid = fmtId(params.customerId);
   const access = await accessTokenFrom(params.refreshToken);
   const e164 = `+${params.phone.replace(/\D/g, '')}`;
@@ -318,7 +329,7 @@ export async function uploadLeadConversion(params: {
   };
   const resp = await fetch(`${api()}/customers/${cid}:uploadClickConversions`, {
     method: 'POST',
-    headers: adsHeaders(access),
+    headers: adsHeaders(access, dt),
     body: JSON.stringify(body),
   });
   const data: any = await resp.json().catch(() => ({}));
@@ -341,6 +352,7 @@ export async function maybeFireGoogleConversion(ws: string, contactId: string, s
       refreshToken: dec(cfg.refreshToken),
       conversionActionId: cfg.conversionActionId,
       phone: contact.phone,
+      developerToken: cfg.developerToken ? dec(cfg.developerToken) : undefined,
     });
   } catch (err) {
     console.error(`[google-conv:${ws}] falha ao enviar conversão:`, (err as Error).message);

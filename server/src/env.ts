@@ -72,6 +72,9 @@ export const env = {
   googleAdsDeveloperToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim() ?? '',
   // ID da conta gerenciadora (MCC) — enviado como login-customer-id, se houver.
   googleLoginCustomerId: (process.env.GOOGLE_LOGIN_CUSTOMER_ID ?? '').replace(/\D/g, ''),
+  // Refresh token GLOBAL da MCC: um só serve todos os clientes (só o Customer
+  // ID muda por cliente). Se vazio, usa o refresh token salvo por cliente.
+  googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN?.trim() ?? '',
   googleAdsVersion: process.env.GOOGLE_ADS_VERSION?.trim() || 'v17',
 };
 

@@ -659,6 +659,7 @@ export const api = {
       hasClientSecret: boolean;
       oauthAvailable: boolean;
       developerTokenReady: boolean;
+      globalReady: boolean;
       conversionsEnabled: boolean;
       qualifiedStageId: string;
       conversionActionId: string;

@@ -483,6 +483,41 @@ export function GoogleAds() {
         </div>
       )}
 
+      {/* MCC global no servidor: só escolher a conta do cliente */}
+      {cfg.globalReady && !connected && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <h3 className="card-title" style={{ margin: 0 }}>
+                <Icon name="grid" /> Conta do cliente
+              </h3>
+              <span className="muted small">As credenciais da sua MCC já estão no servidor — escolha só a conta de anúncios deste cliente.</span>
+            </div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {customers.length > 0 ? (
+                <select value={cfg.customerId} onChange={(e) => pickCustomer(e.target.value)} style={{ maxWidth: 360 }}>
+                  <option value="">Selecione a conta…</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.id})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={cfg.customerId}
+                  onChange={(e) => setCfg({ ...cfg, customerId: e.target.value })}
+                  onBlur={() => cfg.customerId && pickCustomer(cfg.customerId)}
+                  placeholder="Customer ID (123-456-7890)"
+                  style={{ maxWidth: 220 }}
+                />
+              )}
+              {cfg.customerName && <span className="pill ok">{cfg.customerName}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Resumo da conta */}
       <div className="kpis">
         <Kpi label="Investimento (30d)" value={sum?.configured && sum.spend != null ? BRL(sum.spend) : '—'} hint="últimos 30 dias" icon="grid" />
@@ -584,8 +619,8 @@ export function GoogleAds() {
           </div>
         </div>
 
-        {/* Modo manual (credenciais) — fallback quando não há OAuth no servidor. */}
-        {(!cfg.oauthAvailable || showAdvanced) && (
+        {/* Modo manual (credenciais) — fallback quando não há OAuth nem MCC global. */}
+        {(!cfg.oauthAvailable && !cfg.globalReady) || showAdvanced ? (
           <div className="card stack">
             <h3 className="card-title">
               <Icon name="settings" /> Credenciais do Google Ads (manual)
@@ -619,11 +654,11 @@ export function GoogleAds() {
               {msg && <span className={`small ${msg.ok ? 'ok-text' : 'late-text'}`}>{msg.text}</span>}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="row" style={{ gap: 12, marginTop: 10, alignItems: 'center' }}>
-        {cfg.oauthAvailable && (
+        {(cfg.oauthAvailable || cfg.globalReady) && (
           <button
             className="small"
             style={{ padding: 0, background: 'none', border: 0, color: 'var(--brand, #2563eb)', cursor: 'pointer' }}
