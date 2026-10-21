@@ -8,6 +8,7 @@ import { Connect } from './pages/Connect';
 import { Inbox } from './pages/Inbox';
 import { Contacts } from './pages/Contacts';
 import { Campaigns } from './pages/Campaigns';
+import { MetaAds, GoogleAds } from './pages/Ads';
 import { Pipeline } from './pages/Pipeline';
 import { Settings } from './pages/Settings';
 import { Home } from './pages/Home';
@@ -28,6 +29,8 @@ export type Tab =
   | 'pipeline'
   | 'contacts'
   | 'campaigns'
+  | 'metaads'
+  | 'googleads'
   | 'tasks'
   | 'agenda'
   | 'connect'
@@ -44,6 +47,8 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: 'pipeline', label: 'CRM', icon: 'crm' },
   { id: 'contacts', label: 'Contatos', icon: 'users' },
   { id: 'campaigns', label: 'Campanhas', icon: 'send' },
+  { id: 'metaads', label: 'Meta ADS', icon: 'share' },
+  { id: 'googleads', label: 'Google ADS', icon: 'grid' },
   { id: 'tasks', label: 'Gestão de Tarefas', icon: 'check' },
   { id: 'agenda', label: 'Agendas', icon: 'cal' },
 ];
@@ -254,6 +259,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
         {current === 'pipeline' && <Pipeline onOpenConversation={openConversation} />}
         {current === 'contacts' && <Contacts />}
         {current === 'campaigns' && <Campaigns connected={connected} />}
+        {current === 'metaads' && <MetaAds />}
+        {current === 'googleads' && <GoogleAds />}
         {current === 'tasks' && <Tasks />}
         {current === 'agenda' && <Agenda />}
         {current === 'connect' && <Connect status={waStatus} me={me} />}
