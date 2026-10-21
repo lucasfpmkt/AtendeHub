@@ -22,7 +22,7 @@ import { agentsRouter } from './routes/agents.js';
 import { workRouter } from './routes/work.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { waWebhookRouter } from './routes/waWebhook.js';
-import { adsRouter } from './routes/ads.js';
+import { adsRouter, metaOauthRouter } from './routes/ads.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +33,8 @@ app.use(express.json({ limit: '2mb' }));
 
 // Webhook PÚBLICO da API Oficial do WhatsApp (a Meta chama sem token de sessão).
 app.use('/api/wa/webhook', waWebhookRouter);
+// Retorno PÚBLICO do login com o Meta (OAuth) — redireciona sem token de sessão.
+app.use('/api/ads/meta/callback', metaOauthRouter);
 
 // Público
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

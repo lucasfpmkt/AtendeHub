@@ -13,6 +13,9 @@ export function MetaAds() {
   const [sum, setSum] = useState<Awaited<ReturnType<typeof api.adsMetaSummary>> | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loadingSum, setLoadingSum] = useState(false);
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const loadCfg = () => api.adsMeta().then(setCfg).catch(() => {});
   const loadSum = () => {
@@ -23,9 +26,27 @@ export function MetaAds() {
       .catch(() => {})
       .finally(() => setLoadingSum(false));
   };
+  const loadAccounts = () =>
+    api
+      .adsMetaAccounts()
+      .then((r) => setAccounts(r.accounts || []))
+      .catch(() => {});
   useEffect(() => {
     loadCfg();
     loadSum();
+    loadAccounts();
+    // Retorno do login com o Meta (?metaads=ok|erro|cancelado).
+    const p = new URLSearchParams(window.location.search);
+    const r = p.get('metaads');
+    if (r) {
+      setMsg(
+        r === 'ok'
+          ? { ok: true, text: 'Conta do Meta conectada! Já puxei a conta de anúncios e os dados abaixo.' }
+          : { ok: false, text: r === 'cancelado' ? 'Login cancelado.' : 'Não foi possível conectar. Tente novamente.' },
+      );
+      // Limpa a URL para não repetir a mensagem.
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   const save = async () => {
@@ -48,6 +69,33 @@ export function MetaAds() {
       setMsg({ ok: false, text: (x as Error).message });
     }
   };
+  const connectMeta = async () => {
+    setConnecting(true);
+    setMsg(null);
+    try {
+      const r = await api.adsMetaOauthUrl();
+      if (r.available && r.url) window.location.href = r.url;
+      else setMsg({ ok: false, text: 'Login com o Meta não está disponível neste servidor.' });
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setConnecting(false);
+    }
+  };
+  const disconnectMeta = async () => {
+    if (!confirm('Desconectar a conta do Meta? O resumo e o retorno de leads param até reconectar.')) return;
+    await api.adsMetaDisconnect().catch(() => {});
+    setAccounts([]);
+    setMsg({ ok: true, text: 'Conta desconectada.' });
+    loadCfg();
+    loadSum();
+  };
+  const pickAccount = async (id: string) => {
+    const acc = accounts.find((a) => a.id === id);
+    await api.adsMetaSave({ adAccountId: id, adAccountName: acc?.name || '' }).catch(() => {});
+    setCfg((c) => (c ? { ...c, adAccountId: id, adAccountName: acc?.name || '' } : c));
+    loadSum();
+  };
   const testCapi = async () => {
     setMsg(null);
     try {
@@ -60,6 +108,8 @@ export function MetaAds() {
 
   if (!cfg) return <div className="page muted">Carregando…</div>;
 
+  const connected = cfg.connectedVia === 'oauth';
+
   return (
     <div className="page">
       <div className="page-head">
@@ -68,6 +118,59 @@ export function MetaAds() {
           <p className="sub">Resumo da conta de anúncios e retorno de leads qualificados para a Meta.</p>
         </div>
       </div>
+
+      {/* Login direto com o Meta (OAuth) */}
+      {cfg.oauthAvailable && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          {connected ? (
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div className="row" style={{ gap: 10 }}>
+                <span className="pill ok">
+                  <Icon name="share" size={14} /> Conectado
+                </span>
+                <div>
+                  <b>{cfg.connectedName || 'Conta do Meta'}</b>
+                  <div className="muted small">
+                    {cfg.adAccountName ? `Conta: ${cfg.adAccountName}` : cfg.adAccountId || 'Escolha a conta de anúncios'}
+                  </div>
+                </div>
+              </div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {accounts.length > 1 && (
+                  <select value={cfg.adAccountId} onChange={(e) => pickAccount(e.target.value)} style={{ maxWidth: 260 }}>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button onClick={connectMeta} disabled={connecting}>
+                  Reconectar
+                </button>
+                <button className="danger-text" onClick={disconnectMeta}>
+                  Desconectar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <h3 className="card-title" style={{ margin: 0 }}>
+                  <Icon name="share" /> Conectar com o Meta
+                </h3>
+                <span className="muted small">
+                  Faça login com a conta do Facebook/Meta do cliente e o LawHub puxa a conta de anúncios e os dados automaticamente —
+                  sem colar token.
+                </span>
+              </div>
+              <button className="primary" onClick={connectMeta} disabled={connecting}>
+                <Icon name="share" size={16} /> {connecting ? 'Abrindo…' : 'Entrar com o Meta'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Resumo da conta */}
       <div className="kpis">
@@ -122,20 +225,34 @@ export function MetaAds() {
           <h3 className="card-title">
             <Icon name="settings" /> Conexão e retorno de leads
           </h3>
-          <div className="field-sm">
-            <span>ID da conta de anúncios (act_…)</span>
-            <input value={cfg.adAccountId} onChange={(e) => setCfg({ ...cfg, adAccountId: e.target.value })} placeholder="act_123456789" />
-          </div>
-          <div className="field-sm">
-            <span>Token (System User, com ads_read e CAPI)</span>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder={cfg.hasToken ? '•••••••• (salvo — deixe em branco para manter)' : 'cole o token'}
-              autoComplete="off"
-            />
-          </div>
+
+          {(!cfg.oauthAvailable || showAdvanced) && (
+            <>
+              <div className="field-sm">
+                <span>ID da conta de anúncios (act_…)</span>
+                <input value={cfg.adAccountId} onChange={(e) => setCfg({ ...cfg, adAccountId: e.target.value })} placeholder="act_123456789" />
+              </div>
+              <div className="field-sm">
+                <span>Token (System User, com ads_read e CAPI)</span>
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder={cfg.hasToken ? '•••••••• (salvo — deixe em branco para manter)' : 'cole o token'}
+                  autoComplete="off"
+                />
+              </div>
+            </>
+          )}
+          {cfg.oauthAvailable && (
+            <button
+              className="small"
+              style={{ alignSelf: 'flex-start', padding: 0, background: 'none', border: 0, color: 'var(--brand, #2563eb)', cursor: 'pointer' }}
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              {showAdvanced ? '− Ocultar modo manual (token)' : '+ Modo manual (colar token)'}
+            </button>
+          )}
 
           <hr style={{ border: 0, borderTop: '1px solid var(--g-200)', margin: '4px 0' }} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
