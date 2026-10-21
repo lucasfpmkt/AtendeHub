@@ -266,10 +266,11 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
 
       {stageModalOpen && (
         <StageModal
+          tags={tags}
           onClose={() => setStageModalOpen(false)}
-          onSave={async ({ name, color, followupMinutes, followupMessage }) => {
+          onSave={async ({ name, color, followupMinutes, followupMessage, autoTag }) => {
             const s = await api.addStage(activeId!, name, color);
-            if (followupMinutes > 0) await api.updateStage(s.id, { followupMinutes, followupMessage });
+            if (followupMinutes > 0 || autoTag) await api.updateStage(s.id, { followupMinutes, followupMessage, autoTag });
             setStageModalOpen(false);
             refresh();
           }}
@@ -278,6 +279,7 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
       {editStage && (
         <StageModal
           stage={editStage}
+          tags={tags}
           onClose={() => setEditStage(null)}
           onSave={async (data) => {
             await api.updateStage(editStage.id, data);
@@ -564,12 +566,14 @@ function DealModal({
 
 function StageModal({
   stage,
+  tags,
   onClose,
   onSave,
 }: {
   stage?: Stage | null;
+  tags: Tag[];
   onClose: () => void;
-  onSave: (data: { name: string; color: string; followupMinutes: number; followupMessage: string }) => void;
+  onSave: (data: { name: string; color: string; followupMinutes: number; followupMessage: string; autoTag: string }) => void;
 }) {
   const editing = Boolean(stage);
   const [name, setName] = useState(stage?.name ?? '');
@@ -577,6 +581,7 @@ function StageModal({
   const [fupOn, setFupOn] = useState((stage?.followupMinutes ?? 0) > 0);
   const [fupMin, setFupMin] = useState(String(stage?.followupMinutes || 60));
   const [fupMsg, setFupMsg] = useState(stage?.followupMessage ?? '');
+  const [autoTag, setAutoTag] = useState(stage?.autoTag ?? '');
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -638,6 +643,19 @@ function StageModal({
           </>
         )}
 
+        <div className="field">
+          <label>Etiqueta automática ao entrar nesta etapa</label>
+          <select value={autoTag} onChange={(e) => setAutoTag(e.target.value)}>
+            <option value="">Nenhuma</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <span className="muted small">A IA aplica essa etiqueta ao lead assim que ele chega aqui (ex.: "Qualificado").</span>
+        </div>
+
         <div className="modal-actions">
           <button className="ghost" onClick={onClose}>
             Cancelar
@@ -647,7 +665,7 @@ function StageModal({
             onClick={() => {
               if (!name.trim()) return;
               const minutes = fupOn ? Math.max(1, Number(fupMin) || 0) : 0;
-              onSave({ name: name.trim(), color, followupMinutes: minutes, followupMessage: fupOn ? fupMsg : '' });
+              onSave({ name: name.trim(), color, followupMinutes: minutes, followupMessage: fupOn ? fupMsg : '', autoTag });
             }}
           >
             {editing ? 'Salvar etapa' : 'Criar etapa'}

@@ -180,6 +180,7 @@ export interface Stage {
   order: number;
   followupMinutes: number;
   followupMessage: string;
+  autoTag: string;
   deals: Deal[];
 }
 
@@ -389,7 +390,7 @@ export const api = {
     }),
   updateStage: (
     id: string,
-    data: { name?: string; color?: string; order?: number; followupMinutes?: number; followupMessage?: string },
+    data: { name?: string; color?: string; order?: number; followupMinutes?: number; followupMessage?: string; autoTag?: string },
   ) => req<Stage>(`/stages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteStage: (id: string) => req(`/stages/${id}`, { method: 'DELETE' }),
 
@@ -404,6 +405,9 @@ export const api = {
   tags: () => req<Tag[]>('/tags'),
   addTag: (name: string, color: string) =>
     req<Tag>('/tags', { method: 'POST', body: JSON.stringify({ name, color }) }),
+  updateTag: (id: string, data: { name?: string; color?: string }) =>
+    req<Tag>(`/tags/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTag: (id: string) => req(`/tags/${id}`, { method: 'DELETE' }),
 
   // Agentes
   agents: () => req<{ agents: Agent[]; providerConnected: boolean }>('/agents'),

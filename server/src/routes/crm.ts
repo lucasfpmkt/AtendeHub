@@ -277,7 +277,7 @@ crmRouter.post('/funnels/:id/stages', async (req, res) => {
 
 crmRouter.patch('/stages/:id', async (req, res) => {
   if (!(await prisma.pipelineStage.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } }))) return notFound(res);
-  const { name, color, order, followupMinutes, followupMessage } = req.body ?? {};
+  const { name, color, order, followupMinutes, followupMessage, autoTag } = req.body ?? {};
   res.json(
     await prisma.pipelineStage.update({
       where: { id: req.params.id },
@@ -287,6 +287,7 @@ crmRouter.patch('/stages/:id', async (req, res) => {
         order,
         followupMinutes: followupMinutes === undefined ? undefined : Math.max(0, Number(followupMinutes) || 0),
         followupMessage: followupMessage === undefined ? undefined : String(followupMessage),
+        autoTag: autoTag === undefined ? undefined : String(autoTag),
       },
     }),
   );

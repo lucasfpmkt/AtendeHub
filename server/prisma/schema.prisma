@@ -197,6 +197,7 @@ model PipelineStage {
   deals    Deal[]
   followupMinutes Int    @default(0) // 0 = sem follow-up automático
   followupMessage String @default("") // mensagem enviada ao ficar parado nesta etapa
+  autoTag         String @default("") // etiqueta aplicada automaticamente ao lead ao entrar nesta etapa
 }
 
 /// Uma oportunidade/negócio ligada a um contato e a uma etapa de um funil.
