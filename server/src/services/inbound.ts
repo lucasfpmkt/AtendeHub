@@ -548,6 +548,8 @@ async function applyStage(ws: string, conversationId: string, stageName: string)
     });
   }
   emit(ws, { type: 'crm:update' });
+  // Etiqueta automática da etapa (ex.: "Qualificado") — com a cor definida no catálogo.
+  if (target.autoTag?.trim()) await applyTag(ws, conversationId, target.autoTag.trim());
   // Lead qualificado → devolve o evento ao Meta Ads (se configurado).
   void maybeFireQualifiedLead(ws, conv.contactId, target.id).catch(() => {});
   await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
