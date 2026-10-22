@@ -13,7 +13,7 @@ import { reclassifyAllStages } from '../services/inbound.js';
 export const adminRouter = Router();
 
 /* ------------------------ IA global da plataforma ------------------------ */
-adminRouter.get('/ai', async (_req, res) => {
+adminRouter.get('/ai', requireMaster, async (_req, res) => {
   const cfg = await getPlatformConfig();
   const [llm, crmLlm, mediaReady, gadsReady, gadsOauthReady] = await Promise.all([
     resolveLlm(),
@@ -40,7 +40,7 @@ adminRouter.get('/ai', async (_req, res) => {
   });
 });
 
-adminRouter.patch('/ai', async (req, res) => {
+adminRouter.patch('/ai', requireMaster, async (req, res) => {
   const cfg = await updatePlatformConfig(req.body ?? {});
   const [llm, crmLlm, mediaReady, gadsReady, gadsOauthReady] = await Promise.all([
     resolveLlm(),
@@ -66,7 +66,7 @@ adminRouter.patch('/ai', async (req, res) => {
   });
 });
 
-adminRouter.post('/ai/test', async (req, res) => {
+adminRouter.post('/ai/test', requireMaster, async (req, res) => {
   try {
     const llm = req.query.which === 'crm' ? await resolveCrmLlm() : await resolveLlm();
     if (!llm.ready) return res.status(400).json({ ok: false, error: 'Nenhum provedor conectado. Salve a chave primeiro.' });
@@ -185,7 +185,7 @@ adminRouter.get('/workspaces', async (req, res) => {
 });
 
 /** Cria um cliente já com o login dele. */
-adminRouter.post('/workspaces', async (req, res) => {
+adminRouter.post('/workspaces', requireMaster, async (req, res) => {
   const name = String(req.body?.name ?? '').trim();
   const userName = String(req.body?.userName ?? '').trim() || name;
   const email = cleanEmail(req.body?.email);
@@ -204,8 +204,11 @@ adminRouter.post('/workspaces', async (req, res) => {
   res.json(ws);
 });
 
-adminRouter.patch('/workspaces/:id', async (req, res) => {
+adminRouter.patch('/workspaces/:id', requireMaster, async (req, res) => {
   const { name, plan, expiresAt, active } = req.body ?? {};
+  if (!(await prisma.workspace.findUnique({ where: { id: req.params.id }, select: { id: true } }))) {
+    return res.status(404).json({ error: 'cliente não encontrado' });
+  }
   const ws = await prisma.workspace.update({
     where: { id: req.params.id },
     data: {
@@ -220,15 +223,18 @@ adminRouter.patch('/workspaces/:id', async (req, res) => {
 });
 
 /** Define uma nova senha para um usuário (ex.: cliente esqueceu). */
-adminRouter.post('/users/:id/password', async (req, res) => {
+adminRouter.post('/users/:id/password', requireMaster, async (req, res) => {
   const password = String(req.body?.password ?? '');
   if (password.length < 8) return res.status(400).json({ error: 'A senha precisa ter pelo menos 8 caracteres.' });
+  if (!(await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true } }))) {
+    return res.status(404).json({ error: 'Usuário não encontrado.' });
+  }
   await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash: hashPassword(password) } });
   res.json({ ok: true });
 });
 
 // Troca o e-mail (login) de um usuário do cliente.
-adminRouter.post('/users/:id/email', async (req, res) => {
+adminRouter.post('/users/:id/email', requireMaster, async (req, res) => {
   const email = cleanEmail(req.body?.email);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido.' });
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -244,7 +250,7 @@ adminRouter.post('/users/:id/email', async (req, res) => {
  * Exige o nome digitado; não deixa apagar o cliente aberto nem o que
  * contém uma conta de administrador.
  */
-adminRouter.delete('/workspaces/:id', async (req, res) => {
+adminRouter.delete('/workspaces/:id', requireMaster, async (req, res) => {
   const ws = await prisma.workspace.findUnique({ where: { id: req.params.id }, include: { users: true } });
   if (!ws) return res.status(404).json({ error: 'cliente não encontrado' });
   if (String(req.body?.confirmName ?? '').trim() !== ws.name) {

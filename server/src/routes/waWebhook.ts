@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
+import { dec } from '../crypto.js';
 import { handleInboundMessage, type InboundMedia } from '../services/inbound.js';
 import { sendText } from '../whatsapp/session.js';
 import { downloadCloudMedia, markReadCloud } from '../whatsapp/cloud.js';
@@ -34,13 +35,16 @@ waWebhookRouter.post('/:ws', async (req, res) => {
     const ws = req.params.ws;
     const cfg = await prisma.waConfig.findUnique({ where: { id: ws } });
     if (!cfg || cfg.channel !== 'cloud') return;
+    // O token é salvo criptografado: sem dec() a Meta recusava (401) mídia e "lido".
+    const token = dec(cfg.cloudToken);
 
     for (const entry of req.body?.entry ?? []) {
       for (const change of entry?.changes ?? []) {
         const value = change?.value;
         // Anti-spoofing: só aceita eventos do número configurado para este cliente.
         const incomingPhoneId = value?.metadata?.phone_number_id;
-        if (cfg.cloudPhoneId && incomingPhoneId && incomingPhoneId !== cfg.cloudPhoneId) continue;
+        // Falha fechada: evento sem phone_number_id (ou de outro número) é descartado.
+        if (!cfg.cloudPhoneId || incomingPhoneId !== cfg.cloudPhoneId) continue;
         const contactName = value?.contacts?.[0]?.profile?.name as string | undefined;
         for (const msg of value?.messages ?? []) {
           if (msg.type === 'reaction' || msg.type === 'system') continue;
@@ -56,7 +60,7 @@ waWebhookRouter.post('/:ws', async (req, res) => {
             const node = msg[msg.type];
             body = node?.caption ?? '';
             try {
-              const { buffer, mimetype } = await downloadCloudMedia(cfg.cloudToken, node.id);
+              const { buffer, mimetype } = await downloadCloudMedia(token, node.id);
               media = { kind: MEDIA_KINDS[msg.type], mimetype, filename: node?.filename, buffer };
             } catch (err) {
               console.error(`[cloud:${ws}] falha ao baixar mídia:`, (err as Error).message);
@@ -65,7 +69,7 @@ waWebhookRouter.post('/:ws', async (req, res) => {
             continue; // tipos não suportados (location, contacts, etc.)
           }
 
-          await markReadCloud(cfg.cloudPhoneId, cfg.cloudToken, msg.id);
+          await markReadCloud(cfg.cloudPhoneId, token, msg.id);
           await handleInboundMessage({
             workspaceId: ws,
             waJid,

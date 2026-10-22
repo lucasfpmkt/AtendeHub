@@ -3,6 +3,8 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  generateMessageIDV2,
+  S_WHATSAPP_NET,
   type WASocket,
 } from '@whiskeysockets/baileys';
 import { kindLabel, type MediaKind } from './media.js';
@@ -39,7 +41,36 @@ type Session = {
   /** Conexão por código: número informado e código de 8 caracteres gerado. */
   pairPhone?: string;
   pairCode?: string | null;
+  /** Tentativas seguidas de reconexão (para o backoff). */
+  retries?: number;
+  /** Timer do watchdog que confere se a conexão está viva de verdade. */
+  watchdog?: NodeJS.Timeout | null;
 };
+
+/**
+ * Ids de mensagens que o PRÓPRIO LawHub enviou. O Baileys emite o "eco" da
+ * mensagem enviada antes do sendMessage retornar; sem isso o eco era tratado
+ * como "operador digitou no celular" e a IA se desligava sozinha.
+ */
+const selfSent = new Map<string, number>();
+function markSelfSent(id: string) {
+  const now = Date.now();
+  selfSent.set(id, now);
+  for (const [k, t] of selfSent) if (now - t > 10 * 60_000) selfSent.delete(k);
+}
+
+/** Ping na conexão do WhatsApp com tempo-limite: detecta socket "zumbi". */
+async function pingSocket(sock: WASocket, timeoutMs = 20_000): Promise<boolean> {
+  try {
+    await Promise.race([
+      sock.query({ tag: 'iq', attrs: { to: S_WHATSAPP_NET, type: 'get', xmlns: 'w:p' }, content: [{ tag: 'ping', attrs: {} }] }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('ping timeout')), timeoutMs)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
 const sessions = new Map<string, Session>();
 
 // Clientes que usam a API Oficial (Cloud API) em vez do QR/Baileys.
@@ -202,7 +233,44 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         s.qr = null;
         s.pairPhone = undefined;
         s.pairCode = null;
+        s.retries = 0;
         setStatus(ws, 'connected');
+
+        // Watchdog: a cada minuto confere se a conexão responde. O status pode ficar
+        // "conectado" com o socket morto (sem evento 'close'); 2 falhas seguidas → reconecta.
+        if (s.watchdog) clearInterval(s.watchdog);
+        let fails = 0;
+        s.watchdog = setInterval(async () => {
+          if (s.sock !== sock || s.status !== 'connected') {
+            if (s.watchdog) clearInterval(s.watchdog);
+            s.watchdog = null;
+            return;
+          }
+          if (await pingSocket(sock)) {
+            fails = 0;
+            return;
+          }
+          fails += 1;
+          console.warn(`[wa:${ws}] watchdog: conexão sem resposta (${fails}/2)`);
+          if (fails < 2) return;
+          if (s.watchdog) clearInterval(s.watchdog);
+          s.watchdog = null;
+          console.warn(`[wa:${ws}] watchdog: reconectando o WhatsApp`);
+          try {
+            sock.end(new Error('watchdog: conexão sem resposta'));
+          } catch {
+            /* ignore */
+          }
+          // Se o 'close' não disparar, força a reconexão.
+          setTimeout(() => {
+            if (s.sock === sock) {
+              s.sock = null;
+              s.starting = false;
+              setStatus(ws, 'disconnected');
+              void startWhatsApp(ws);
+            }
+          }, 3000);
+        }, 60_000);
       }
 
       if (connection === 'close') {
@@ -213,12 +281,21 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         s.starting = false;
         s.pairCode = null;
         setStatus(ws, 'disconnected');
+        if (s.watchdog) clearInterval(s.watchdog);
+        s.watchdog = null;
         if (loggedOut) {
           // Credenciais inválidas (aparelho desvinculado): apaga para o próximo
           // "Gerar QR" mostrar um QR novo em vez de tentar retomar a sessão morta.
           await rm(await authDirOf(ws), { recursive: true, force: true }).catch(() => {});
+        } else if (code === DisconnectReason.connectionReplaced) {
+          // Outra sessão assumiu este número: reconectar só gera um "cabo de guerra"
+          // (risco de bloqueio). Fica desconectado até alguém reconectar.
+          console.warn(`[wa:${ws}] sessão substituída por outro aparelho/servidor; não vou reconectar sozinho.`);
         } else {
-          setTimeout(() => void startWhatsApp(ws), 2000); // queda de rede etc.
+          // Queda de rede etc.: reconecta com espera crescente (2s, 4s, 8s… até 60s).
+          s.retries = (s.retries ?? 0) + 1;
+          const delay = Math.min(60_000, 2000 * 2 ** Math.min(s.retries - 1, 5));
+          setTimeout(() => void startWhatsApp(ws), delay);
         }
       }
     });
@@ -339,6 +416,8 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         if (!parsed) continue;
 
         if (m.key.fromMe) {
+          // Eco de uma mensagem que o próprio LawHub enviou: já está gravada.
+          if (m.key.id && selfSent.has(m.key.id)) continue;
           // Mensagem enviada pelo próprio número (celular do operador ou o próprio LawHub).
           // Processa em qualquer tipo (notify/append): o envio pelo celular pode vir como 'append'.
           await recordOutgoingMessage({
@@ -392,8 +471,10 @@ export async function sendText(ws: string, jid: string, text: string): Promise<s
   if (cloud) return sendTextCloud(cloud.phoneId, cloud.token, jid, text);
   const s = sessionOf(ws);
   if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
-  const sent = await s.sock.sendMessage(jid, { text });
-  return sent?.key?.id ?? undefined;
+  const messageId = generateMessageIDV2(s.sock.user?.id);
+  markSelfSent(messageId);
+  const sent = await s.sock.sendMessage(jid, { text }, { messageId });
+  return sent?.key?.id ?? messageId;
 }
 
 /** Envia um arquivo (imagem/vídeo/áudio/documento) pelo WhatsApp do cliente. */
@@ -412,8 +493,10 @@ export async function sendMedia(
   else if (opts.kind === 'video') content = { video: opts.buffer, mimetype: opts.mimetype, caption };
   else if (opts.kind === 'audio') content = { audio: opts.buffer, mimetype: opts.mimetype, ptt: true };
   else content = { document: opts.buffer, mimetype: opts.mimetype, fileName: opts.filename || 'arquivo', caption };
-  const sent = await s.sock.sendMessage(jid, content);
-  return sent?.key?.id ?? undefined;
+  const messageId = generateMessageIDV2(s.sock.user?.id);
+  markSelfSent(messageId);
+  const sent = await s.sock.sendMessage(jid, content, { messageId });
+  return sent?.key?.id ?? messageId;
 }
 
 /** Encerra a sessão do cliente e apaga as credenciais (força novo QR). */
