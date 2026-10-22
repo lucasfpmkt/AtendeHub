@@ -90,6 +90,7 @@ model Agent {
   description  String   @default("") // tema do agente, usado pela triagem
   script       String   @default("") // o "diretório" / roteiro
   triggers     String   @default("") // palavras-gatilho (CSV)
+  funnelId     String?  // funil deste agente: "Mudar etapa: X" do roteiro vai pro X deste funil
   regras       String   @default("") // regras gerais de comportamento (tom, o que nunca dizer…)
   faq          String   @default("[]") // JSON: { q, a }[] — dúvidas fora do roteiro
   signatureOn  Boolean  @default(false)

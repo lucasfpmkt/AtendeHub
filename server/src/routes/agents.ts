@@ -14,6 +14,7 @@ function toData(body: Record<string, unknown>) {
   }
   for (const k of ['active', 'signatureOn'] as const) if (typeof body[k] === 'boolean') d[k] = body[k];
   if (body.type !== undefined) d.type = body.type === 'triage' ? 'triage' : 'theme';
+  if (body.funnelId !== undefined) d.funnelId = body.funnelId ? String(body.funnelId) : null;
   if (body.delaySeconds !== undefined) d.delaySeconds = Math.max(1, Math.min(300, Number(body.delaySeconds) || 15));
   if (body.order !== undefined) d.order = Number(body.order) || 0;
   if (Array.isArray(body.faq)) {
@@ -29,7 +30,7 @@ function toData(body: Record<string, unknown>) {
 const LABELS: Record<string, string> = {
   name: 'nome', description: 'descrição', script: 'roteiro', triggers: 'gatilhos', regras: 'regras',
   faq: 'FAQ', signature: 'assinatura', signatureOn: 'assinatura', active: 'status', type: 'tipo',
-  delaySeconds: 'delay', order: 'ordem',
+  delaySeconds: 'delay', order: 'ordem', funnelId: 'funil',
 };
 
 function describeChanges(before: Record<string, unknown>, data: Record<string, unknown>) {

@@ -294,21 +294,21 @@ export async function autoMoveStage(ws: string, conversationId: string, force = 
       // Se já existe algo parecido, usa a existente em vez de duplicar.
       const existing = stages.find((s) => normalize(s.name) === normalize(name));
       if (existing) {
-        if (existing.name !== currentStage) await applyStage(ws, conversationId, existing.name);
+        if (existing.name !== currentStage) await applyStage(ws, conversationId, existing.name, funnel.id);
         return;
       }
       await prisma.pipelineStage.create({
         data: { workspaceId: ws, name, funnelId: funnel.id, order: stages.length, color: '#6366f1' },
       });
       emit(ws, { type: 'crm:update' });
-      await applyStage(ws, conversationId, name);
+      await applyStage(ws, conversationId, name, funnel.id);
       return;
     }
 
     const target =
       stages.find((s) => normalize(s.name) === normalize(out)) ?? stages.find((s) => normalize(out).includes(normalize(s.name)));
     if (!target || target.name === currentStage) return;
-    await applyStage(ws, conversationId, target.name);
+    await applyStage(ws, conversationId, target.name, funnel.id);
   } catch (err) {
     console.error('[auto-stage] falhou:', (err as Error).message);
   }
@@ -488,7 +488,7 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
 
     // Ações de CRM pedidas pelo roteiro (podem vir junto com a mensagem).
     for (const act of actions) {
-      if (act.type === 'stage') await applyStage(ws, conversationId, act.name);
+      if (act.type === 'stage') await applyStage(ws, conversationId, act.name, agent.funnelId);
       else if (act.type === 'tag') await applyTag(ws, conversationId, act.name);
       else if (act.type === 'notify') await applyNotify(ws, conversationId, act.reason);
     }
@@ -561,8 +561,9 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
 /* -------------------------------------------------------------------------- */
 
 /** Move o lead para uma etapa do funil (move o negócio existente ou cria um).
- *  Aceita "Funil › Etapa" (desambigua o funil) ou apenas "Etapa". */
-async function applyStage(ws: string, conversationId: string, stageRef: string) {
+ *  Aceita "Funil › Etapa" (desambigua o funil) ou apenas "Etapa". Se vier só a
+ *  etapa, usa o funil do agente (preferFunnelId) para resolver a ambiguidade. */
+async function applyStage(ws: string, conversationId: string, stageRef: string, preferFunnelId?: string | null) {
   const conv = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: { contactId: true },
@@ -575,8 +576,10 @@ async function applyStage(ws: string, conversationId: string, stageRef: string) 
   const funnelName = parts.length > 1 ? parts[0] : '';
 
   const all = await prisma.pipelineStage.findMany({ where: { workspaceId: ws }, include: { funnel: true } });
-  const stages = funnelName ? all.filter((s) => s.funnel && normalize(s.funnel.name) === normalize(funnelName)) : all;
-  const pool = stages.length ? stages : all; // se o funil não bater, procura em todos
+  // Prioridade do funil: o explícito no texto → o funil do agente → todos.
+  let scoped = funnelName ? all.filter((s) => s.funnel && normalize(s.funnel.name) === normalize(funnelName)) : [];
+  if (!scoped.length && preferFunnelId) scoped = all.filter((s) => s.funnelId === preferFunnelId);
+  const pool = scoped.length ? scoped : all;
   const target =
     pool.find((s) => normalize(s.name) === normalize(stageName)) ??
     pool.find((s) => normalize(s.name).includes(normalize(stageName)));

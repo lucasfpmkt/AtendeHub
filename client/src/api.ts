@@ -218,6 +218,7 @@ export interface Agent {
   description: string;
   script: string;
   triggers: string;
+  funnelId?: string | null;
   regras: string;
   faq: FaqItem[];
   signatureOn: boolean;
