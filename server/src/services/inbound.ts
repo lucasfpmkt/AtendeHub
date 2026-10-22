@@ -359,6 +359,12 @@ export async function handleInboundMessage(params: {
   const { workspaceId: ws, waJid, pushName, body, waMessageId, media, sendText } = params;
   if (!body?.trim() && !media) return;
 
+  // Mesma mensagem entregue duas vezes (reenvio do webhook / reconexão): ignora.
+  if (waMessageId) {
+    const already = await prisma.message.findFirst({ where: { waMessageId, conversation: { workspaceId: ws } }, select: { id: true } });
+    if (already) return;
+  }
+
   // Entende áudio/imagem com o Gemini e usa o texto resultante em tudo
   // (triagem, resposta da IA, CRM). Se não houver chave de mídia, fica vazio.
   let text = body ?? '';
@@ -484,6 +490,12 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
 
     const llm = await resolveLlm(ws);
     const { text, actions } = llm.ready ? await runAgent(agent, history, llm) : offlineReply(agent, history);
+
+    // A resposta da IA leva alguns segundos: se nesse meio-tempo um humano assumiu
+    // (ou a IA foi desligada), descarta a resposta em vez de falar por cima.
+    const fresh = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { aiEnabled: true } });
+    if (!fresh?.aiEnabled) return;
+
     if (text) await deliver(ws, conversationId, text, sendText);
 
     // Ações de CRM pedidas pelo roteiro (podem vir junto com a mensagem).
