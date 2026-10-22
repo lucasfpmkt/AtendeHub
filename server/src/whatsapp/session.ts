@@ -430,8 +430,11 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
           continue;
         }
 
-        // Mensagens de ENTRADA: só as novas (notify). Ignora sincronização de histórico (append).
-        if (type !== 'notify') continue;
+        // Mensagens de ENTRADA: 'notify' (ao vivo) E 'append' — o Baileys marca como 'append'
+        // as mensagens que chegaram enquanto o LawHub estava fora do ar (restart/deploy/queda).
+        // Antes eram descartadas e se perdiam. O histórico antigo NÃO vem por aqui (vem pelo
+        // messaging-history.set) e mensagens repetidas são ignoradas pelo waMessageId.
+        void type;
 
         await handleInboundMessage({
           workspaceId: ws,
