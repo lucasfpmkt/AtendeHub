@@ -79,15 +79,41 @@ crmRouter.delete('/contacts/:id/erase', async (req, res) => {
 /* --------------------------- Conversas ------------------------------ */
 
 crmRouter.get('/conversations', async (req, res) => {
+  const ws = wsOf(req);
+  // Sem `include: { messages: { where: { author: { not: 'system' } } } }`: com muitas
+  // conversas (>~1000) o SQLite estoura o limite de parâmetros e o filtro negativo
+  // impede o Prisma de dividir a consulta (erro P2029 → lista vazia na tela).
   const conversations = await prisma.conversation.findMany({
-    where: { workspaceId: wsOf(req) },
+    where: { workspaceId: ws },
     orderBy: { lastMessageAt: 'desc' },
-    include: {
-      contact: true,
-      messages: { where: { author: { not: 'system' } }, orderBy: { createdAt: 'desc' }, take: 1 },
-    },
+    include: { contact: true },
   });
-  res.json(conversations);
+
+  // Última mensagem (não-sistema) de cada conversa numa única consulta (1 parâmetro).
+  const lastIds = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM (
+      SELECT m.id AS id,
+             ROW_NUMBER() OVER (PARTITION BY m.conversationId ORDER BY m.createdAt DESC) AS rn
+      FROM "Message" m
+      JOIN "Conversation" c ON c.id = m.conversationId
+      WHERE c.workspaceId = ${ws} AND m.author <> 'system'
+    ) t
+    WHERE rn = 1`;
+
+  // Busca as mensagens em lotes (cada lote bem abaixo do limite do SQLite).
+  const ids = lastIds.map((r) => r.id);
+  const lastByConv = new Map<string, unknown>();
+  for (let i = 0; i < ids.length; i += 500) {
+    const batch = await prisma.message.findMany({ where: { id: { in: ids.slice(i, i + 500) } } });
+    for (const m of batch) lastByConv.set(m.conversationId, m);
+  }
+
+  res.json(
+    conversations.map((c) => {
+      const last = lastByConv.get(c.id);
+      return { ...c, messages: last ? [last] : [] };
+    }),
+  );
 });
 
 /* -------------------- Mensagens agendadas (lembretes) -------------------- */

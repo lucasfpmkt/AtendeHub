@@ -179,8 +179,10 @@ workRouter.get('/dashboard', async (req, res) => {
   let avgFirstResponseMin: number | null = null;
   const convIds = periodConvs.map((c) => c.id);
   if (convIds.length) {
+    // Filtro pela relação (subconsulta) em vez de `in: convIds`: com muitas conversas
+    // a lista de ids + filtro negativo estoura o limite de parâmetros do SQLite (P2029).
     const msgs = await prisma.message.findMany({
-      where: { conversationId: { in: convIds }, author: { not: 'system' } },
+      where: { conversation: { workspaceId: ws, createdAt: { gte: since } }, author: { not: 'system' } },
       select: { conversationId: true, direction: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
