@@ -42,7 +42,10 @@ export async function audienceLabel(ws: string, audience: Audience): Promise<str
 }
 
 /** Cria a campanha e dispara em segundo plano com throttle (evita bloqueio). */
+const runningCampaigns = new Set<string>(); // um disparo por vez por número (evita dobrar o ritmo)
+
 export async function startCampaign(ws: string, body: string, audience: Audience, template?: CampaignTemplate) {
+  if (runningCampaigns.has(ws)) throw new Error('Já existe uma campanha em andamento neste número. Aguarde ela terminar.');
   const workspace = await prisma.workspace.findUnique({ where: { id: ws }, select: { active: true, expiresAt: true } });
   const today = new Date().toISOString().slice(0, 10);
   if (!workspace?.active || (workspace.expiresAt && workspace.expiresAt < today)) {
@@ -51,6 +54,7 @@ export async function startCampaign(ws: string, body: string, audience: Audience
   const targets = await resolveTargets(ws, audience);
   const label = await audienceLabel(ws, audience);
   const cloud = template ? cloudOf(ws) : undefined; // template exige a API Oficial
+  if (template && !cloud) throw new Error('Templates só funcionam com a API Oficial (Meta) conectada.');
   const campaign = await prisma.campaign.create({
     data: {
       workspaceId: ws,
@@ -62,8 +66,10 @@ export async function startCampaign(ws: string, body: string, audience: Audience
     },
   });
 
+  runningCampaigns.add(ws);
   void (async () => {
     let sent = 0;
+    try {
     for (const t of targets) {
       if (getStatus(ws).status !== 'connected') break; // parou: WhatsApp caiu
       try {
@@ -95,6 +101,12 @@ export async function startCampaign(ws: string, body: string, audience: Audience
       data: { sent, status: getStatus(ws).status === 'connected' ? 'done' : 'error' },
     });
     emit(ws, { type: 'conversation:update', conversation: { id: 'campaign-done' } });
+    } catch (err) {
+      console.error('[campanha] erro no disparo:', (err as Error).message);
+      await prisma.campaign.update({ where: { id: campaign.id }, data: { sent, status: 'error' } }).catch(() => {});
+    } finally {
+      runningCampaigns.delete(ws);
+    }
   })();
 
   return campaign;

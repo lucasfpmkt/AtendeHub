@@ -191,6 +191,7 @@ async function completeOpenAICompatible(
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({ model, max_tokens: opts.maxTokens ?? 600, messages }),
+    signal: AbortSignal.timeout(90_000), // provedor travado não prende o atendimento
   });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');

@@ -19,6 +19,10 @@ campaignsRouter.post('/', async (req, res) => {
   if (!body && !template) return res.status(400).json({ error: 'mensagem ou template obrigatório' });
   const type = (req.body?.audienceType as Audience['type']) || 'all';
   const audience: Audience = { type, value: req.body?.value ? String(req.body.value) : undefined };
-  const campaign = await startCampaign(wsOf(req), body, audience, template);
-  res.json(campaign);
+  try {
+    const campaign = await startCampaign(wsOf(req), body, audience, template);
+    res.json(campaign);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });

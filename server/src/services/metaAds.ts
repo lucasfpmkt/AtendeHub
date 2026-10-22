@@ -4,6 +4,10 @@ import { dec } from '../crypto.js';
 import { env } from '../env.js';
 import { findQualifiedStageId } from './crmSeed.js';
 
+const META_PRESETS = new Set(['today', 'yesterday', 'last_7d', 'last_14d', 'last_30d', 'last_90d', 'this_month', 'last_month', 'maximum']);
+/** Só presets conhecidos vão para a URL do Graph (evita injetar parâmetros). */
+const safePreset = (p: string) => (META_PRESETS.has(p) ? p : 'last_30d');
+
 const GRAPH = `https://graph.facebook.com/${env.graphVersion}`;
 const sha256 = (s: string) => createHash('sha256').update(s.trim().toLowerCase()).digest('hex');
 
@@ -178,7 +182,7 @@ export async function getMetaAdsSummary(adAccountId: string, token: string, pres
   const auth = `access_token=${encodeURIComponent(token)}`;
 
   const insightsResp = await fetch(
-    `${GRAPH}/${acct}/insights?fields=spend,impressions,clicks,cpc,ctr,actions&date_preset=${preset}&${auth}`,
+    `${GRAPH}/${acct}/insights?fields=spend,impressions,clicks,cpc,ctr,actions&date_preset=${safePreset(preset)}&${auth}`,
   );
   const insights: any = await insightsResp.json().catch(() => ({}));
   if (!insightsResp.ok) throw new Error(insights?.error?.message || `Meta respondeu ${insightsResp.status}`);
@@ -252,7 +256,7 @@ export async function getMetaAdsBreakdown(adAccountId: string, token: string, pr
   //    e métricas numa resposta só (paginando até um limite de segurança).
   const fields =
     'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,cpc,ctr,actions';
-  let url = `${GRAPH}/${acct}/insights?level=ad&fields=${fields}&date_preset=${preset}&limit=500&${auth}`;
+  let url = `${GRAPH}/${acct}/insights?level=ad&fields=${fields}&date_preset=${safePreset(preset)}&limit=500&${auth}`;
   const rows: any[] = [];
   for (let page = 0; page < 10 && url; page++) {
     const r = await fetch(url);
