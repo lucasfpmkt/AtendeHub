@@ -20,6 +20,7 @@ model Workspace {
   expiresAt  String? // YYYY-MM-DD (vencimento do plano)
   active     Boolean  @default(true)
   legacyAuth Boolean  @default(false) // usa a pasta de sessão WhatsApp antiga
+  importHistory Boolean @default(true) // false = ao reconectar, NÃO puxa o histórico antigo do WhatsApp (só mensagens novas)
   users      User[]
   adminAccess AdminAccess[]
   createdAt  DateTime @default(now())
