@@ -28,6 +28,7 @@ import {
   runAgent,
   scriptHasActions,
   shouldTriageStart,
+  matchesTrigger,
   type Agent,
 } from './agents.js';
 
@@ -247,15 +248,22 @@ export async function autoMoveStage(ws: string, conversationId: string, force = 
   const llm = await resolveCrmLlm(); // IA global do CRM (ou a dos agentes, se não houver)
   if (!llm.ready) return;
 
-  const funnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
-  if (!funnel) return;
-  const stages = await prisma.pipelineStage.findMany({ where: { funnelId: funnel.id }, orderBy: { order: 'asc' } });
-  if (stages.length < 2) return;
+  // Regra: a IA de etapa atua SÓ em funis novos — NUNCA no Funil Padrão.
+  const defaultFunnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
+  if (!defaultFunnel) return;
 
   const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
   if (!conv) return;
   const deal = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId: conv.contactId }, orderBy: { createdAt: 'desc' } });
-  const currentStage = deal?.stageId ? stages.find((s) => s.id === deal.stageId)?.name : undefined;
+  // Sem negócio, ou negócio no Funil Padrão → a IA não mexe na etapa.
+  if (!deal?.funnelId || deal.funnelId === defaultFunnel.id) return;
+
+  const funnel = await prisma.funnel.findUnique({ where: { id: deal.funnelId } });
+  if (!funnel || funnel.workspaceId !== ws) return;
+  const stages = await prisma.pipelineStage.findMany({ where: { funnelId: funnel.id }, orderBy: { order: 'asc' } });
+  if (stages.length < 2) return;
+
+  const currentStage = deal.stageId ? stages.find((s) => s.id === deal.stageId)?.name : undefined;
 
   const history = await historyOf(conversationId);
   if (history.length < 2) return; // pouca conversa para classificar
@@ -408,18 +416,24 @@ export async function handleInboundMessage(params: {
   void autoMoveStage(ws, conversation.id).catch(() => {});
   if (startedBy) await systemNote(ws, conversation.id, `${startedBy.name} assumiu o atendimento.`);
 
-  // Contato recorrente: se a IA está desligada nesta conversa e NINGUÉM da
-  // equipe respondeu recentemente, reavalia o gatilho da triagem e a IA
-  // assume de novo (sem isso, só contato novo era atendido).
-  if (!conversation.aiEnabled && !startedBy && !(await hasRecentHumanReply(conversation.id))) {
+  // Reativação da IA quando ela está desligada nesta conversa:
+  // - GATILHO EXPLÍCITO (palavra-chave cadastrada) → reativa SEMPRE, mesmo que
+  //   a equipe tenha respondido há pouco (regra: gatilho sempre liga a IA).
+  // - Sem gatilho (triagem de porta aberta) → só reativa se ninguém da equipe
+  //   está atendendo (contato recorrente), pra não atropelar atendimento humano.
+  if (!conversation.aiEnabled && !startedBy) {
     const triage = await getActiveTriage(ws);
-    if (triage && (await shouldTriageStart(ws, triage, text))) {
-      conversation = await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { aiEnabled: true, assignedAgentId: conversation.assignedAgentId ?? triage.id },
-      });
-      emit(ws, { type: 'conversation:update', conversation });
-      await systemNote(ws, conversation.id, `${triage.name} reassumiu o atendimento (contato recorrente).`);
+    if (triage) {
+      const triggerHit = await matchesTrigger(ws, triage, text);
+      const start = triggerHit || (!(await hasRecentHumanReply(conversation.id)) && (await shouldTriageStart(ws, triage, text)));
+      if (start) {
+        conversation = await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { aiEnabled: true, assignedAgentId: conversation.assignedAgentId ?? triage.id },
+        });
+        emit(ws, { type: 'conversation:update', conversation });
+        await systemNote(ws, conversation.id, `${triage.name} ${triggerHit ? 'assumiu pelo gatilho' : 'reassumiu o atendimento (contato recorrente)'}.`);
+      }
     }
   }
 
@@ -546,20 +560,28 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
 /* Ações de CRM executadas pelo agente                                         */
 /* -------------------------------------------------------------------------- */
 
-/** Move o lead para uma etapa do funil (move o negócio existente ou cria um). */
-async function applyStage(ws: string, conversationId: string, stageName: string) {
+/** Move o lead para uma etapa do funil (move o negócio existente ou cria um).
+ *  Aceita "Funil › Etapa" (desambigua o funil) ou apenas "Etapa". */
+async function applyStage(ws: string, conversationId: string, stageRef: string) {
   const conv = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: { contactId: true },
   });
   if (!conv) return;
 
-  const stages = await prisma.pipelineStage.findMany({ where: { workspaceId: ws } });
+  // "Funil › Etapa" → separa funil e etapa; só "Etapa" → funil fica vazio.
+  const parts = stageRef.split(/›|»|>|\|/).map((p) => p.trim()).filter(Boolean);
+  const stageName = parts.length > 1 ? parts[parts.length - 1] : parts[0] ?? stageRef.trim();
+  const funnelName = parts.length > 1 ? parts[0] : '';
+
+  const all = await prisma.pipelineStage.findMany({ where: { workspaceId: ws }, include: { funnel: true } });
+  const stages = funnelName ? all.filter((s) => s.funnel && normalize(s.funnel.name) === normalize(funnelName)) : all;
+  const pool = stages.length ? stages : all; // se o funil não bater, procura em todos
   const target =
-    stages.find((s) => normalize(s.name) === normalize(stageName)) ??
-    stages.find((s) => normalize(s.name).includes(normalize(stageName)));
+    pool.find((s) => normalize(s.name) === normalize(stageName)) ??
+    pool.find((s) => normalize(s.name).includes(normalize(stageName)));
   if (!target) {
-    await systemNote(ws, conversationId, `Não encontrei a etapa "${stageName}" para mover o lead.`);
+    await systemNote(ws, conversationId, `Não encontrei a etapa "${stageRef}" para mover o lead.`);
     return;
   }
 

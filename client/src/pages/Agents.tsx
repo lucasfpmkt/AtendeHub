@@ -1444,6 +1444,11 @@ function ScriptArea({
       requestAnimationFrame(() => subRef.current?.focus());
       return;
     }
+    // Etapa escolhida: insere "Funil › Etapa" (desambigua o funil).
+    if (sub?.pick === 'stage' && subFunnel) {
+      insertAt(`${sub.insert}${subFunnel} › ${name}`, 0);
+      return;
+    }
     chooseValue(name);
   };
 
