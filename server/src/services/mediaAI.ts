@@ -46,7 +46,7 @@ export async function understandMedia(media: { kind: string; mimetype: string; b
   };
   try {
     const url = `${GEMINI}/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.key)}`;
-    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(45_000) });
     const j: any = await r.json().catch(() => ({}));
     if (!r.ok) {
       console.error('[mediaAI] Gemini respondeu', r.status, j?.error?.message || '');

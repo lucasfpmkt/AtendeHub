@@ -12,6 +12,14 @@ import { cancelPendingReply, systemNote, syncStageTag } from '../services/inboun
  * CRM do cliente aberto. Toda consulta filtra por workspaceId; antes de
  * alterar um registro pelo id, conferimos que ele pertence ao cliente.
  */
+/** Valor em centavos: inteiro >= 0. Valor inválido ("abc", negativo) vira null. */
+function cents(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.min(Math.round(n), 2_000_000_000);
+}
+
 export const crmRouter = Router();
 
 const notFound = (res: Response) => res.status(404).json({ error: 'não encontrado' });
@@ -376,7 +384,7 @@ crmRouter.post('/deals', async (req, res) => {
       contactId: contactId || null,
       funnelId,
       stageId: stageId || null,
-      valueCents: Number(valueCents ?? 0),
+      valueCents: cents(valueCents) ?? 0,
       source: source || null,
       responsavel: responsavel || null,
       tags: tags ?? '',
@@ -401,7 +409,7 @@ crmRouter.patch('/deals/:id', async (req, res) => {
       title,
       stageId,
       funnelId,
-      valueCents: valueCents === undefined ? undefined : Number(valueCents),
+      valueCents: valueCents === undefined ? undefined : cents(valueCents) ?? undefined,
       source,
       responsavel,
       tags,

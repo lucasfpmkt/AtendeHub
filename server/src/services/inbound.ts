@@ -11,8 +11,14 @@ export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: strin
 /** Salva a mídia e devolve os campos para gravar na mensagem. */
 async function mediaFields(ws: string, media?: InboundMedia) {
   if (!media) return {};
-  const mediaId = await saveMedia(ws, media.buffer);
-  return { mediaType: media.kind, mediaId, mediaName: media.filename ?? null, mimeType: media.mimetype };
+  try {
+    const mediaId = await saveMedia(ws, media.buffer);
+    return { mediaType: media.kind, mediaId, mediaName: media.filename ?? null, mimeType: media.mimetype };
+  } catch (err) {
+    // Disco cheio/permissão: grava a mensagem mesmo assim (sem o arquivo) em vez de perdê-la.
+    console.error(`[media:${ws}] falha ao salvar arquivo:`, (err as Error).message);
+    return { mediaType: media.kind, mediaName: media.filename ?? null, mimeType: media.mimetype };
+  }
 }
 import type { ChatTurn } from './llm.js';
 import { resolveLlm, resolveCrmLlm, platformAutoStage } from './llm.js';
@@ -603,14 +609,22 @@ async function applyStage(ws: string, conversationId: string, stageRef: string, 
   const contact = await prisma.contact.findUnique({ where: { id: conv.contactId } });
   await prisma.contact.update({ where: { id: conv.contactId }, data: { stageId: target.id } }).catch(() => {});
 
-  const deal = await prisma.deal.findFirst({
-    where: { workspaceId: ws, contactId: conv.contactId, funnelId: target.funnelId ?? undefined },
-    orderBy: { createdAt: 'desc' },
-  });
+  // Prefere o negócio do contato que já está no funil de destino; se não houver,
+  // MOVE o negócio mais recente dele (ex.: do Funil Padrão para o funil certo)
+  // em vez de criar um segundo — evita o mesmo lead duplicado no CRM.
+  const deal =
+    (await prisma.deal.findFirst({
+      where: { workspaceId: ws, contactId: conv.contactId, funnelId: target.funnelId ?? undefined },
+      orderBy: { createdAt: 'desc' },
+    })) ??
+    (await prisma.deal.findFirst({
+      where: { workspaceId: ws, contactId: conv.contactId },
+      orderBy: { createdAt: 'desc' },
+    }));
   if (deal) {
     await prisma.deal.update({
       where: { id: deal.id },
-      data: { stageId: target.id, stageSince: new Date(), followupStageId: null },
+      data: { funnelId: target.funnelId ?? deal.funnelId, stageId: target.id, stageSince: new Date(), followupStageId: null },
     });
   } else {
     await prisma.deal.create({

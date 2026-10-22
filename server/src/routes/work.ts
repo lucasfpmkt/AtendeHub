@@ -241,7 +241,7 @@ workRouter.get('/dashboard', async (req, res) => {
   }
 
   // Conversão: negócios em etapas de "ganho/fechado" vs total.
-  const wonRe = /fechad|ganho|won|conclu|contrat/i;
+  const wonRe = /fechad|ganho|won|conclu|assinad/i; // "Contrato Assinado" sim; "Oferta/Enviou Contrato" não
   let won = 0;
   for (const f of funnels) for (const s of f.stages) if (wonRe.test(s.name)) won += s._count.deals;
   const totalDeals = deals.length;
