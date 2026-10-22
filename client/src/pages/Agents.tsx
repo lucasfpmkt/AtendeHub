@@ -543,6 +543,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   const [fs, setFs] = useState(() => Number(localStorage.getItem('lawhub.editorFont')) || 14.5);
   const [stages, setStages] = useState<{ name: string; funnelName: string }[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [funnels, setFunnels] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     const found = allAgents.find((x) => x.id === id);
@@ -556,6 +557,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   useEffect(() => {
     api.stages().then((ss) => setStages(ss.map((s) => ({ name: s.name, funnelName: s.funnelName })))).catch(() => {});
     api.tags().then((ts) => setTags(ts.map((t) => t.name))).catch(() => {});
+    api.funnels().then((fs) => setFunnels(fs.map((f) => ({ id: f.id, name: f.name })))).catch(() => {});
   }, []);
 
   const dirty = useMemo(() => a && saved && JSON.stringify(a) !== JSON.stringify(saved), [a, saved]);
@@ -585,6 +587,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
       signature: a.signature,
       active: a.active,
       delaySeconds: a.delaySeconds,
+      funnelId: a.funnelId ?? null,
     });
     setSaved(x);
     setA(structuredClone(x));
@@ -889,6 +892,30 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                   {a.type === 'triage'
                     ? 'Com gatilhos, a triagem só assume conversas novas cuja mensagem contém um deles (ou um gatilho de agente de tema). Sem gatilhos, ela atende todas as conversas novas.'
                     : 'Quando a mensagem do cliente contém um destes textos, a triagem transfere para este agente.'}
+                </span>
+              </>,
+            )}
+            {acc(
+              'fun',
+              'filter',
+              'Funil deste agente',
+              <>
+                <select
+                  value={a.funnelId ?? ''}
+                  onChange={(e) => set('funnelId', e.target.value || null)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">Nenhum (usa qualquer funil)</option>
+                  {funnels.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted small">
+                  Quando o roteiro mandar "Mudar etapa: X" sem dizer o funil, o lead vai para a etapa X deste
+                  funil. Assim um agente com gatilho leva o contato ao CRM certo, mesmo que o nome da etapa
+                  exista em vários funis.
                 </span>
               </>,
             )}

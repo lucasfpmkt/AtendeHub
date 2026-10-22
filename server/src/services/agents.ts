@@ -8,6 +8,7 @@ export type Agent = {
   description: string;
   script: string;
   triggers: string;
+  funnelId: string | null;
   regras: string;
   faq: string;
   signatureOn: boolean;
