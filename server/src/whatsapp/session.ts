@@ -72,6 +72,19 @@ function releaseBufferedEvents(ws: string, sock: WASocket): boolean {
   return true;
 }
 
+/**
+ * Identificador da conversa. O WhatsApp agora endereça muitos contatos por LID
+ * (um id oculto, ex.: 146832063738035@lid) em vez do telefone. Quando o Baileys
+ * informa o telefone real (remoteJidAlt), usamos ele: o contato fica com o número
+ * de verdade na tela e não se duplica entre LID e telefone. Envio para o telefone
+ * funciona — o Baileys 7 converte para o LID por baixo.
+ */
+function chatJidOf(key: { remoteJid?: string | null; remoteJidAlt?: string | null }): string | null {
+  const jid = key.remoteJid ?? null;
+  if (jid?.endsWith('@lid') && key.remoteJidAlt?.endsWith('@s.whatsapp.net')) return key.remoteJidAlt;
+  return jid;
+}
+
 /** Ping na conexão do WhatsApp com tempo-limite: detecta socket "zumbi". */
 async function pingSocket(sock: WASocket, timeoutMs = 20_000): Promise<boolean> {
   try {
@@ -378,8 +391,8 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       if (!importHistory) return; // cliente configurado para não importar histórico antigo
       if (!messages?.length) return;
       for (const m of messages) {
-        const jid = m.key.remoteJid;
-        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue;
+        const jid = chatJidOf(m.key);
+        if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid === 'status@broadcast') continue;
         const body =
           m.message?.conversation ??
           m.message?.extendedTextMessage?.text ??
@@ -435,11 +448,11 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       // Registro enxuto de recebimento: mostra no log se a mensagem chegou ao servidor.
       for (const m of messages) {
-        console.log(`[wa:${ws}] upsert ${type} ${m.key.fromMe ? 'enviada' : 'recebida'} ${m.key.remoteJid ?? '?'}${m.messageStubType ? ` stub=${m.messageStubType}` : ''}`);
+        console.log(`[wa:${ws}] upsert ${type} ${m.key.fromMe ? 'enviada' : 'recebida'} ${m.key.remoteJid ?? '?'}${m.key.remoteJidAlt ? ` (${m.key.remoteJidAlt})` : ''}${m.messageStubType ? ` stub=${m.messageStubType}` : ''}`);
       }
       for (const m of messages) {
-        const jid = m.key.remoteJid;
-        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // ignora grupos/status
+        const jid = chatJidOf(m.key);
+        if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid === 'status@broadcast') continue; // ignora grupos/canais/status
 
         const parsed = await readMessage(m);
         if (!parsed) continue;
