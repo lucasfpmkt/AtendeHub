@@ -59,6 +59,19 @@ function markSelfSent(id: string) {
   for (const [k, t] of selfSent) if (now - t > 10 * 60_000) selfSent.delete(k);
 }
 
+/**
+ * O Baileys represa TODOS os eventos (inclusive mensagens novas) logo após conectar
+ * se a sessão ainda não recebeu a chave de sincronização do celular
+ * (creds.myAppStateKeyId) — e esse represamento não tem tempo-limite. Quando a
+ * chave não chega, a conexão fica "conectada" e muda. Libera o que estiver preso.
+ */
+function releaseBufferedEvents(ws: string, sock: WASocket): boolean {
+  if (!sock.ev.isBuffering()) return false;
+  console.warn(`[wa:${ws}] eventos represados pelo Baileys (sem chave de sync do celular) — liberando`);
+  for (let i = 0; i < 20 && sock.ev.isBuffering(); i++) sock.ev.flush();
+  return true;
+}
+
 /** Ping na conexão do WhatsApp com tempo-limite: detecta socket "zumbi". */
 async function pingSocket(sock: WASocket, timeoutMs = 20_000): Promise<boolean> {
   try {
@@ -236,6 +249,13 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         s.retries = 0;
         setStatus(ws, 'connected');
 
+        // Mensagens presas no represamento do Baileys após conectar: libera.
+        for (const ms of [20_000, 60_000]) {
+          setTimeout(() => {
+            if (s.sock === sock) releaseBufferedEvents(ws, sock);
+          }, ms);
+        }
+
         // Watchdog: a cada minuto confere se a conexão responde. O status pode ficar
         // "conectado" com o socket morto (sem evento 'close'); 2 falhas seguidas → reconecta.
         if (s.watchdog) clearInterval(s.watchdog);
@@ -246,6 +266,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
             s.watchdog = null;
             return;
           }
+          releaseBufferedEvents(ws, sock);
           if (await pingSocket(sock)) {
             fails = 0;
             return;
