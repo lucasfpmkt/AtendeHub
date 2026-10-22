@@ -74,12 +74,15 @@ async function main() {
   }
 
   // Exclusão atômica, na ordem de chave estrangeira, estritamente por este workspaceId.
+  // Também marca importHistory=false: ao reconectar o WhatsApp, só entram mensagens
+  // NOVAS — nada do histórico antigo do aparelho é puxado de volta.
   const [sched, msgs, conv, deals, contacts] = await prisma.$transaction([
     prisma.scheduledMessage.deleteMany({ where: { workspaceId: id } }),
     prisma.message.deleteMany({ where: { conversationId: { in: convIds } } }),
     prisma.conversation.deleteMany({ where: { workspaceId: id } }),
     prisma.deal.deleteMany({ where: { workspaceId: id } }),
     prisma.contact.deleteMany({ where: { workspaceId: id } }),
+    prisma.workspace.update({ where: { id }, data: { importHistory: false } }),
   ]);
 
   console.log('✅ Limpeza concluída:');
@@ -87,7 +90,8 @@ async function main() {
   console.log(`   mensagens apagadas:           ${msgs.count}`);
   console.log(`   conversas apagadas:           ${conv.count}`);
   console.log(`   negócios apagados:            ${deals.count}`);
-  console.log(`   contatos apagados:            ${contacts.count}\n`);
+  console.log(`   contatos apagados:            ${contacts.count}`);
+  console.log(`   importHistory → false (não puxa histórico antigo ao reconectar)\n`);
 }
 
 main()

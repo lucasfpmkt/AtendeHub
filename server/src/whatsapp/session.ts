@@ -159,6 +159,11 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
     const { state, saveCreds } = await useMultiFileAuthState(await authDirOf(ws));
     const { version } = await fetchLatestBaileysVersion();
 
+    // Por cliente: se importHistory=false, não puxa o histórico antigo ao
+    // (re)conectar — só as mensagens novas entram no LawHub.
+    const wsRow = await prisma.workspace.findUnique({ where: { id: ws }, select: { importHistory: true } });
+    const importHistory = wsRow?.importHistory !== false;
+
     const sock = makeWASocket({
       version,
       auth: state,
@@ -168,8 +173,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       // Não marca o número como "online" ao conectar: assim o celular continua
       // recebendo as notificações normais do WhatsApp.
       markOnlineOnConnect: false,
-      // Puxa o histórico de conversas do aparelho na sincronização inicial.
-      syncFullHistory: true,
+      // Puxa o histórico de conversas do aparelho na sincronização inicial
+      // (desligado para clientes com importHistory=false).
+      syncFullHistory: importHistory,
     });
     s.sock = sock;
 
@@ -214,6 +220,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
 
     // Histórico: o aparelho envia as conversas antigas em lotes após conectar.
     sock.ev.on('messaging-history.set', async ({ messages }) => {
+      if (!importHistory) return; // cliente configurado para não importar histórico antigo
       if (!messages?.length) return;
       let imported = 0;
       for (const m of messages) {
