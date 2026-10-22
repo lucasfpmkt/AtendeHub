@@ -24,6 +24,11 @@ const BASE_DIR = process.env.WA_AUTH_DIR ?? path.resolve(__dirname, '../../auth_
 
 const logger = pino({ level: 'warn' });
 
+// Importação de histórico ao conectar: só as N conversas mais recentes, cada uma
+// com as últimas M mensagens (evita lotar o LawHub com conversas antigas).
+const HISTORY_CHATS = Math.max(0, Number(process.env.WA_HISTORY_CHATS ?? 30) || 0);
+const HISTORY_MSGS_PER_CHAT = Math.max(1, Number(process.env.WA_HISTORY_MSGS_PER_CHAT ?? 10) || 10);
+
 /** Uma conexão de WhatsApp por cliente (workspace). */
 type Session = {
   sock: WASocket | null;
@@ -173,9 +178,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       // Não marca o número como "online" ao conectar: assim o celular continua
       // recebendo as notificações normais do WhatsApp.
       markOnlineOnConnect: false,
-      // Puxa o histórico de conversas do aparelho na sincronização inicial
-      // (desligado para clientes com importHistory=false).
-      syncFullHistory: importHistory,
+      // Não pede o histórico COMPLETO (milhares de mensagens): o aparelho já manda o
+      // histórico recente, e dele só importamos as conversas mais recentes (ver abaixo).
+      syncFullHistory: false,
     });
     s.sock = sock;
 
@@ -219,10 +224,57 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
     });
 
     // Histórico: o aparelho envia as conversas antigas em lotes após conectar.
+    // Histórico: o aparelho envia as conversas antigas em VÁRIOS lotes após conectar.
+    // Para não lotar o LawHub, acumula os lotes e, quando param de chegar, importa só
+    // as HISTORY_CHATS conversas mais recentes, cada uma com as últimas
+    // HISTORY_MSGS_PER_CHAT mensagens. Mensagens novas continuam entrando normalmente.
+    type HistItem = { jid: string; pushName?: string; body: string; fromMe: boolean; id?: string; ts: number };
+    const histBuffer: HistItem[] = [];
+    let histTimer: NodeJS.Timeout | null = null;
+
+    const flushHistory = async () => {
+      histTimer = null;
+      const items = histBuffer.splice(0);
+      if (!items.length) return;
+      // Agrupa por conversa e ordena as conversas pela mensagem mais recente.
+      const byChat = new Map<string, HistItem[]>();
+      for (const it of items) {
+        const list = byChat.get(it.jid) ?? [];
+        list.push(it);
+        byChat.set(it.jid, list);
+      }
+      const chats = [...byChat.values()]
+        .map((list) => list.sort((a, b) => a.ts - b.ts))
+        .sort((a, b) => b[b.length - 1].ts - a[a.length - 1].ts)
+        .slice(0, HISTORY_CHATS);
+
+      let imported = 0;
+      for (const list of chats) {
+        for (const it of list.slice(-HISTORY_MSGS_PER_CHAT)) {
+          await importHistoryMessage({
+            workspaceId: ws,
+            waJid: it.jid,
+            pushName: it.pushName,
+            body: it.body,
+            fromMe: it.fromMe,
+            waMessageId: it.id,
+            timestampMs: it.ts,
+          })
+            .then(() => (imported += 1))
+            .catch((err) => console.error(`[wa:${ws}] falha ao importar histórico:`, err));
+        }
+      }
+      if (imported > 0) {
+        console.log(`[wa:${ws}] histórico importado: ${chats.length} conversas, ${imported} mensagens (de ${byChat.size} conversas recebidas)`);
+        // Recarrega a lista de conversas na UI e o CRM.
+        emit(ws, { type: 'conversation:update', conversation: { id: 'history-sync' } });
+        emit(ws, { type: 'crm:update' });
+      }
+    };
+
     sock.ev.on('messaging-history.set', async ({ messages }) => {
       if (!importHistory) return; // cliente configurado para não importar histórico antigo
       if (!messages?.length) return;
-      let imported = 0;
       for (const m of messages) {
         const jid = m.key.remoteJid;
         if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue;
@@ -233,24 +285,18 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
           m.message?.videoMessage?.caption ??
           '';
         if (!body) continue;
-        await importHistoryMessage({
-          workspaceId: ws,
-          waJid: jid,
+        histBuffer.push({
+          jid,
           pushName: m.pushName ?? undefined,
           body,
           fromMe: Boolean(m.key.fromMe),
-          waMessageId: m.key.id ?? undefined,
-          timestampMs: Number(m.messageTimestamp ?? 0) * 1000,
-        })
-          .then(() => (imported += 1))
-          .catch((err) => console.error(`[wa:${ws}] falha ao importar histórico:`, err));
+          id: m.key.id ?? undefined,
+          ts: Number(m.messageTimestamp ?? 0) * 1000,
+        });
       }
-      if (imported > 0) {
-        console.log(`[wa:${ws}] histórico importado: ${imported} mensagens`);
-        // Recarrega a lista de conversas na UI e o CRM.
-        emit(ws, { type: 'conversation:update', conversation: { id: 'history-sync' } });
-        emit(ws, { type: 'crm:update' });
-      }
+      // Espera os lotes pararem de chegar antes de escolher as mais recentes.
+      if (histTimer) clearTimeout(histTimer);
+      histTimer = setTimeout(() => void flushHistory(), 15_000);
     });
 
     // Lê texto e baixa mídia (imagem/áudio/vídeo/documento) de uma mensagem.
