@@ -79,6 +79,17 @@ export async function shouldTriageStart(ws: string, triage: Agent, text: string)
   return Boolean(matchByTriggers(text, await getActiveThemeAgents(ws)));
 }
 
+/**
+ * Houve correspondência com um GATILHO EXPLÍCITO (palavra-chave da triagem ou
+ * de um agente de tema)? Diferente de shouldTriageStart, NÃO considera o caso
+ * "sem gatilho = sempre começa". Serve para reativar a IA sempre que um gatilho
+ * cadastrado chegar, mesmo após atendimento manual.
+ */
+export async function matchesTrigger(ws: string, triage: Agent, text: string): Promise<boolean> {
+  if (splitTriggers(triage.triggers).length > 0 && matchByTriggers(text, [triage])) return true;
+  return Boolean(matchByTriggers(text, await getActiveThemeAgents(ws)));
+}
+
 export async function findAgentByName(ws: string, name: string): Promise<Agent | null> {
   const target = normalize(name);
   const agents = await prisma.agent.findMany({ where: { workspaceId: ws, active: true } });
