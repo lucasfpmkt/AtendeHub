@@ -225,6 +225,10 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       // Não pede o histórico COMPLETO (milhares de mensagens): o aparelho já manda o
       // histórico recente, e dele só importamos as conversas mais recentes (ver abaixo).
       syncFullHistory: false,
+      // Cliente sem importação de histórico: o Baileys nem processa o histórico e vai
+      // direto para "online". Sem isso ele entra em "Syncing" e, se a sincronização de
+      // estado falhar, fica represando as mensagens novas para sempre.
+      shouldSyncHistoryMessage: () => importHistory,
     });
     s.sock = sock;
 
@@ -429,6 +433,10 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
     };
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      // Registro enxuto de recebimento: mostra no log se a mensagem chegou ao servidor.
+      for (const m of messages) {
+        console.log(`[wa:${ws}] upsert ${type} ${m.key.fromMe ? 'enviada' : 'recebida'} ${m.key.remoteJid ?? '?'}${m.messageStubType ? ` stub=${m.messageStubType}` : ''}`);
+      }
       for (const m of messages) {
         const jid = m.key.remoteJid;
         if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // ignora grupos/status
