@@ -1,4 +1,6 @@
-import { Router } from 'express';
+import { Router, raw } from 'express';
+import { unlink } from 'node:fs/promises';
+import { kindFromMime, mediaFilePath, prepareOutgoingMedia, saveMedia } from '../whatsapp/media.js';
 import { prisma } from '../db.js';
 import { resolveLlm, type ChatTurn } from '../services/llm.js';
 import { wsOf } from '../auth.js';
@@ -119,7 +121,8 @@ agentsRouter.post('/:id/test', async (req, res) => {
   );
   try {
     const llm = await resolveLlm(wsOf(req));
-    res.json(llm.ready ? await runAgent(draft, history, llm) : offlineReply(draft, history));
+    const media = await prisma.agentMedia.findMany({ where: { agentId: saved.id }, select: { name: true } });
+    res.json(llm.ready ? await runAgent(draft, history, llm, media.map((m) => m.name)) : offlineReply(draft, history));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -144,4 +147,88 @@ agentsRouter.post('/copilot', async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
+});
+
+/* ------------------------- Biblioteca de mídias ------------------------- */
+// Arquivos que o roteiro envia com "⚡ Ação: Enviar mídia: NOME".
+
+const mediaOut = (m: { id: string; name: string; kind: string; mimeType: string; fileName: string | null; size: number; createdAt: Date }) => ({
+  id: m.id,
+  name: m.name,
+  kind: m.kind,
+  mimeType: m.mimeType,
+  fileName: m.fileName,
+  size: m.size,
+  createdAt: m.createdAt,
+});
+
+agentsRouter.get('/:id/media', async (req, res) => {
+  const agent = await prisma.agent.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } });
+  if (!agent) return res.status(404).json({ error: 'agente não encontrado' });
+  const items = await prisma.agentMedia.findMany({ where: { agentId: agent.id }, orderBy: { createdAt: 'asc' } });
+  res.json(items.map(mediaOut));
+});
+
+// Corpo = arquivo bruto; nome, tipo e nome do arquivo vêm na query.
+agentsRouter.post('/:id/media', raw({ type: '*/*', limit: '32mb' }), async (req, res) => {
+  try {
+    const ws = wsOf(req);
+    const agent = await prisma.agent.findFirst({ where: { id: req.params.id, workspaceId: ws } });
+    if (!agent) return res.status(404).json({ error: 'agente não encontrado' });
+    const buffer = req.body as Buffer;
+    if (!Buffer.isBuffer(buffer) || !buffer.length) return res.status(400).json({ error: 'arquivo vazio' });
+
+    const name = String(req.query.name ?? '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'dê um nome para a mídia (é o nome usado no roteiro)' });
+    if (await prisma.agentMedia.findFirst({ where: { agentId: agent.id, name } })) {
+      return res.status(409).json({ error: `já existe uma mídia chamada "${name}" neste agente` });
+    }
+    const rawMime = String(req.query.mime || 'application/octet-stream');
+    const kind = kindFromMime(rawMime);
+    // Áudio já fica guardado como mensagem de voz (OGG/Opus): o envio pela IA é imediato.
+    const prepared = await prepareOutgoingMedia({
+      buffer,
+      mimetype: rawMime,
+      filename: req.query.filename ? String(req.query.filename) : undefined,
+      kind: kind === 'sticker' ? 'image' : kind,
+    });
+    const fileId = await saveMedia(ws, prepared.buffer);
+    const item = await prisma.agentMedia.create({
+      data: {
+        workspaceId: ws,
+        agentId: agent.id,
+        name,
+        kind: prepared.kind,
+        mimeType: prepared.mimetype,
+        fileName: prepared.filename ?? null,
+        fileId,
+        size: prepared.buffer.length,
+      },
+    });
+    await logAgent(agent.id, `Adicionou a mídia "${name}"`);
+    res.json(mediaOut(item));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+agentsRouter.delete('/:id/media/:mediaId', async (req, res) => {
+  const ws = wsOf(req);
+  const item = await prisma.agentMedia.findFirst({ where: { id: req.params.mediaId, agentId: req.params.id, workspaceId: ws } });
+  if (!item) return res.status(404).json({ error: 'mídia não encontrada' });
+  await prisma.agentMedia.delete({ where: { id: item.id } });
+  // Só apaga o arquivo se nenhuma mensagem enviada usa ele (o histórico do chat continua abrindo).
+  const used = await prisma.message.count({ where: { mediaId: item.fileId } });
+  if (!used) await unlink(mediaFilePath(ws, item.fileId)).catch(() => {});
+  await logAgent(item.agentId, `Removeu a mídia "${item.name}"`);
+  res.json({ ok: true });
+});
+
+// Arquivo para pré-visualizar no editor (autenticado pelo Bearer do app).
+agentsRouter.get('/:id/media/:mediaId/file', async (req, res) => {
+  const ws = wsOf(req);
+  const item = await prisma.agentMedia.findFirst({ where: { id: req.params.mediaId, agentId: req.params.id, workspaceId: ws } });
+  if (!item) return res.status(404).end();
+  res.setHeader('Content-Type', item.mimeType);
+  res.sendFile(mediaFilePath(ws, item.fileId));
 });

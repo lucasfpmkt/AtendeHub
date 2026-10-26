@@ -4,6 +4,7 @@ import { saveMedia, type MediaKind } from '../whatsapp/media.js';
 import { maybeFireQualifiedLead } from './metaAds.js';
 import { maybeFireGoogleConversion } from './googleAds.js';
 import { understandMedia } from './mediaAI.js';
+import { notifyQualifiedLead } from './leadNotify.js';
 
 /** Mídia recebida/enviada já baixada em memória. */
 export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer };
@@ -495,7 +496,11 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     if (hop === 0 && history[history.length - 1].role !== 'user') return;
 
     const llm = await resolveLlm(ws);
-    const { text, actions } = llm.ready ? await runAgent(agent, history, llm) : offlineReply(agent, history);
+    // Biblioteca de mídias do agente: a IA recebe os nomes e pede com [[MIDIA: NOME]].
+    const agentMedia = await prisma.agentMedia.findMany({ where: { agentId: agent.id }, orderBy: { createdAt: 'asc' } });
+    const { text, actions } = llm.ready
+      ? await runAgent(agent, history, llm, agentMedia.map((m) => m.name))
+      : offlineReply(agent, history);
 
     // A resposta da IA leva alguns segundos: se nesse meio-tempo um humano assumiu
     // (ou a IA foi desligada), descarta a resposta em vez de falar por cima.
@@ -503,6 +508,22 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     if (!fresh?.aiEnabled) return;
 
     if (text) await deliver(ws, conversationId, text, sendText);
+
+    // Mídias pedidas pelo roteiro (imagem, áudio, vídeo, documento), na ordem pedida.
+    for (const act of actions) {
+      if (act.type !== 'media') continue;
+      const media =
+        agentMedia.find((m) => normalize(m.name) === normalize(act.name)) ??
+        agentMedia.find((m) => normalize(m.name).includes(normalize(act.name)) || normalize(act.name).includes(normalize(m.name))) ??
+        (await prisma.agentMedia.findFirst({ where: { workspaceId: ws, name: act.name } }));
+      if (!media) {
+        await systemNote(ws, conversationId, `O roteiro pediu a mídia "${act.name}", mas ela não existe na biblioteca do agente.`);
+        continue;
+      }
+      await deliverMedia(ws, conversationId, media).catch((err) =>
+        systemNote(ws, conversationId, `Não consegui enviar a mídia "${media.name}" (${(err as Error).message}).`),
+      );
+    }
 
     // Ações de CRM pedidas pelo roteiro (podem vir junto com a mensagem).
     for (const act of actions) {
@@ -572,6 +593,41 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
     data: { lastMessageAt: new Date() },
   });
   emit(ws, { type: 'message:new', conversationId, message: outMsg });
+}
+
+/** Envia um arquivo da biblioteca do agente e registra na conversa. */
+async function deliverMedia(
+  ws: string,
+  conversationId: string,
+  media: { name: string; kind: string; mimeType: string; fileName: string | null; fileId: string },
+) {
+  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId }, include: { contact: true } });
+  if (!conversation) return;
+  const { readFile } = await import('node:fs/promises');
+  const { mediaFilePath } = await import('../whatsapp/media.js');
+  const { sendMedia } = await import('../whatsapp/session.js');
+  const buffer = await readFile(mediaFilePath(ws, media.fileId));
+  const waMessageId = await sendMedia(ws, conversation.contact.waJid, {
+    buffer,
+    mimetype: media.mimeType,
+    filename: media.fileName ?? undefined,
+    kind: media.kind as MediaKind,
+  });
+  const msg = await prisma.message.create({
+    data: {
+      conversationId,
+      direction: 'out',
+      author: 'ai',
+      body: '',
+      waMessageId,
+      mediaType: media.kind,
+      mediaId: media.fileId, // o mesmo arquivo da biblioteca (aparece no chat)
+      mediaName: media.fileName,
+      mimeType: media.mimeType,
+    },
+  });
+  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
+  emit(ws, { type: 'message:new', conversationId, message: msg });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -645,6 +701,10 @@ async function applyStage(ws: string, conversationId: string, stageRef: string, 
   // Lead qualificado → devolve o evento ao Meta Ads e ao Google Ads (se configurados).
   void maybeFireQualifiedLead(ws, conv.contactId, target.id).catch(() => {});
   void maybeFireGoogleConversion(ws, conv.contactId, target.id).catch(() => {});
+  // Lead qualificado pela IA → avisa o escritório no WhatsApp com dados + resumo.
+  void notifyQualifiedLead(ws, conversationId, conv.contactId, target.id).catch((e) =>
+    console.error('[notify] falha na notificação de lead qualificado:', (e as Error).message),
+  );
   await systemNote(ws, conversationId, `Etapa movida para "${target.name}".`);
 }
 

@@ -100,8 +100,26 @@ model Agent {
   delaySeconds Int      @default(15)
   order        Int      @default(0)
   history      AgentHistory[]
+  media        AgentMedia[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+/// Mídia da biblioteca de um agente (enviada pelo roteiro: "Enviar mídia: NOME").
+model AgentMedia {
+  id          String   @id @default(cuid())
+  workspaceId String
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  name        String // nome usado no roteiro
+  kind        String // image | video | audio | document
+  mimeType    String
+  fileName    String?
+  fileId      String // arquivo salvo na pasta de mídia do cliente
+  size        Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([agentId])
 }
 
 /// Quem mudou o quê em cada agente.
@@ -219,6 +237,7 @@ model Deal {
   stage       PipelineStage? @relation(fields: [stageId], references: [id])
   stageSince  DateTime       @default(now()) // quando entrou na etapa atual (base do follow-up)
   followupStageId String?    // etapa cujo follow-up já foi enviado (evita repetir)
+  qualifiedNotifiedAt DateTime? // quando o escritório foi avisado deste lead qualificado
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 }
@@ -248,6 +267,9 @@ model AiConfig {
   crmApiKey    String  @default("")
   crmBaseUrl   String  @default("")
   crmModel     String  @default("")
+  // Notificação de lead qualificado no WhatsApp do próprio escritório.
+  notifyQualified Boolean @default(true)
+  notifyNumber    String  @default("") // vazio = o próprio número conectado (QR)
 }
 
 /// Mensagem agendada (lembrete/consulta) para enviar pelo WhatsApp no futuro.

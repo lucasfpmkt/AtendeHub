@@ -3,6 +3,7 @@ import { wsOf } from '../auth.js';
 import { generateReply, getAiConfig, updateAiConfig } from '../services/ai.js';
 import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
 import { reclassifyAllStages } from '../services/inbound.js';
+import { sendTestNotification } from '../services/leadNotify.js';
 
 export const aiRouter = Router();
 
@@ -67,5 +68,14 @@ aiRouter.post('/draft/:conversationId', async (req, res) => {
     res.json({ text: await generateReply(wsOf(req), req.params.conversationId) });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// Envia uma notificação de lead qualificado de exemplo para o destino configurado.
+aiRouter.post('/notify-test', async (req, res) => {
+  try {
+    res.json({ ok: true, to: await sendTestNotification(wsOf(req)) });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
   }
 });

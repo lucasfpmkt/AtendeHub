@@ -228,6 +228,16 @@ export interface Agent {
   order?: number;
 }
 
+export interface AgentMediaItem {
+  id: string;
+  name: string;
+  kind: 'image' | 'video' | 'audio' | 'document';
+  mimeType: string;
+  fileName: string | null;
+  size: number;
+  createdAt: string;
+}
+
 export interface FaqItem {
   q: string;
   a: string;
@@ -340,7 +350,7 @@ export const api = {
     const res = await fetch(`/api/whatsapp/send-media/${conversationId}?${qs.toString()}`, {
       method: 'POST',
       headers: {
-        'Content-Type': file.type || 'application/octet-stream',
+        'Content-Type': 'application/octet-stream', // o tipo real vai em ?mime=
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: file,
@@ -436,6 +446,27 @@ export const api = {
   updateAgent: (id: string, data: Partial<Agent>) =>
     req<Agent>(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAgent: (id: string) => req(`/agents/${id}`, { method: 'DELETE' }),
+  // Biblioteca de mídias do agente (enviadas pelo roteiro: "Enviar mídia: NOME")
+  agentMedia: (id: string) => req<AgentMediaItem[]>(`/agents/${id}/media`),
+  uploadAgentMedia: async (id: string, file: File, name: string) => {
+    const token = getToken();
+    const qs = new URLSearchParams({ name, mime: file.type || 'application/octet-stream', filename: file.name });
+    const res = await fetch(`/api/agents/${id}/media?${qs.toString()}`, {
+      method: 'POST',
+      // octet-stream: o corpo é o arquivo bruto (nunca passa pelo parser de JSON)
+      headers: { 'Content-Type': 'application/octet-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: file,
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Falha ao enviar a mídia');
+    return (await res.json()) as AgentMediaItem;
+  },
+  deleteAgentMedia: (id: string, mediaId: string) => req(`/agents/${id}/media/${mediaId}`, { method: 'DELETE' }),
+  agentMediaUrl: async (id: string, mediaId: string) => {
+    const token = getToken();
+    const res = await fetch(`/api/agents/${id}/media/${mediaId}/file`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error('Não foi possível abrir a mídia');
+    return URL.createObjectURL(await res.blob());
+  },
   agentHistory: (id: string) => req<AgentHistoryItem[]>(`/agents/${id}/history`),
   testAgent: (id: string, agent: Partial<Agent>, messages: { from: 'lead' | 'agent'; text: string }[]) =>
     req<{ text: string; action: AgentAction }>(`/agents/${id}/test`, {
@@ -475,6 +506,7 @@ export const api = {
   dashboard: (days = 7) => req<DashboardData>(`/dashboard?days=${days}`),
 
   // IA
+  testNotify: () => req<{ ok: boolean; to?: string; error?: string }>('/ai/notify-test', { method: 'POST' }),
   aiConfig: () =>
     req<{
       systemPrompt: string;
@@ -491,6 +523,8 @@ export const api = {
       crmHasKey: boolean;
       crmConnected: boolean;
       providers: AiProvider[];
+      notifyQualified: boolean;
+      notifyNumber: string;
     }>('/ai/config'),
   updateAiConfig: (data: {
     systemPrompt?: string;
@@ -506,6 +540,8 @@ export const api = {
     crmBaseUrl?: string;
     crmApiKey?: string;
     clearCrmKey?: boolean;
+    notifyQualified?: boolean;
+    notifyNumber?: string;
   }) =>
     req<{ providerConnected: boolean; hasKey: boolean; crmConnected: boolean; crmHasKey: boolean }>('/ai/config', {
       method: 'PATCH',

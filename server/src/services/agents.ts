@@ -144,11 +144,12 @@ export type AgentAction =
   | { type: 'deactivate' }
   | { type: 'stage'; name: string }
   | { type: 'tag'; name: string }
-  | { type: 'notify'; reason: string };
+  | { type: 'notify'; reason: string }
+  | { type: 'media'; name: string };
 export type AgentReply = { text: string; actions: AgentAction[] };
 
 /** System prompt: roteiro + regras + FAQ + como sinalizar as ações. */
-export function buildSystemPrompt(agent: Agent): string {
+export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): string {
   const faq = parseFaq(agent.faq);
   return [
     agent.script || '(sem roteiro — atenda com cordialidade e pergunte o motivo do contato)',
@@ -164,6 +165,10 @@ export function buildSystemPrompt(agent: Agent): string {
     '- "Mudar etapa: ETAPA" → [[ETAPA: ETAPA]]',
     '- "Adicionar etiqueta: NOME" → [[ETIQUETA: NOME]]',
     '- "Notificar equipe: MOTIVO" → [[NOTIFICAR: MOTIVO]]',
+    '- "Enviar mídia: NOME" → [[MIDIA: NOME]] (envia o arquivo dessa mídia ao cliente, depois do texto)',
+    mediaNames.length
+      ? `Mídias disponíveis para enviar (use o nome exato): ${mediaNames.map((n) => `"${n}"`).join(', ')}. Envie só quando o roteiro mandar.`
+      : '',
     'Use só os marcadores que o roteiro pedir. Nunca escreva "⚡ Ação" nem os marcadores no meio da mensagem ao cliente.',
   ]
     .filter(Boolean)
@@ -178,6 +183,7 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
   for (const m of raw.matchAll(/\[\[\s*ETAPA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'stage', name: m[1] });
   for (const m of raw.matchAll(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'tag', name: m[1] });
   for (const m of raw.matchAll(/\[\[\s*NOTIFICAR\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'notify', reason: m[1] });
+  for (const m of raw.matchAll(/\[\[\s*M[IÍ]DIA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'media', name: m[1] });
   let text = raw
     .replace(/\[\[[^\]]*\]\]/g, '')
     .replace(/^\s*⚡.*$/gim, '') // por segurança, nunca envia a linha de ação crua
@@ -187,8 +193,8 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
 }
 
 /** Gera a resposta de um agente seguindo seu roteiro. */
-export async function runAgent(agent: Agent, history: ChatTurn[], llm: Llm): Promise<AgentReply> {
-  const raw = await llm.complete({ system: buildSystemPrompt(agent), messages: history, maxTokens: 700 });
+export async function runAgent(agent: Agent, history: ChatTurn[], llm: Llm, mediaNames: string[] = []): Promise<AgentReply> {
+  const raw = await llm.complete({ system: buildSystemPrompt(agent, mediaNames), messages: history, maxTokens: 700 });
   return parseReply(agent, raw);
 }
 

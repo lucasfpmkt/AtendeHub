@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Mídia fica junto do volume persistente (mesma base do WA_AUTH_DIR).
@@ -45,4 +46,57 @@ export function kindFromMime(mime: string): MediaKind {
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   return 'document';
+}
+
+/**
+ * Converte um áudio qualquer (gravação do navegador em WebM, MP3, M4A…) para
+ * OGG/Opus mono — o único formato que o WhatsApp toca como "mensagem de voz".
+ * Usa o ffmpeg do servidor; se ele não existir ou falhar, devolve null.
+ */
+export function toVoiceNote(input: Buffer, timeoutMs = 60_000): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v: Buffer | null) => {
+      if (!done) {
+        done = true;
+        resolve(v);
+      }
+    };
+    let proc;
+    try {
+      proc = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-vn', '-ac', '1', '-ar', '48000', '-c:a', 'libopus', '-b:a', '32k', '-f', 'ogg', 'pipe:1']);
+    } catch {
+      return finish(null);
+    }
+    const out: Buffer[] = [];
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      finish(null);
+    }, timeoutMs);
+    proc.stdout.on('data', (c: Buffer) => out.push(c));
+    proc.on('error', () => {
+      clearTimeout(timer);
+      finish(null); // ffmpeg não instalado
+    });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      const buf = Buffer.concat(out);
+      finish(code === 0 && buf.length > 0 ? buf : null);
+    });
+    proc.stdin.on('error', () => {});
+    proc.stdin.end(input);
+  });
+}
+
+export type OutgoingMedia = { buffer: Buffer; mimetype: string; filename?: string; caption?: string; kind: MediaKind };
+
+/** Prepara a mídia antes do envio: áudio vira mensagem de voz (OGG/Opus) quando possível. */
+export async function prepareOutgoingMedia(m: OutgoingMedia): Promise<OutgoingMedia> {
+  if (m.kind !== 'audio' || /ogg/i.test(m.mimetype)) return m;
+  const ogg = await toVoiceNote(m.buffer);
+  if (!ogg) {
+    console.warn('[media] ffmpeg indisponível ou falhou: áudio enviado no formato original');
+    return m;
+  }
+  return { ...m, buffer: ogg, mimetype: 'audio/ogg; codecs=opus', filename: m.filename ? `${m.filename.replace(/\.[^.]+$/, '')}.ogg` : 'audio.ogg' };
 }

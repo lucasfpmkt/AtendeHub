@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, type Agent, type AgentHistoryItem } from '../api';
+import { api, type Agent, type AgentHistoryItem, type AgentMediaItem } from '../api';
 import { Icon } from '../icons';
 
 const DELAYS = [5, 10, 15, 20, 30, 45, 60];
@@ -544,6 +544,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   const [stages, setStages] = useState<{ name: string; funnelName: string }[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [funnels, setFunnels] = useState<{ id: string; name: string }[]>([]);
+  const [mediaItems, setMediaItems] = useState<AgentMediaItem[]>([]);
 
   useEffect(() => {
     const found = allAgents.find((x) => x.id === id);
@@ -558,6 +559,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
     api.stages().then((ss) => setStages(ss.map((s) => ({ name: s.name, funnelName: s.funnelName })))).catch(() => {});
     api.tags().then((ts) => setTags(ts.map((t) => t.name))).catch(() => {});
     api.funnels().then((fs) => setFunnels(fs.map((f) => ({ id: f.id, name: f.name })))).catch(() => {});
+    api.agentMedia(id).then(setMediaItems).catch(() => {});
   }, []);
 
   const dirty = useMemo(() => a && saved && JSON.stringify(a) !== JSON.stringify(saved), [a, saved]);
@@ -673,6 +675,7 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                 agents={allAgents.filter((x) => x.active && x.id !== id).map((x) => x.name)}
                 stages={stages}
                 tags={tags}
+                media={mediaItems.map((m) => m.name)}
               />
             </>
           )}
@@ -918,6 +921,12 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                   exista em vários funis.
                 </span>
               </>,
+            )}
+            {acc(
+              'mid',
+              'image',
+              `Mídias do agente (${mediaItems.length})`,
+              <AgentMediaPanel agentId={a.id} items={mediaItems} setItems={setMediaItems} onCopied={() => setToast('Ação copiada — cole no roteiro')} />,
             )}
             {acc(
               'sig',
@@ -1275,7 +1284,7 @@ type AtAction = {
   color: string;
   group: string;
   caret?: number;
-  pick?: 'agent' | 'stage' | 'tag'; // abre um submenu para escolher o destino real
+  pick?: 'agent' | 'stage' | 'tag' | 'media'; // abre um submenu para escolher o destino real
 };
 const AT_ACTIONS: AtAction[] = [
   { group: 'Formatação', label: 'Passo', insert: '◆ Passo N — Título\n', icon: 'list', color: '#475569' },
@@ -1283,6 +1292,7 @@ const AT_ACTIONS: AtAction[] = [
   { group: 'Formatação', label: 'Mensagem', insert: '💬 Mensagem: ""', icon: 'chat', color: '#16a34a', caret: -1 },
   { group: 'Ações do agente', label: 'Transferir para agente', insert: '⚡ Ação: Transferir para agente: ', icon: 'flow', color: '#7c3aed', pick: 'agent' },
   { group: 'Ações do agente', label: 'Desativar agente', insert: '⚡ Ação: Desativar: agente', icon: 'power', color: '#dc2626' },
+  { group: 'Ações do agente', label: 'Enviar mídia', insert: '⚡ Ação: Enviar mídia: ', icon: 'image', color: '#0d9488', pick: 'media' },
   { group: 'CRM', label: 'Mudar etapa', insert: '⚡ Ação: Mudar etapa: ', icon: 'kanban', color: '#0891b2', pick: 'stage' },
   { group: 'CRM', label: 'Adicionar etiqueta', insert: '⚡ Ação: Adicionar etiqueta: ', icon: 'tag', color: '#b71312', pick: 'tag' },
   { group: 'CRM', label: 'Notificar equipe', insert: '⚡ Ação: Notificar equipe: MOTIVO', icon: 'users', color: '#ea580c' },
@@ -1301,6 +1311,7 @@ function actionColor(content: string): string {
   if (c.includes('etapa')) return '#0891b2';
   if (c.includes('etiqueta')) return '#b71312';
   if (c.includes('notificar')) return '#ea580c';
+  if (c.includes('mídia') || c.includes('midia')) return '#0d9488';
   return '#7c3aed';
 }
 
@@ -1331,6 +1342,7 @@ function ScriptArea({
   agents = [],
   stages = [],
   tags = [],
+  media = [],
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1338,6 +1350,7 @@ function ScriptArea({
   agents?: string[];
   stages?: { name: string; funnelName: string }[];
   tags?: string[];
+  media?: string[];
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const hlRef = useRef<HTMLDivElement>(null);
@@ -1377,17 +1390,34 @@ function ScriptArea({
       return stages.filter((s) => s.funnelName === subFunnel).map((s) => ({ name: s.name }));
     }
     if (sub?.pick === 'tag') return tags.map((t) => ({ name: t }));
+    if (sub?.pick === 'media') return media.map((m) => ({ name: m }));
     if (sub?.pick === 'agent') return agents.map((a) => ({ name: a }));
     return [];
-  }, [sub, subFunnel, funnelList, agents, stages, tags]);
+  }, [sub, subFunnel, funnelList, agents, stages, tags, media]);
   const subItems = useMemo(() => {
     const q = norm(subQuery);
     return subAll.filter((o) => !q || norm(o.name).includes(q));
   }, [subAll, subQuery]);
   const subEmptyText =
-    sub?.pick === 'stage' ? (subFunnel ? 'Nenhuma etapa neste funil' : 'Nenhum funil no CRM') : sub?.pick === 'tag' ? 'Nenhuma etiqueta criada' : 'Nenhum agente ativo';
+    sub?.pick === 'stage'
+      ? subFunnel
+        ? 'Nenhuma etapa neste funil'
+        : 'Nenhum funil no CRM'
+      : sub?.pick === 'tag'
+        ? 'Nenhuma etiqueta criada'
+        : sub?.pick === 'media'
+          ? 'Nenhuma mídia. Adicione em "Mídias do agente" (painel à direita).'
+          : 'Nenhum agente ativo';
   const subPlaceholder =
-    sub?.pick === 'stage' ? (subFunnel ? 'Buscar etapa...' : 'Buscar funil...') : sub?.pick === 'tag' ? 'Buscar etiqueta...' : 'Buscar agente...';
+    sub?.pick === 'stage'
+      ? subFunnel
+        ? 'Buscar etapa...'
+        : 'Buscar funil...'
+      : sub?.pick === 'tag'
+        ? 'Buscar etiqueta...'
+        : sub?.pick === 'media'
+          ? 'Buscar mídia...'
+          : 'Buscar agente...';
 
   // Fecha ao clicar fora do menu.
   useEffect(() => {
@@ -1650,6 +1680,155 @@ function ScriptArea({
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------- Biblioteca de mídias ------------------------- */
+
+const MEDIA_ICON: Record<string, string> = { image: 'image', video: 'video', audio: 'music', document: 'doc' };
+const fmtSize = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+/** Arquivos que o roteiro envia com "⚡ Ação: Enviar mídia: NOME". */
+function AgentMediaPanel({
+  agentId,
+  items,
+  setItems,
+  onCopied,
+}: {
+  agentId: string;
+  items: AgentMediaItem[];
+  setItems: (v: AgentMediaItem[]) => void;
+  onCopied: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [preview, setPreview] = useState<{ id: string; url: string; kind: string } | null>(null);
+
+  useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview.url);
+  }, [preview]);
+
+  const pick = (f: File | undefined) => {
+    if (!f) return;
+    setErr('');
+    if (f.size > 30 * 1024 * 1024) return setErr('Arquivo muito grande (máx. 30 MB).');
+    setFile(f);
+    if (!name.trim()) setName(f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 60));
+  };
+
+  const upload = async () => {
+    if (!file || !name.trim()) return;
+    setBusy(true);
+    setErr('');
+    try {
+      const it = await api.uploadAgentMedia(agentId, file, name.trim());
+      setItems([...items, it]);
+      setFile(null);
+      setName('');
+    } catch (x) {
+      setErr((x as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (it: AgentMediaItem) => {
+    if (!window.confirm(`Excluir a mídia "${it.name}"? O roteiro que a usa deixa de enviá-la.`)) return;
+    await api.deleteAgentMedia(agentId, it.id).catch(() => {});
+    setItems(items.filter((x) => x.id !== it.id));
+    if (preview?.id === it.id) setPreview(null);
+  };
+
+  const open = async (it: AgentMediaItem) => {
+    if (preview?.id === it.id) return setPreview(null);
+    try {
+      const url = await api.agentMediaUrl(agentId, it.id);
+      if (it.kind === 'document') window.open(url, '_blank', 'noopener');
+      else setPreview({ id: it.id, url, kind: it.kind });
+    } catch (x) {
+      setErr((x as Error).message);
+    }
+  };
+
+  const copy = async (it: AgentMediaItem) => {
+    await navigator.clipboard.writeText(`⚡ Ação: Enviar mídia: ${it.name}`).catch(() => {});
+    onCopied();
+  };
+
+  return (
+    <div className="stack-sm">
+      <span className="muted small">
+        Suba fotos, vídeos, áudios ou PDFs e dê um nome. No roteiro, use <b>@ › Enviar mídia</b> (ou cole a ação copiada) no passo em
+        que a IA deve mandar o arquivo. Áudios viram mensagem de voz.
+      </span>
+
+      <input
+        ref={fileRef}
+        type="file"
+        style={{ display: 'none' }}
+        accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+        onChange={(e) => {
+          pick(e.target.files?.[0]);
+          e.target.value = '';
+        }}
+      />
+      {file ? (
+        <div className="stack-sm">
+          <span className="small">
+            <Icon name="clip" size={13} /> {file.name} · {fmtSize(file.size)}
+          </span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome usado no roteiro (ex.: Tabela de honorários)" maxLength={80} />
+          <div className="row">
+            <button className="primary sm" onClick={upload} disabled={busy || !name.trim()}>
+              {busy ? 'Enviando…' : 'Adicionar'}
+            </button>
+            <button className="sm" onClick={() => setFile(null)} disabled={busy}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="sm" onClick={() => fileRef.current?.click()}>
+          <Icon name="plus" size={14} /> Adicionar mídia
+        </button>
+      )}
+      {err && <span className="small late-text">{err}</span>}
+
+      {items.length > 0 && (
+        <div className="media-lib">
+          {items.map((it) => (
+            <div key={it.id} className="media-lib-item">
+              <div className="row" style={{ gap: 8, minWidth: 0 }}>
+                <Icon name={MEDIA_ICON[it.kind] ?? 'doc'} size={16} />
+                <button className="link-btn" onClick={() => open(it)} title="Pré-visualizar">
+                  <b>{it.name}</b>
+                </button>
+                <span className="muted small" style={{ whiteSpace: 'nowrap' }}>
+                  {fmtSize(it.size)}
+                </span>
+                <span style={{ flex: 1 }} />
+                <button className="icon-btn" onClick={() => copy(it)} title="Copiar a ação para o roteiro" aria-label="Copiar ação">
+                  <Icon name="copy" size={14} />
+                </button>
+                <button className="icon-btn" onClick={() => remove(it)} title="Excluir" aria-label="Excluir mídia">
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+              {preview?.id === it.id && (
+                <div className="media-lib-preview">
+                  {it.kind === 'image' && <img src={preview.url} alt={it.name} />}
+                  {it.kind === 'video' && <video src={preview.url} controls />}
+                  {it.kind === 'audio' && <audio src={preview.url} controls />}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

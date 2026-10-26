@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type AiProvider, type SessionUser, type WorkspaceInfo } from '../api';
 import { Icon } from '../icons';
 import { getBrand, setBrand, type Brand } from '../prefs';
+import { Switch } from './Agents';
 
 export function Settings({ user, workspace, onLogout }: { user: SessionUser; workspace: WorkspaceInfo; onLogout?: () => void }) {
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -35,6 +36,11 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
   const [crmSaved, setCrmSaved] = useState(false);
   const [reclass, setReclass] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Notificação de lead qualificado (no WhatsApp do próprio escritório)
+  const [notifyOn, setNotifyOn] = useState(true);
+  const [notifyNumber, setNotifyNumber] = useState('');
+  const [notifyMsg, setNotifyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const preset = useMemo(() => providers.find((p) => p.id === provider), [providers, provider]);
   const crmPreset = useMemo(() => providers.find((p) => p.id === crmProvider), [providers, crmProvider]);
 
@@ -53,8 +59,30 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
       setCrmBaseUrl(c.crmBaseUrl || '');
       setCrmHasKey(c.crmHasKey);
       setCrmConnected(c.crmConnected);
+      setNotifyOn(c.notifyQualified ?? true);
+      setNotifyNumber(c.notifyNumber ?? '');
     });
   }, []);
+
+  const saveNotify = async (patch: { notifyQualified?: boolean; notifyNumber?: string }) => {
+    setNotifyMsg(null);
+    try {
+      await api.updateAiConfig(patch);
+      setNotifyMsg({ ok: true, text: 'Salvo.' });
+    } catch (x) {
+      setNotifyMsg({ ok: false, text: (x as Error).message });
+    }
+  };
+  const testNotify = async () => {
+    setNotifyMsg({ ok: true, text: 'Enviando teste…' });
+    try {
+      await api.updateAiConfig({ notifyNumber });
+      const r = await api.testNotify();
+      setNotifyMsg(r.ok ? { ok: true, text: `Teste enviado para ${r.to}. Confira no WhatsApp.` } : { ok: false, text: r.error || 'Falhou' });
+    } catch (x) {
+      setNotifyMsg({ ok: false, text: (x as Error).message });
+    }
+  };
 
   const onCrmProvider = (id: string) => {
     setCrmProvider(id);
@@ -246,6 +274,49 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
               ))}
             </div>
             <span className="muted small">Vale só para este navegador.</span>
+          </div>
+        </section>
+
+        <section className="card stack" style={{ gridColumn: '1 / -1' }}>
+          <div className="row between">
+            <h3 className="card-title" style={{ margin: 0 }}>
+              <Icon name="zap" /> Notificação de lead qualificado
+            </h3>
+            <label className="row" style={{ gap: 8 }}>
+              <span className="small">{notifyOn ? 'Ligada' : 'Desligada'}</span>
+              <Switch
+                on={notifyOn}
+                onChange={(v) => {
+                  setNotifyOn(v);
+                  void saveNotify({ notifyQualified: v });
+                }}
+                label="Ligar notificação de lead qualificado"
+              />
+            </label>
+          </div>
+          <p className="muted small">
+            Quando a IA levar um lead para a etapa <b>Lead Qualificado</b>, o escritório recebe no WhatsApp uma mensagem com
+            nome, telefone, funil, etiquetas e um resumo do atendimento feito pela IA. Vai uma vez por lead.
+          </p>
+          <div className="field-sm">
+            <span>Enviar para (opcional)</span>
+            <input
+              value={notifyNumber}
+              onChange={(e) => setNotifyNumber(e.target.value)}
+              onBlur={() => void saveNotify({ notifyNumber })}
+              placeholder="Em branco = o próprio número conectado (chega em “Mensagem para você”)"
+              inputMode="tel"
+              disabled={!notifyOn}
+            />
+            <span className="muted small">
+              Ex.: 11 99999-0000. Use outro número se quiser receber num celular diferente. Na API Oficial é obrigatório informar.
+            </span>
+          </div>
+          <div className="row">
+            <button onClick={testNotify} disabled={!notifyOn}>
+              <Icon name="send" size={16} /> Enviar teste
+            </button>
+            {notifyMsg && <span className={`small ${notifyMsg.ok ? 'ok-text' : 'late-text'}`}>{notifyMsg.text}</span>}
           </div>
         </section>
 

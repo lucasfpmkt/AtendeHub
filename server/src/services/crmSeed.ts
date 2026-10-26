@@ -41,7 +41,7 @@ export async function createFunnelWithDefaults(workspaceId: string, name: string
 const norm = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 // "Lead Qualificado", "Qualificado", etc. — mas NÃO "Desqualificado".
-const isQualifiedStage = (name: string) => {
+export const isQualifiedStage = (name: string) => {
   const n = norm(name);
   return n.includes('qualificad') && !n.includes('desqualific');
 };
