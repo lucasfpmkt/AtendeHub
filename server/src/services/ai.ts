@@ -70,6 +70,9 @@ export type AiConfigPatch = {
   crmBaseUrl?: string;
   crmApiKey?: string;
   clearCrmKey?: boolean;
+  // Notificação de lead qualificado
+  notifyQualified?: boolean;
+  notifyNumber?: string;
 };
 
 export async function updateAiConfig(ws: string, data: AiConfigPatch) {
@@ -78,6 +81,8 @@ export async function updateAiConfig(ws: string, data: AiConfigPatch) {
   if (typeof data.systemPrompt === 'string') patch.systemPrompt = data.systemPrompt;
   if (typeof data.autoReply === 'boolean') patch.autoReply = data.autoReply;
   if (typeof data.autoStage === 'boolean') patch.autoStage = data.autoStage;
+  if (typeof data.notifyQualified === 'boolean') patch.notifyQualified = data.notifyQualified;
+  if (typeof data.notifyNumber === 'string') patch.notifyNumber = data.notifyNumber.replace(/[^\d+]/g, '').slice(0, 20);
   if (typeof data.provider === 'string') patch.provider = data.provider;
   if (typeof data.model === 'string') patch.model = data.model;
   if (typeof data.baseUrl === 'string') patch.baseUrl = data.baseUrl.trim();

@@ -58,6 +58,12 @@ export function Inbox({
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [sendingFile, setSendingFile] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  // Gravação de áudio (vira mensagem de voz no WhatsApp).
+  const recRef = useRef<{ rec: MediaRecorder; chunks: Blob[]; stream: MediaStream; cancel: boolean } | null>(null);
+  const [recSecs, setRecSecs] = useState<number | null>(null);
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
 
@@ -138,6 +144,7 @@ export function Inbox({
     const qr = quick.find((x) => x.shortcut === body);
     if (qr) body = qr.text;
     setText('');
+    if (taRef.current) taRef.current.style.height = '';
     setError('');
     try {
       // O servidor pausa a IA desta conversa quando a equipe responde.
@@ -178,20 +185,110 @@ export function Inbox({
     if (activeId) api.schedules(activeId).then(setSchedList).catch(() => {});
   };
 
-  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !activeId) return;
+  /** Envia um arquivo (anexo, colado, arrastado ou áudio gravado). O texto digitado vira legenda. */
+  const sendFile = async (file: File, withCaption = true) => {
+    if (!activeId) return;
+    if (file.size > 30 * 1024 * 1024) {
+      setError('Arquivo muito grande (máx. 30 MB).');
+      return;
+    }
     setError('');
+    setSendingFile(true);
     try {
-      const msg = await api.sendMedia(activeId, file, text.trim());
-      setText('');
+      const caption = withCaption ? text.trim() : '';
+      const msg = await api.sendMedia(activeId, file, caption);
+      if (caption) setText('');
       setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
       loadConversations();
     } catch (x) {
       setError((x as Error).message);
+    } finally {
+      setSendingFile(false);
     }
   };
+
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) await sendFile(file);
+  };
+
+  // Cola um print/imagem direto na caixa de texto.
+  const onPaste = (e: React.ClipboardEvent) => {
+    const file = Array.from(e.clipboardData.files)[0];
+    if (file) {
+      e.preventDefault();
+      void sendFile(file);
+    }
+  };
+
+  // Enter envia; Shift+Enter quebra a linha. A caixa cresce com o texto.
+  const onComposerKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      void send();
+    }
+  };
+  const autoGrow = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+  };
+
+  /* ---------------------------- gravação de áudio ---------------------------- */
+  useEffect(() => {
+    if (recSecs === null) return;
+    const t = setInterval(() => setRecSecs((v) => (v === null ? v : v + 1)), 1000);
+    return () => clearInterval(t);
+  }, [recSecs === null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startRec = async () => {
+    setError('');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError('Este navegador não permite gravar áudio.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported(m));
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const state = { rec, chunks: [] as Blob[], stream, cancel: false };
+      rec.ondataavailable = (ev) => ev.data.size && state.chunks.push(ev.data);
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        recRef.current = null;
+        setRecSecs(null);
+        if (state.cancel || !state.chunks.length) return;
+        const type = rec.mimeType || mime || 'audio/webm';
+        const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
+        void sendFile(new File(state.chunks, `audio.${ext}`, { type: type.split(';')[0] }), false);
+      };
+      recRef.current = state;
+      rec.start();
+      setRecSecs(0);
+    } catch {
+      setError('Não foi possível usar o microfone. Libere o acesso ao microfone no navegador.');
+    }
+  };
+  // Saiu da tela gravando: descarta e libera o microfone.
+  useEffect(
+    () => () => {
+      const r = recRef.current;
+      if (r) {
+        r.cancel = true;
+        r.rec.stop();
+        r.stream.getTracks().forEach((t) => t.stop());
+      }
+    },
+    [],
+  );
+
+  const stopRec = (cancel: boolean) => {
+    const r = recRef.current;
+    if (!r) return;
+    r.cancel = cancel;
+    r.rec.stop();
+  };
+  const fmtSecs = (n: number) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
 
   const draft = async () => {
     if (!activeId) return;
@@ -290,7 +387,24 @@ export function Inbox({
         </div>
       </div>
 
-      <div className="chat">
+      <div
+        className={`chat ${dragOver ? 'drag-over' : ''}`}
+        onDragOver={(e) => {
+          if (!activeId || !connected || !e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          if (!dragOver) return;
+          e.preventDefault();
+          setDragOver(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) void sendFile(file);
+        }}
+      >
         {active ? (
           <>
             <div className="chat-header">
@@ -380,30 +494,59 @@ export function Inbox({
                 onChange={onPickFile}
                 accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
               />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={!connected}
-                title="Anexar arquivo (imagem, PDF, áudio…)"
-                aria-label="Anexar arquivo"
-              >
-                <Icon name="doc" />
-              </button>
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={connected ? 'Escreva uma mensagem ou / para mensagens rápidas' : 'Conecte o WhatsApp para enviar'}
-                disabled={!connected}
-              />
-              <button type="button" onClick={openSched} disabled={!connected} title="Agendar mensagem / lembrete" aria-label="Agendar mensagem">
-                <Icon name="clock" />
-              </button>
-              <button type="button" onClick={draft} disabled={aiBusy} title="Sugerir resposta com IA" aria-label="Sugerir resposta com IA">
-                {aiBusy ? '…' : <Icon name="sparkle" />}
-              </button>
-              <button className="primary" disabled={!connected} aria-label="Enviar">
-                <Icon name="send" />
-              </button>
+              {recSecs !== null ? (
+                <>
+                  <button type="button" onClick={() => stopRec(true)} title="Descartar gravação" aria-label="Descartar gravação">
+                    <Icon name="trash" />
+                  </button>
+                  <div className="rec-live" role="status">
+                    <span className="rec-dot" /> Gravando áudio · {fmtSecs(recSecs)}
+                  </div>
+                  <button type="button" className="primary" onClick={() => stopRec(false)} title="Parar e enviar o áudio" aria-label="Enviar áudio">
+                    <Icon name="send" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={!connected || sendingFile}
+                    title="Anexar foto, vídeo, áudio ou documento (também dá para colar ou arrastar o arquivo aqui)"
+                    aria-label="Anexar arquivo"
+                  >
+                    {sendingFile ? '…' : <Icon name="clip" />}
+                  </button>
+                  <textarea
+                    ref={taRef}
+                    rows={1}
+                    className="composer-input"
+                    value={text}
+                    onChange={(e) => {
+                      setText(e.target.value);
+                      autoGrow(e.target);
+                    }}
+                    onKeyDown={onComposerKey}
+                    onPaste={onPaste}
+                    placeholder={
+                      connected ? 'Mensagem (Enter envia · Shift+Enter quebra linha · / para respostas rápidas)' : 'Conecte o WhatsApp para enviar'
+                    }
+                    disabled={!connected}
+                  />
+                  <button type="button" onClick={startRec} disabled={!connected || sendingFile} title="Gravar áudio" aria-label="Gravar áudio">
+                    <Icon name="mic" />
+                  </button>
+                  <button type="button" onClick={openSched} disabled={!connected} title="Agendar mensagem / lembrete" aria-label="Agendar mensagem">
+                    <Icon name="clock" />
+                  </button>
+                  <button type="button" onClick={draft} disabled={aiBusy} title="Sugerir resposta com IA" aria-label="Sugerir resposta com IA">
+                    {aiBusy ? '…' : <Icon name="sparkle" />}
+                  </button>
+                  <button className="primary" disabled={!connected} aria-label="Enviar">
+                    <Icon name="send" />
+                  </button>
+                </>
+              )}
             </form>
 
             {schedOpen && (

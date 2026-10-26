@@ -4,6 +4,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   downloadMediaMessage,
   generateMessageIDV2,
+  jidNormalizedUser,
   S_WHATSAPP_NET,
   type WASocket,
 } from '@whiskeysockets/baileys';
@@ -36,6 +37,8 @@ type Session = {
   sock: WASocket | null;
   status: WaStatus;
   me?: string;
+  /** LID do próprio número (o WhatsApp também endereça a conversa consigo mesmo por LID). */
+  meLid?: string;
   qr: string | null;
   starting: boolean;
   /** Conexão por código: número informado e código de 8 caracteres gerado. */
@@ -83,6 +86,21 @@ function chatJidOf(key: { remoteJid?: string | null; remoteJidAlt?: string | nul
   const jid = key.remoteJid ?? null;
   if (jid?.endsWith('@lid') && key.remoteJidAlt?.endsWith('@s.whatsapp.net')) return key.remoteJidAlt;
   return jid;
+}
+
+const userOf = (jid?: string | null) => (jid ? jid.split('@')[0].split(':')[0] : '');
+
+/** É a conversa do número consigo mesmo ("Mensagem para você")? Não vira contato no CRM. */
+function isSelfChat(s: Session, jid: string): boolean {
+  const u = userOf(jid);
+  return Boolean(u) && (u === userOf(s.me) || u === userOf(s.meLid));
+}
+
+/** JID do próprio número conectado por QR (destino das notificações ao escritório). */
+export function ownJid(ws: string): string | null {
+  if (cloudInfo.get(ws)) return null; // API Oficial não envia mensagem para si mesma
+  const s = sessions.get(ws);
+  return s?.me && s.status === 'connected' ? jidNormalizedUser(s.me) : null;
 }
 
 /** Ping na conexão do WhatsApp com tempo-limite: detecta socket "zumbi". */
@@ -242,6 +260,8 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       // direto para "online". Sem isso ele entra em "Syncing" e, se a sincronização de
       // estado falhar, fica represando as mensagens novas para sempre.
       shouldSyncHistoryMessage: () => importHistory,
+      // Links enviados ganham pré-visualização (título, imagem) — usa o link-preview-js.
+      generateHighQualityLinkPreview: true,
     });
     s.sock = sock;
 
@@ -260,6 +280,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
 
       if (connection === 'open') {
         s.me = sock.user?.id;
+        s.meLid = sock.user?.lid ?? undefined;
         s.qr = null;
         s.pairPhone = undefined;
         s.pairCode = null;
@@ -393,6 +414,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       for (const m of messages) {
         const jid = chatJidOf(m.key);
         if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid === 'status@broadcast') continue;
+        if (isSelfChat(s, jid)) continue;
         const body =
           m.message?.conversation ??
           m.message?.extendedTextMessage?.text ??
@@ -453,6 +475,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       for (const m of messages) {
         const jid = chatJidOf(m.key);
         if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid === 'status@broadcast') continue; // ignora grupos/canais/status
+        if (isSelfChat(s, jid)) continue; // "Mensagem para você" (ex.: notificações do LawHub)
 
         const parsed = await readMessage(m);
         if (!parsed) continue;

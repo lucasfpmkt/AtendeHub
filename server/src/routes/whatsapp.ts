@@ -4,7 +4,7 @@ import { wsOf } from '../auth.js';
 import { getStatus, startWhatsApp, logoutWhatsApp, normalizePhone, sendMedia, refreshChannel } from '../whatsapp/session.js';
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
-import { saveMedia, kindFromMime } from '../whatsapp/media.js';
+import { saveMedia, kindFromMime, prepareOutgoingMedia } from '../whatsapp/media.js';
 import { listTemplates } from '../whatsapp/cloud.js';
 import { enc, dec } from '../crypto.js';
 
@@ -72,13 +72,19 @@ whatsappRouter.post('/send-media/:conversationId', raw({ type: '*/*', limit: '32
     const buffer = req.body as Buffer;
     if (!buffer?.length) return res.status(400).json({ error: 'arquivo vazio' });
 
-    const mimetype = String(req.query.mime || req.headers['content-type'] || 'application/octet-stream');
-    const filename = req.query.name ? String(req.query.name) : undefined;
+    const rawMime = String(req.query.mime || req.headers['content-type'] || 'application/octet-stream');
     const caption = req.query.caption ? String(req.query.caption) : '';
-    const kind = kindFromMime(mimetype);
+    // Áudio (inclusive a gravação feita no LawHub) vira mensagem de voz OGG/Opus.
+    const { buffer: outBuf, mimetype, filename, kind } = await prepareOutgoingMedia({
+      buffer,
+      mimetype: rawMime,
+      filename: req.query.name ? String(req.query.name) : undefined,
+      caption,
+      kind: kindFromMime(rawMime),
+    });
 
-    const waMessageId = await sendMedia(ws, conversation.contact.waJid, { buffer, mimetype, filename, caption, kind });
-    const mediaId = await saveMedia(ws, buffer);
+    const waMessageId = await sendMedia(ws, conversation.contact.waJid, { buffer: outBuf, mimetype, filename, caption, kind });
+    const mediaId = await saveMedia(ws, outBuf);
     const message = await prisma.message.create({
       data: {
         conversationId: conversation.id,
