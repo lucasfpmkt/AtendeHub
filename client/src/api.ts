@@ -228,6 +228,27 @@ export interface Agent {
   order?: number;
 }
 
+export type InsightSeverity = 'critica' | 'media' | 'leve';
+export interface AdsInsightItem {
+  severity: InsightSeverity;
+  platform: 'meta' | 'google' | 'geral';
+  campaign: string;
+  title: string;
+  detail: string;
+  action: string;
+}
+export interface AdsInsightReport {
+  id: string;
+  trigger: 'auto' | 'manual';
+  runDate: string;
+  status: 'ok' | 'error';
+  summary: string;
+  items: AdsInsightItem[];
+  platforms: string[];
+  error: string | null;
+  createdAt: string;
+}
+
 export interface AgentMediaItem {
   id: string;
   name: string;
@@ -706,6 +727,9 @@ export const api = {
       campaigns?: { name: string; status: string; objective?: string }[];
     }>(`/ads/meta/summary?preset=${preset}`),
   adsMetaTestCapi: (phone?: string) => req<{ ok: boolean }>('/ads/meta/test-capi', { method: 'POST', body: JSON.stringify({ phone }) }),
+  // Otimizações: análise das campanhas por IA (segunda e quarta, ou sob demanda)
+  adsInsights: () => req<AdsInsightReport[]>('/ads/insights'),
+  runAdsInsights: () => req<AdsInsightReport>('/ads/insights/run', { method: 'POST' }),
   adsMetaBreakdown: (preset = 'last_30d') =>
     req<{
       configured: boolean;

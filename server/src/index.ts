@@ -13,6 +13,7 @@ import { forceHttps, rateLimit, securityHeaders } from './security.js';
 import { mediaFilePath, safeMediaHeaders } from './whatsapp/media.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { startFollowupLoop } from './services/followup.js';
+import { startAdsInsightsLoop } from './services/adsInsights.js';
 import { backfillStageTags } from './services/inbound.js';
 import { ensureTenancy } from './services/tenancy.js';
 import { ensureQualifiedStageInAllFunnels } from './services/crmSeed.js';
@@ -138,4 +139,5 @@ server.listen(env.port, async () => {
   }
   await startSavedSessions();
   startFollowupLoop();
+  startAdsInsightsLoop(); // análise de campanhas: segunda e quarta, 8h
 });
