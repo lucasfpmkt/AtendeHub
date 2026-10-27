@@ -122,6 +122,23 @@ model AgentMedia {
   @@index([agentId])
 }
 
+/// Análise automática das campanhas (Meta + Google) com sugestões de otimização.
+/// Gerada toda segunda e quarta (ou sob demanda) e exibida em Marketing › Otimizações.
+model AdsInsightReport {
+  id          String   @id @default(cuid())
+  workspaceId String
+  trigger     String   @default("auto") // auto | manual
+  runDate     String // AAAA-MM-DD no horário de Brasília (evita rodar 2x no mesmo dia)
+  status      String   @default("ok") // ok | error
+  summary     String   @default("")
+  items       String   @default("[]") // JSON: [{ severity, platform, campaign, title, detail, action }]
+  platforms   String   @default("") // ex.: "meta,google"
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
 /// Quem mudou o quê em cada agente.
 model AgentHistory {
   id        String   @id @default(cuid())

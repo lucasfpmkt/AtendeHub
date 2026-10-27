@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { api } from '../api';
+import { api, type AdsInsightReport, type InsightSeverity } from '../api';
 import { Icon } from '../icons';
 import { Kpi } from './Home';
 
@@ -869,13 +869,33 @@ function FragmentRows({ children }: { children: ReactNode }) {
 }
 
 /* ===================== Marketing (Meta + Google) ===================== */
+type MktNet = 'meta' | 'google' | 'otimizacoes';
+
 export function Marketing() {
-  const [net, setNet] = useState<'meta' | 'google'>(() => ((localStorage.getItem('lawhub.mkt.net') as 'meta' | 'google') || 'meta'));
+  const [net, setNet] = useState<MktNet>(() => {
+    try {
+      return (localStorage.getItem('lawhub.mkt.net') as MktNet) || 'meta';
+    } catch {
+      return 'meta';
+    }
+  });
   const [view, setView] = useState<'resumo' | 'detalhes'>('resumo');
-  const pickNet = (n: 'meta' | 'google') => {
+  const [critical, setCritical] = useState(0);
+  const pickNet = (n: MktNet) => {
     setNet(n);
-    localStorage.setItem('lawhub.mkt.net', n);
+    try {
+      localStorage.setItem('lawhub.mkt.net', n);
+    } catch {
+      /* navegador sem armazenamento */
+    }
   };
+  // Selo com o nº de sugestões críticas do relatório mais recente.
+  useEffect(() => {
+    api
+      .adsInsights()
+      .then((r) => setCritical(r.find((x) => x.status === 'ok')?.items.filter((i) => i.severity === 'critica').length ?? 0))
+      .catch(() => {});
+  }, []);
 
   return (
     <>
@@ -887,7 +907,12 @@ export function Marketing() {
           <button className={net === 'google' ? 'active' : ''} onClick={() => pickNet('google')}>
             <Icon name="grid" size={15} /> Google
           </button>
+          <button className={net === 'otimizacoes' ? 'active' : ''} onClick={() => pickNet('otimizacoes')}>
+            <Icon name="sparkle" size={15} /> Otimizações
+            {critical > 0 && <span className="ins-badge" title={`${critical} sugestão(ões) crítica(s)`}>{critical}</span>}
+          </button>
         </div>
+        {net !== 'otimizacoes' && (
         <div className="segmented">
           <button className={view === 'resumo' ? 'active' : ''} onClick={() => setView('resumo')}>
             Resumo
@@ -896,7 +921,10 @@ export function Marketing() {
             Detalhamento
           </button>
         </div>
+        )}
       </div>
+
+      {net === 'otimizacoes' && <AdsInsights onCritical={setCritical} />}
 
       {net === 'meta' && view === 'resumo' && <MetaAds />}
       {net === 'meta' && view === 'detalhes' && (
@@ -917,5 +945,148 @@ export function Marketing() {
         />
       )}
     </>
+  );
+}
+
+/* ====================== Otimizações (análise por IA) ====================== */
+
+const SEV_META: Record<InsightSeverity, { label: string; cls: string }> = {
+  critica: { label: 'Crítica', cls: 'sev-critica' },
+  media: { label: 'Média', cls: 'sev-media' },
+  leve: { label: 'Leve', cls: 'sev-leve' },
+};
+const PLAT_LABEL: Record<string, string> = { meta: 'Meta Ads', google: 'Google Ads', geral: 'Geral' };
+const fmtWhen = (iso: string) =>
+  new Date(iso).toLocaleString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function AdsInsights({ onCritical }: { onCritical: (n: number) => void }) {
+  const [reports, setReports] = useState<AdsInsightReport[] | null>(null);
+  const [sel, setSel] = useState<string>('');
+  const [filter, setFilter] = useState<InsightSeverity | 'todas'>('todas');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const load = () =>
+    api
+      .adsInsights()
+      .then((r) => {
+        setReports(r);
+        setSel((cur) => cur || r[0]?.id || '');
+      })
+      .catch((e) => setErr((e as Error).message));
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const runNow = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const r = await api.runAdsInsights();
+      setReports((prev) => [r, ...(prev ?? [])]);
+      setSel(r.id);
+      if (r.status === 'ok') onCritical(r.items.filter((i) => i.severity === 'critica').length);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const report = reports?.find((r) => r.id === sel) ?? null;
+  const counts = { critica: 0, media: 0, leve: 0 } as Record<InsightSeverity, number>;
+  report?.items.forEach((i) => counts[i.severity]++);
+  const shown = report?.items.filter((i) => filter === 'todas' || i.severity === filter) ?? [];
+
+  return (
+    <div className="page stack">
+      <div className="ins-head">
+        <div className="ins-head-text">
+          <h2 style={{ margin: 0 }}>Otimizações das campanhas</h2>
+          <span className="muted small">
+            A IA analisa Meta Ads e Google Ads (últimos 7 e 30 dias) junto com os leads que chegaram no LawHub, toda{' '}
+            <b>segunda e quarta às 8h</b>, e sugere ajustes por gravidade.
+          </span>
+        </div>
+        <div className="ins-head-actions">
+          {reports && reports.length > 0 && (
+            <select className="ins-select" value={sel} onChange={(e) => setSel(e.target.value)} aria-label="Escolher análise">
+              {reports.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {fmtWhen(r.createdAt)} {r.trigger === 'manual' ? '· manual' : ''} {r.status === 'error' ? '· falhou' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <button className="primary" onClick={runNow} disabled={busy}>
+            <Icon name="sparkle" size={15} /> {busy ? 'Analisando… (até 1 min)' : 'Analisar agora'}
+          </button>
+        </div>
+      </div>
+
+      {err && <div className="card late-text small">{err}</div>}
+      {reports === null && <div className="muted">Carregando…</div>}
+      {reports && reports.length === 0 && !busy && (
+        <div className="card muted">
+          Ainda não há análises. A primeira sai na próxima segunda ou quarta às 8h — ou clique em <b>Analisar agora</b>. É preciso ter Meta
+          Ads ou Google Ads conectado neste cliente.
+        </div>
+      )}
+
+      {report?.status === 'error' && (
+        <div className="card">
+          <b>Esta análise não foi concluída.</b>
+          <div className="small late-text">{report.error}</div>
+        </div>
+      )}
+
+      {report?.status === 'ok' && (
+        <>
+          <div className="card stack-sm">
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              {report.platforms.map((p) => (
+                <span key={p} className="pill">
+                  {PLAT_LABEL[p] ?? p}
+                </span>
+              ))}
+              <span className="muted small">{fmtWhen(report.createdAt)}</span>
+            </div>
+            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{report.summary || 'Sem resumo.'}</p>
+          </div>
+
+          <div className="segmented ins-filters">
+            <button className={filter === 'todas' ? 'active' : ''} onClick={() => setFilter('todas')}>
+              Todas ({report.items.length})
+            </button>
+            {(['critica', 'media', 'leve'] as InsightSeverity[]).map((k) => (
+              <button key={k} className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>
+                <span className={`sev-dot ${SEV_META[k].cls}`} /> {SEV_META[k].label} ({counts[k]})
+              </button>
+            ))}
+          </div>
+
+          {shown.length === 0 && <div className="muted">Nenhuma sugestão nesta categoria.</div>}
+          <div className="ins-list">
+            {shown.map((it, i) => (
+              <div key={i} className={`card ins-item ${SEV_META[it.severity].cls}`}>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <span className={`sev-tag ${SEV_META[it.severity].cls}`}>{SEV_META[it.severity].label}</span>
+                  <span className="pill">{PLAT_LABEL[it.platform] ?? it.platform}</span>
+                  {it.campaign && <span className="muted small">{it.campaign}</span>}
+                </div>
+                <b className="ins-title">{it.title}</b>
+                {it.detail && <div className="small">{it.detail}</div>}
+                {it.action && (
+                  <div className="ins-action small">
+                    <b>O que fazer:</b> {it.action}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <span className="muted small">Sugestões geradas por IA a partir dos números das contas. Revise antes de aplicar.</span>
+        </>
+      )}
+    </div>
   );
 }

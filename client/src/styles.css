@@ -723,3 +723,32 @@ svg.chart text { fill: var(--g-400); font-size: 11px; font-family: var(--font); 
 .media-lib-preview audio { width: 100%; }
 .link-btn { border: 0; background: none; padding: 0; min-height: 0; height: auto; color: inherit; font-weight: inherit; text-align: left; cursor: pointer; min-width: 0; }
 .link-btn:hover b { text-decoration: underline; }
+
+/* Otimizações das campanhas */
+.ins-badge { margin-left: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.ins-list { display: flex; flex-direction: column; gap: 10px; }
+.ins-item { display: flex; flex-direction: column; gap: 6px; border-left: 4px solid var(--g-300); }
+.ins-item.sev-critica { border-left-color: #dc2626; }
+.ins-item.sev-media { border-left-color: #f59e0b; }
+.ins-item.sev-leve { border-left-color: #16a34a; }
+.ins-title { font-size: 15px; }
+.ins-action { background: var(--g-50, #f9fafb); border-radius: 6px; padding: 8px 10px; }
+.sev-tag { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.sev-tag.sev-critica { background: #fee2e2; color: #b91c1c; }
+.sev-tag.sev-media { background: #fef3c7; color: #b45309; }
+.sev-tag.sev-leve { background: #dcfce7; color: #15803d; }
+.sev-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.sev-dot.sev-critica { background: #dc2626; }
+.sev-dot.sev-media { background: #f59e0b; }
+.sev-dot.sev-leve { background: #16a34a; }
+.ins-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.ins-head-text { flex: 1; min-width: 0; }
+.ins-head-actions { display: flex; gap: 8px; align-items: center; flex: none; }
+.ins-select { min-width: 250px; }
+.ins-filters { align-self: flex-start; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .ins-head { flex-direction: column; align-items: stretch; }
+  .ins-head-actions { flex-direction: column; align-items: stretch; }
+  .ins-select { min-width: 0; width: 100%; }
+  .ins-filters { align-self: stretch; }
+}

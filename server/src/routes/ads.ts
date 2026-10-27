@@ -28,6 +28,7 @@ import {
 } from '../services/googleAds.js';
 import { findQualifiedStageId } from '../services/crmSeed.js';
 import { enc, dec } from '../crypto.js';
+import { runAdsInsights } from '../services/adsInsights.js';
 import { env, metaOauthEnabled } from '../env.js';
 
 export const adsRouter = Router();
@@ -356,5 +357,33 @@ googleOauthRouter.get('/', async (req, res) => {
   } catch (err) {
     console.error('[google-oauth] callback falhou:', (err as Error).message);
     back('erro');
+  }
+});
+
+/* ----------------------- Otimizações (análise por IA) ----------------------- */
+// Relatórios gerados toda segunda e quarta (ou sob demanda) com sugestões
+// classificadas como crítica / média / leve.
+
+const reportOut = (r: { id: string; trigger: string; runDate: string; status: string; summary: string; items: string; platforms: string; error: string | null; createdAt: Date }) => {
+  let items: unknown = [];
+  try {
+    items = JSON.parse(r.items || '[]');
+  } catch {
+    /* mantém [] */
+  }
+  return { id: r.id, trigger: r.trigger, runDate: r.runDate, status: r.status, summary: r.summary, items, platforms: r.platforms ? r.platforms.split(',') : [], error: r.error, createdAt: r.createdAt };
+};
+
+adsRouter.get('/insights', async (req, res) => {
+  const reports = await prisma.adsInsightReport.findMany({ where: { workspaceId: wsOf(req) }, orderBy: { createdAt: 'desc' }, take: 12 });
+  res.json(reports.map(reportOut));
+});
+
+adsRouter.post('/insights/run', async (req, res) => {
+  try {
+    const report = await runAdsInsights(wsOf(req), 'manual');
+    res.json(reportOut(report));
+  } catch (err) {
+    res.status(409).json({ error: (err as Error).message });
   }
 });
