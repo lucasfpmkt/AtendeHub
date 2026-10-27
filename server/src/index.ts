@@ -9,7 +9,8 @@ import { setIO, roomOf } from './realtime.js';
 import { existsSync, createReadStream } from 'node:fs';
 import { accessStillValid, requireAuth, requireAdmin, verifyToken } from './auth.js';
 import { prisma } from './db.js';
-import { mediaFilePath } from './whatsapp/media.js';
+import { forceHttps, rateLimit, securityHeaders } from './security.js';
+import { mediaFilePath, safeMediaHeaders } from './whatsapp/media.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { startFollowupLoop } from './services/followup.js';
 import { backfillStageTags } from './services/inbound.js';
@@ -29,7 +30,12 @@ import { adsRouter, metaOauthRouter, googleOauthRouter } from './routes/ads.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.set('trust proxy', true); // atrás do proxy do Easypanel (host/protocolo corretos)
+// Confia SÓ no proxy do Easypanel (1 salto). Com `true`, qualquer um forjava o IP
+// pelo cabeçalho X-Forwarded-For e burlava o limite por IP.
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(forceHttps);
+app.use(securityHeaders);
 app.use(cors({ origin: env.clientOrigin }));
 app.use(express.json({ limit: '2mb' }));
 
@@ -38,6 +44,18 @@ app.use('/api/wa/webhook', waWebhookRouter);
 // Retorno PÚBLICO do login com o Meta/Google (OAuth) — redireciona sem sessão.
 app.use('/api/ads/meta/callback', metaOauthRouter);
 app.use('/api/ads/google/callback', googleOauthRouter);
+
+// Limites por IP (o webhook da Meta, acima, fica de fora: ela manda rajadas).
+app.use(
+  '/api/auth/login',
+  rateLimit({ name: 'login', windowMs: 15 * 60_000, max: 20, message: 'Muitas tentativas de login. Tente de novo em alguns minutos.' }),
+);
+app.use('/api/auth/signup', rateLimit({ name: 'signup', windowMs: 60 * 60_000, max: 10 }));
+app.use('/api/auth/password', rateLimit({ name: 'senha', windowMs: 15 * 60_000, max: 10 }));
+const sendLimit = rateLimit({ name: 'envio', windowMs: 60_000, max: 120, message: 'Muitos envios em sequência. Aguarde um minuto.' });
+app.use('/api/whatsapp/send-media', sendLimit);
+app.use('/api/conversations', (req, res, next) => (req.method === 'POST' && /\/messages\/?$/.test(req.path) ? sendLimit(req, res, next) : next()));
+app.use('/api', rateLimit({ name: 'api', windowMs: 60_000, max: 900 }));
 
 // Público
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -55,13 +73,10 @@ app.get('/api/media/:id', async (req, res) => {
   if (!message) return res.status(404).end();
   const file = mediaFilePath(info.ws, req.params.id);
   if (!existsSync(file)) return res.status(404).end();
-  // Content-Type explícito: os arquivos são salvos sem extensão, então o
-  // sendFile marcaria tudo como octet-stream (quebra <img>/<audio>/PDF inline).
-  res.setHeader('Content-Type', message.mimeType || 'application/octet-stream');
+  // Só imagem/áudio/vídeo/PDF abrem no navegador; o resto (HTML, SVG, scripts…)
+  // baixa como arquivo — um "documento" recebido não pode rodar código no LawHub.
+  safeMediaHeaders(res, message.mimeType, message.mediaName);
   res.setHeader('Cache-Control', 'private, max-age=86400');
-  if (message.mediaType === 'document' && message.mediaName) {
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(message.mediaName)}"`);
-  }
   createReadStream(file).pipe(res);
 });
 

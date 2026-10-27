@@ -4,7 +4,7 @@ import { wsOf } from '../auth.js';
 import { getStatus, startWhatsApp, logoutWhatsApp, normalizePhone, sendMedia, refreshChannel } from '../whatsapp/session.js';
 import { prisma } from '../db.js';
 import { emit } from '../realtime.js';
-import { saveMedia, kindFromMime, prepareOutgoingMedia } from '../whatsapp/media.js';
+import { saveMedia, kindFromMime, prepareOutgoingMedia, sanitizeMime } from '../whatsapp/media.js';
 import { listTemplates } from '../whatsapp/cloud.js';
 import { enc, dec } from '../crypto.js';
 
@@ -72,7 +72,7 @@ whatsappRouter.post('/send-media/:conversationId', raw({ type: '*/*', limit: '32
     const buffer = req.body as Buffer;
     if (!buffer?.length) return res.status(400).json({ error: 'arquivo vazio' });
 
-    const rawMime = String(req.query.mime || req.headers['content-type'] || 'application/octet-stream');
+    const rawMime = sanitizeMime(String(req.query.mime || req.headers['content-type'] || ''));
     const caption = req.query.caption ? String(req.query.caption) : '';
     // Áudio (inclusive a gravação feita no LawHub) vira mensagem de voz OGG/Opus.
     const { buffer: outBuf, mimetype, filename, kind } = await prepareOutgoingMedia({

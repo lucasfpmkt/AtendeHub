@@ -100,3 +100,36 @@ export async function prepareOutgoingMedia(m: OutgoingMedia): Promise<OutgoingMe
   }
   return { ...m, buffer: ogg, mimetype: 'audio/ogg; codecs=opus', filename: m.filename ? `${m.filename.replace(/\.[^.]+$/, '')}.ogg` : 'audio.ogg' };
 }
+
+/* ---------------------- Servir mídia com segurança ---------------------- */
+// Arquivos de conversa vêm de qualquer pessoa no WhatsApp, com o tipo que ELA
+// informou. Servir "text/html" (ou SVG) aberto no domínio do LawHub executaria o
+// código dela logado como o usuário (roubo de sessão). Só estes abrem no navegador:
+const INLINE_SAFE = /^(image\/(png|jpe?g|gif|webp|bmp|heic|heif|avif)|audio\/[\w.+-]+|video\/[\w.+-]+|application\/pdf)$/i;
+
+/** Tipo informado pelo cliente/remetente, saneado (formato "tipo/subtipo"). */
+export function sanitizeMime(mime: string | null | undefined): string {
+  const m = String(mime ?? '').trim();
+  return /^[\w.+-]+\/[\w.+-]+(\s*;\s*[\w.+-]+=[\w.+"-]+)*$/.test(m) ? m : 'application/octet-stream';
+}
+
+/** Cabeçalhos para entregar um arquivo de mídia sem risco de executar conteúdo. */
+export function safeMediaHeaders(
+  res: { setHeader(name: string, value: string): unknown },
+  mime: string | null | undefined,
+  filename?: string | null,
+) {
+  const clean = sanitizeMime(mime);
+  const base = clean.split(';')[0].trim().toLowerCase();
+  const inline = INLINE_SAFE.test(base);
+  const name = (filename || 'arquivo').replace(/[\r\n"]/g, '').slice(0, 150);
+  res.setHeader('Content-Type', inline ? clean : 'application/octet-stream');
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  // Imagem/áudio/vídeo abertos sozinhos: nada de script. (PDF fica de fora: o leitor
+  // de PDF do navegador não abre em "sandbox".)
+  if (inline && base !== 'application/pdf') {
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+  }
+}
