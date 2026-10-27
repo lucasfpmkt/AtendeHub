@@ -143,6 +143,7 @@ Regras:
 - Respeite o Código de Ética da OAB e o Provimento 205/2021: nunca sugira anúncios com promessa de resultado, mercantilização, "consulta grátis" como isca ou captação indevida.
 - Escreva em português do Brasil, direto, sem jargão desnecessário. Valores em R$.
 - Entre 3 e 15 sugestões, ordenadas da mais crítica para a mais leve.
+- Dentro dos textos do JSON NÃO use aspas duplas (") — para citar nomes use aspas simples ('Conjunto Amplo'). Não quebre linha dentro dos textos.
 
 Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
 {"resumo":"2 a 4 frases sobre a saúde geral das campanhas","sugestoes":[{"gravidade":"critica|media|leve","plataforma":"meta|google|geral","campanha":"nome ou vazio","titulo":"curto","detalhe":"o que os números mostram","acao":"o que fazer, passo a passo curto"}]}`;
@@ -155,8 +156,61 @@ const ORDER: Record<Severity, number> = { critica: 0, media: 1, leve: 2 };
  * só a lista de sugestões, ou JSON cortado no meio (quando a resposta estoura o
  * limite de tokens) — nesse caso aproveita as sugestões completas.
  */
+/**
+ * Corrige o erro mais comum de IA ao gerar JSON: aspas duplas sem escape DENTRO
+ * de um texto (ex.: "titulo":"Conjunto "Amplo" saturado") e quebras de linha cruas.
+ * Uma aspa só fecha o texto se o que vem depois for estrutura JSON (, } ] :);
+ * no caso da vírgula, só se depois dela vier uma nova chave ou objeto.
+ */
+export function fixInnerQuotes(src: string): string {
+  let out = '';
+  let inStr = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (!inStr) {
+      if (c === '"') inStr = true;
+      out += c;
+      continue;
+    }
+    if (c === '\\') {
+      out += c + (src[i + 1] ?? '');
+      i++;
+      continue;
+    }
+    if (c === '\n' || c === '\r') {
+      out += c === '\n' ? '\\n' : '';
+      continue;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      while (j < src.length && /\s/.test(src[j])) j++;
+      const nx = src[j];
+      let closes = j >= src.length || nx === '}' || nx === ']' || nx === ':';
+      if (nx === ',') {
+        let k = j + 1;
+        while (k < src.length && /\s/.test(src[k])) k++;
+        closes = src[k] === '"' || src[k] === '{' || src[k] === '[' || k >= src.length;
+      }
+      if (closes) {
+        inStr = false;
+        out += c;
+      } else out += '\\"';
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 function extractJson(raw: string): Record<string, unknown> {
-  const text = raw.replace(/```(?:json)?/gi, '');
+  const plain = raw.replace(/```(?:json)?/gi, '');
+  let text = plain;
+  try {
+    const a = plain.indexOf('{');
+    JSON.parse(plain.slice(a, plain.lastIndexOf('}') + 1));
+  } catch {
+    text = fixInnerQuotes(plain); // aspas soltas/quebras de linha dentro dos textos
+  }
   const objStart = text.indexOf('{');
   const arrStart = text.indexOf('[');
   // Só a lista: [ {...}, {...} ]
