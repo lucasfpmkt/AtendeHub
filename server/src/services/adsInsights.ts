@@ -150,12 +150,50 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
 const SEV: Record<string, Severity> = { critica: 'critica', 'crítica': 'critica', critical: 'critica', media: 'media', 'média': 'media', medium: 'media', leve: 'leve', low: 'leve' };
 const ORDER: Record<Severity, number> = { critica: 0, media: 1, leve: 2 };
 
-/** Lê o JSON da IA com tolerância (cercas ```json, texto antes/depois). */
+/**
+ * Extrai o JSON da resposta da IA com tolerância: texto/cercas ```json em volta,
+ * só a lista de sugestões, ou JSON cortado no meio (quando a resposta estoura o
+ * limite de tokens) — nesse caso aproveita as sugestões completas.
+ */
+function extractJson(raw: string): Record<string, unknown> {
+  const text = raw.replace(/```(?:json)?/gi, '');
+  const objStart = text.indexOf('{');
+  const arrStart = text.indexOf('[');
+  // Só a lista: [ {...}, {...} ]
+  if (arrStart >= 0 && (objStart < 0 || arrStart < objStart) && !/"sugestoes"\s*:/.test(text.slice(0, arrStart + 1))) {
+    const end = text.lastIndexOf(']');
+    if (end > arrStart) {
+      try {
+        return { sugestoes: JSON.parse(text.slice(arrStart, end + 1)) };
+      } catch {
+        /* tenta como objeto abaixo */
+      }
+    }
+  }
+  if (objStart < 0) throw new Error('sem JSON');
+  const body = text.slice(objStart);
+  try {
+    return JSON.parse(body.slice(0, body.lastIndexOf('}') + 1));
+  } catch {
+    // Cortado: recua até o fim de uma sugestão completa e fecha a lista/objeto.
+    let cut = body.lastIndexOf('}');
+    for (let i = 0; i < 40 && cut > 0; i++) {
+      for (const close of [']}', '}]}', '"}]}']) {
+        try {
+          return JSON.parse(body.slice(0, cut + 1) + close);
+        } catch {
+          /* próxima tentativa */
+        }
+      }
+      cut = body.lastIndexOf('}', cut - 1);
+    }
+    throw new Error('JSON inválido');
+  }
+}
+
+/** Lê a resposta da IA e normaliza as sugestões. */
 export function parseInsights(raw: string): { summary: string; items: InsightItem[] } {
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('a IA não devolveu JSON');
-  const j = JSON.parse(raw.slice(start, end + 1));
+  const j = extractJson(raw) as { sugestoes?: unknown; items?: unknown; resumo?: unknown; summary?: unknown };
   const list = Array.isArray(j.sugestoes) ? j.sugestoes : Array.isArray(j.items) ? j.items : [];
   const items: InsightItem[] = list
     .map((x: Record<string, unknown>) => {
@@ -175,7 +213,36 @@ export function parseInsights(raw: string): { summary: string; items: InsightIte
     .filter((x: InsightItem | null): x is InsightItem => Boolean(x))
     .sort((a: InsightItem, b: InsightItem) => ORDER[a.severity] - ORDER[b.severity])
     .slice(0, 20);
+  if (!items.length) throw new Error('nenhuma sugestão válida');
   return { summary: String(j.resumo ?? j.summary ?? '').trim().slice(0, 2000), items };
+}
+
+const preview = (s: string) => (s.trim() ? `"${s.trim().replace(/\s+/g, ' ').slice(0, 300)}…"` : '(resposta vazia)');
+
+/**
+ * Pede a análise à IA. Se a resposta não vier em JSON, tenta de novo: com a
+ * análise em texto, pede para converter; se veio vazia (modelos que "pensam"
+ * podem gastar todo o limite raciocinando), repete com mais espaço.
+ */
+export async function askInsights(llm: Awaited<ReturnType<typeof resolveLlm>>, payload: string) {
+  const first = await llm.complete({ system: SYSTEM, messages: [{ role: 'user', content: payload }], maxTokens: 6000 });
+  try {
+    return parseInsights(first);
+  } catch {
+    /* segunda tentativa */
+  }
+  const retry = first.trim()
+    ? `Converta a análise abaixo para o formato JSON pedido. Responda SOMENTE com o JSON, começando com { e terminando com }.\n\n${first.slice(0, 15000)}`
+    : `${payload}\n\nResponda SOMENTE com o JSON pedido, começando com { e terminando com }. Seja objetivo.`;
+  const second = await llm.complete({ system: SYSTEM, messages: [{ role: 'user', content: retry }], maxTokens: 8000 });
+  try {
+    return parseInsights(second);
+  } catch (err) {
+    console.error(`[ads-insights] resposta não aproveitável (${llm.provider}/${llm.model}): 1ª ${preview(first)} | 2ª ${preview(second)}`);
+    throw new Error(
+      `A IA (${llm.provider} · ${llm.model}) não devolveu as sugestões no formato esperado (${(err as Error).message}). Início da resposta: ${preview(second || first)}`,
+    );
+  }
 }
 
 const running = new Set<string>();
@@ -192,12 +259,7 @@ export async function runAdsInsights(ws: string, trigger: 'auto' | 'manual') {
     }
     const llm = await resolveLlm(ws);
     if (!llm.ready) throw new Error('A IA da plataforma não está conectada.');
-    const raw = await llm.complete({
-      system: SYSTEM,
-      messages: [{ role: 'user', content: `Dados das campanhas (gerado em ${runDate}):\n${JSON.stringify(data)}` }],
-      maxTokens: 4000,
-    });
-    const { summary, items } = parseInsights(raw);
+    const { summary, items } = await askInsights(llm, `Dados das campanhas (gerado em ${runDate}):\n${JSON.stringify(data)}`);
     const note = errors.length ? `\n\n(Não foi possível ler: ${errors.join(' | ')})` : '';
     return await prisma.adsInsightReport.create({
       data: { workspaceId: ws, trigger, runDate, status: 'ok', summary: summary + note, items: JSON.stringify(items), platforms: platforms.join(',') },
