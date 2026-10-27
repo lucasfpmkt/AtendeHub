@@ -260,8 +260,6 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       // direto para "online". Sem isso ele entra em "Syncing" e, se a sincronização de
       // estado falhar, fica represando as mensagens novas para sempre.
       shouldSyncHistoryMessage: () => importHistory,
-      // Links enviados ganham pré-visualização (título, imagem) — usa o link-preview-js.
-      generateHighQualityLinkPreview: true,
     });
     s.sock = sock;
 
@@ -541,7 +539,10 @@ export async function sendText(ws: string, jid: string, text: string): Promise<s
   if (!s.sock || s.status !== 'connected') throw new Error('WhatsApp não está conectado');
   const messageId = generateMessageIDV2(s.sock.user?.id);
   markSelfSent(messageId);
-  const sent = await s.sock.sendMessage(jid, { text }, { messageId });
+  // linkPreview: null → o servidor NÃO busca o link para gerar prévia. A busca era
+  // feita pela link-preview-js, que tem falha de SSRF (permite forçar o servidor a
+  // acessar endereços internos). O link continua clicável no WhatsApp.
+  const sent = await s.sock.sendMessage(jid, { text, linkPreview: null }, { messageId });
   return sent?.key?.id ?? messageId;
 }
 

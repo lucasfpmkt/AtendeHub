@@ -1,6 +1,6 @@
 import { Router, raw } from 'express';
 import { unlink } from 'node:fs/promises';
-import { kindFromMime, mediaFilePath, prepareOutgoingMedia, saveMedia } from '../whatsapp/media.js';
+import { kindFromMime, mediaFilePath, prepareOutgoingMedia, safeMediaHeaders, sanitizeMime, saveMedia } from '../whatsapp/media.js';
 import { prisma } from '../db.js';
 import { resolveLlm, type ChatTurn } from '../services/llm.js';
 import { wsOf } from '../auth.js';
@@ -183,7 +183,7 @@ agentsRouter.post('/:id/media', raw({ type: '*/*', limit: '32mb' }), async (req,
     if (await prisma.agentMedia.findFirst({ where: { agentId: agent.id, name } })) {
       return res.status(409).json({ error: `já existe uma mídia chamada "${name}" neste agente` });
     }
-    const rawMime = String(req.query.mime || 'application/octet-stream');
+    const rawMime = sanitizeMime(String(req.query.mime || ''));
     const kind = kindFromMime(rawMime);
     // Áudio já fica guardado como mensagem de voz (OGG/Opus): o envio pela IA é imediato.
     const prepared = await prepareOutgoingMedia({
@@ -229,6 +229,6 @@ agentsRouter.get('/:id/media/:mediaId/file', async (req, res) => {
   const ws = wsOf(req);
   const item = await prisma.agentMedia.findFirst({ where: { id: req.params.mediaId, agentId: req.params.id, workspaceId: ws } });
   if (!item) return res.status(404).end();
-  res.setHeader('Content-Type', item.mimeType);
+  safeMediaHeaders(res, item.mimeType, item.fileName);
   res.sendFile(mediaFilePath(ws, item.fileId));
 });
