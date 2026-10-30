@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { dec } from '../crypto.js';
 import { resolveLlm } from './llm.js';
+import { askJson, extractJson, fixInnerQuotes } from './llmJson.js';
 import { isQualifiedStage } from './crmSeed.js';
 import { getMetaAdsBreakdown } from './metaAds.js';
 import { getGoogleAdsBreakdown, resolveClientGoogleCreds } from './googleAds.js';
@@ -156,95 +157,6 @@ const ORDER: Record<Severity, number> = { critica: 0, media: 1, leve: 2 };
  * só a lista de sugestões, ou JSON cortado no meio (quando a resposta estoura o
  * limite de tokens) — nesse caso aproveita as sugestões completas.
  */
-/**
- * Corrige o erro mais comum de IA ao gerar JSON: aspas duplas sem escape DENTRO
- * de um texto (ex.: "titulo":"Conjunto "Amplo" saturado") e quebras de linha cruas.
- * Uma aspa só fecha o texto se o que vem depois for estrutura JSON (, } ] :);
- * no caso da vírgula, só se depois dela vier uma nova chave ou objeto.
- */
-export function fixInnerQuotes(src: string): string {
-  let out = '';
-  let inStr = false;
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
-    if (!inStr) {
-      if (c === '"') inStr = true;
-      out += c;
-      continue;
-    }
-    if (c === '\\') {
-      out += c + (src[i + 1] ?? '');
-      i++;
-      continue;
-    }
-    if (c === '\n' || c === '\r') {
-      out += c === '\n' ? '\\n' : '';
-      continue;
-    }
-    if (c === '"') {
-      let j = i + 1;
-      while (j < src.length && /\s/.test(src[j])) j++;
-      const nx = src[j];
-      let closes = j >= src.length || nx === '}' || nx === ']' || nx === ':';
-      if (nx === ',') {
-        let k = j + 1;
-        while (k < src.length && /\s/.test(src[k])) k++;
-        closes = src[k] === '"' || src[k] === '{' || src[k] === '[' || k >= src.length;
-      }
-      if (closes) {
-        inStr = false;
-        out += c;
-      } else out += '\\"';
-      continue;
-    }
-    out += c;
-  }
-  return out;
-}
-
-function extractJson(raw: string): Record<string, unknown> {
-  const plain = raw.replace(/```(?:json)?/gi, '');
-  let text = plain;
-  try {
-    const a = plain.indexOf('{');
-    JSON.parse(plain.slice(a, plain.lastIndexOf('}') + 1));
-  } catch {
-    text = fixInnerQuotes(plain); // aspas soltas/quebras de linha dentro dos textos
-  }
-  const objStart = text.indexOf('{');
-  const arrStart = text.indexOf('[');
-  // Só a lista: [ {...}, {...} ]
-  if (arrStart >= 0 && (objStart < 0 || arrStart < objStart) && !/"sugestoes"\s*:/.test(text.slice(0, arrStart + 1))) {
-    const end = text.lastIndexOf(']');
-    if (end > arrStart) {
-      try {
-        return { sugestoes: JSON.parse(text.slice(arrStart, end + 1)) };
-      } catch {
-        /* tenta como objeto abaixo */
-      }
-    }
-  }
-  if (objStart < 0) throw new Error('sem JSON');
-  const body = text.slice(objStart);
-  try {
-    return JSON.parse(body.slice(0, body.lastIndexOf('}') + 1));
-  } catch {
-    // Cortado: recua até o fim de uma sugestão completa e fecha a lista/objeto.
-    let cut = body.lastIndexOf('}');
-    for (let i = 0; i < 40 && cut > 0; i++) {
-      for (const close of [']}', '}]}', '"}]}']) {
-        try {
-          return JSON.parse(body.slice(0, cut + 1) + close);
-        } catch {
-          /* próxima tentativa */
-        }
-      }
-      cut = body.lastIndexOf('}', cut - 1);
-    }
-    throw new Error('JSON inválido');
-  }
-}
-
 /** Lê a resposta da IA e normaliza as sugestões. */
 export function parseInsights(raw: string): { summary: string; items: InsightItem[] } {
   const j = extractJson(raw) as { sugestoes?: unknown; items?: unknown; resumo?: unknown; summary?: unknown };
@@ -271,32 +183,9 @@ export function parseInsights(raw: string): { summary: string; items: InsightIte
   return { summary: String(j.resumo ?? j.summary ?? '').trim().slice(0, 2000), items };
 }
 
-const preview = (s: string) => (s.trim() ? `"${s.trim().replace(/\s+/g, ' ').slice(0, 300)}…"` : '(resposta vazia)');
-
-/**
- * Pede a análise à IA. Se a resposta não vier em JSON, tenta de novo: com a
- * análise em texto, pede para converter; se veio vazia (modelos que "pensam"
- * podem gastar todo o limite raciocinando), repete com mais espaço.
- */
-export async function askInsights(llm: Awaited<ReturnType<typeof resolveLlm>>, payload: string) {
-  const first = await llm.complete({ system: SYSTEM, messages: [{ role: 'user', content: payload }], maxTokens: 6000 });
-  try {
-    return parseInsights(first);
-  } catch {
-    /* segunda tentativa */
-  }
-  const retry = first.trim()
-    ? `Converta a análise abaixo para o formato JSON pedido. Responda SOMENTE com o JSON, começando com { e terminando com }.\n\n${first.slice(0, 15000)}`
-    : `${payload}\n\nResponda SOMENTE com o JSON pedido, começando com { e terminando com }. Seja objetivo.`;
-  const second = await llm.complete({ system: SYSTEM, messages: [{ role: 'user', content: retry }], maxTokens: 8000 });
-  try {
-    return parseInsights(second);
-  } catch (err) {
-    console.error(`[ads-insights] resposta não aproveitável (${llm.provider}/${llm.model}): 1ª ${preview(first)} | 2ª ${preview(second)}`);
-    throw new Error(
-      `A IA (${llm.provider} · ${llm.model}) não devolveu as sugestões no formato esperado (${(err as Error).message}). Início da resposta: ${preview(second || first)}`,
-    );
-  }
+/** Pede a análise à IA (com 2ª tentativa e leitura tolerante — ver llmJson). */
+export function askInsights(llm: Awaited<ReturnType<typeof resolveLlm>>, payload: string) {
+  return askJson(llm, SYSTEM, payload, parseInsights);
 }
 
 const running = new Set<string>();

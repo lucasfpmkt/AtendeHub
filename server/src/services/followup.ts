@@ -22,9 +22,32 @@ async function activeWorkspaceIds(): Promise<Set<string>> {
  * pelo WhatsApp do cliente. `followupStageId` guarda a etapa já notificada para
  * não repetir; ele é zerado toda vez que o negócio muda de etapa.
  */
+/** Horário comercial em Brasília (8h–20h, seg–sáb): follow-up não sai de madrugada nem domingo. */
+function businessHoursNow(): boolean {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', hour12: false })
+      .formatToParts(new Date())
+      .map((x) => [x.type, x.value]),
+  );
+  const hour = Number(p.hour) % 24;
+  return p.weekday !== 'Sun' && hour >= 8 && hour < 20;
+}
+
+/** {nome} → primeiro nome do contato (ou some, se não houver nome). */
+function fillName(text: string, name?: string | null): string {
+  const first = (name ?? '').trim().split(/\s+/)[0] ?? '';
+  return text.replace(/\s*\{nome\}/gi, (m) => (first ? m.replace(/\{nome\}/i, first) : '')).trim();
+}
+
 async function runFollowupsOnce() {
+  if (!businessHoursNow()) return;
+  // Só clientes com a chave "Follow-ups automáticos" ligada no CRM.
+  const enabledCfgs = await prisma.aiConfig.findMany({ where: { followupsEnabled: true }, select: { id: true, followupsSince: true } });
+  if (enabledCfgs.length === 0) return;
+  const since = new Map(enabledCfgs.map((c) => [c.id, c.followupsSince ?? new Date()]));
+
   const stages = await prisma.pipelineStage.findMany({
-    where: { followupMinutes: { gt: 0 }, NOT: { followupMessage: '' } },
+    where: { followupMinutes: { gt: 0 }, NOT: { followupMessage: '' }, workspaceId: { in: [...since.keys()] } },
   });
   if (stages.length === 0) return;
 
@@ -32,10 +55,12 @@ async function runFollowupsOnce() {
   const now = Date.now();
   for (const stage of stages) {
     const cutoff = new Date(now - stage.followupMinutes * 60_000);
+    const enabledSince = since.get(stage.workspaceId!) ?? new Date();
     const deals = await prisma.deal.findMany({
       where: {
         stageId: stage.id,
-        stageSince: { lte: cutoff },
+        // Só leads que entraram na etapa DEPOIS de ligar a chave (não dispara para a base antiga).
+        stageSince: { lte: cutoff, gte: enabledSince },
         NOT: { followupStageId: stage.id },
       },
       include: { contact: true },
@@ -49,18 +74,26 @@ async function runFollowupsOnce() {
       if (getStatus(ws).status !== 'connected') continue; // WhatsApp desconectado: tenta no próximo ciclo
 
       try {
-        // Thread na conversa aberta do contato (ou cria uma).
-        let conversation = await prisma.conversation.findFirst({
+        const conversation = await prisma.conversation.findFirst({
           where: { workspaceId: ws, contactId: contact.id, status: { not: 'closed' } },
           orderBy: { lastMessageAt: 'desc' },
         });
-        if (!conversation) {
-          conversation = await prisma.conversation.create({ data: { workspaceId: ws, contactId: contact.id } });
-        }
+        if (!conversation) continue;
 
-        const waMessageId = await sendText(ws, contact.waJid, stage.followupMessage);
+        // Só faz sentido se o LEAD parou de responder: a última mensagem foi do escritório
+        // e já passou o tempo da etapa. Se o lead está esperando resposta, não manda.
+        const last = await prisma.message.findFirst({
+          where: { conversationId: conversation.id, author: { not: 'system' } },
+          orderBy: { createdAt: 'desc' },
+          select: { direction: true, createdAt: true },
+        });
+        if (!last || last.direction !== 'out' || last.createdAt > cutoff) continue;
+
+        const text = fillName(stage.followupMessage, contact.name);
+        if (!text) continue;
+        const waMessageId = await sendText(ws, contact.waJid, text);
         const message = await prisma.message.create({
-          data: { conversationId: conversation.id, direction: 'out', author: 'ai', body: stage.followupMessage, waMessageId },
+          data: { conversationId: conversation.id, direction: 'out', author: 'ai', body: text, waMessageId },
         });
         const updated = await prisma.conversation.update({
           where: { id: conversation.id },
