@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api, type AdsInsightReport, type InsightSeverity } from '../api';
 import { Icon } from '../icons';
+import { LeadForms } from './LeadForms';
 import { Kpi } from './Home';
 
 // Ordena campanhas com as ATIVAS primeiro (ENABLED/ACTIVE), mantendo o resto depois.
@@ -869,7 +870,7 @@ function FragmentRows({ children }: { children: ReactNode }) {
 }
 
 /* ===================== Marketing (Meta + Google) ===================== */
-type MktNet = 'meta' | 'google' | 'otimizacoes';
+type MktNet = 'meta' | 'google' | 'otimizacoes' | 'formularios';
 
 export function Marketing() {
   const [net, setNet] = useState<MktNet>(() => {
@@ -907,12 +908,15 @@ export function Marketing() {
           <button className={net === 'google' ? 'active' : ''} onClick={() => pickNet('google')}>
             <Icon name="grid" size={15} /> Google
           </button>
+          <button className={net === 'formularios' ? 'active' : ''} onClick={() => pickNet('formularios')}>
+            <Icon name="doc" size={15} /> Formulários
+          </button>
           <button className={net === 'otimizacoes' ? 'active' : ''} onClick={() => pickNet('otimizacoes')}>
             <Icon name="sparkle" size={15} /> Otimizações
             {critical > 0 && <span className="ins-badge" title={`${critical} sugestão(ões) crítica(s)`}>{critical}</span>}
           </button>
         </div>
-        {net !== 'otimizacoes' && (
+        {(net === 'meta' || net === 'google') && (
         <div className="segmented">
           <button className={view === 'resumo' ? 'active' : ''} onClick={() => setView('resumo')}>
             Resumo
@@ -925,6 +929,7 @@ export function Marketing() {
       </div>
 
       {net === 'otimizacoes' && <AdsInsights onCritical={setCritical} />}
+      {net === 'formularios' && <LeadForms />}
 
       {net === 'meta' && view === 'resumo' && <MetaAds />}
       {net === 'meta' && view === 'detalhes' && (

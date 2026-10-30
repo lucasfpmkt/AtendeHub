@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { canonicalJid } from './leadForms.js';
 import { emit } from '../realtime.js';
 import { saveMedia, type MediaKind } from '../whatsapp/media.js';
 import { maybeFireQualifiedLead } from './metaAds.js';
@@ -39,6 +40,12 @@ import {
   matchByTriggers,
   type Agent,
 } from './agents.js';
+
+/** Contato que veio de formulário já tem o nome informado pelo próprio lead. */
+async function hasFormName(ws: string, waJid: string) {
+  const c = await prisma.contact.findUnique({ where: { workspaceId_waJid: { workspaceId: ws, waJid } }, select: { name: true, tags: true } });
+  return Boolean(c?.name && /formul[aá]rio/i.test(c.tags ?? ''));
+}
 
 function phoneFromJid(jid: string): string {
   return jid.split('@')[0].split(':')[0];
@@ -151,10 +158,11 @@ export async function recordOutgoingMessage(params: {
     if (already) return; // eco de uma mensagem que o LawHub mesmo enviou
   }
 
+  const jid = await canonicalJid(ws, waJid); // mesmo contato com/sem 9º dígito
   const contact = await prisma.contact.upsert({
-    where: { workspaceId_waJid: { workspaceId: ws, waJid } },
+    where: { workspaceId_waJid: { workspaceId: ws, waJid: jid } },
     update: {},
-    create: { workspaceId: ws, waJid, phone: phoneFromJid(waJid) },
+    create: { workspaceId: ws, waJid: jid, phone: phoneFromJid(jid) },
   });
 
   let conversation = await prisma.conversation.findFirst({
@@ -205,11 +213,12 @@ export async function importHistoryMessage(params: {
     if (already) return; // já temos esta mensagem
   }
 
-  const phone = phoneFromJid(waJid);
+  const jid = await canonicalJid(ws, waJid); // mesmo contato com/sem 9º dígito
+  const phone = phoneFromJid(jid);
   const contact = await prisma.contact.upsert({
-    where: { workspaceId_waJid: { workspaceId: ws, waJid } },
+    where: { workspaceId_waJid: { workspaceId: ws, waJid: jid } },
     update: pushName ? { name: pushName } : {},
-    create: { workspaceId: ws, waJid, phone, name: pushName || null },
+    create: { workspaceId: ws, waJid: jid, phone, name: pushName || null },
   });
 
   const createdAt = new Date(timestampMs || Date.now());
@@ -384,12 +393,14 @@ export async function handleInboundMessage(params: {
     }
   }
 
-  const phone = phoneFromJid(waJid);
+  const jid = await canonicalJid(ws, waJid); // mesmo contato com/sem 9º dígito
+  const phone = phoneFromJid(jid);
 
   const contact = await prisma.contact.upsert({
-    where: { workspaceId_waJid: { workspaceId: ws, waJid } },
-    update: { name: pushName || undefined },
-    create: { workspaceId: ws, waJid, phone, name: pushName || null },
+    where: { workspaceId_waJid: { workspaceId: ws, waJid: jid } },
+    // Não troca o nome que veio do formulário pelo nome do perfil do WhatsApp.
+    update: pushName && !(await hasFormName(ws, jid)) ? { name: pushName } : {},
+    create: { workspaceId: ws, waJid: jid, phone, name: pushName || null },
   });
 
   let conversation = await prisma.conversation.findFirst({

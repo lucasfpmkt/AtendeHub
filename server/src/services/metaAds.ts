@@ -54,7 +54,17 @@ export function verifyOauthState(state?: string | null): string | null {
 
 /** Monta a URL do diálogo de login do Facebook. */
 export function metaLoginUrl(redirectUri: string, state: string): string {
-  const scope = 'ads_read,ads_management,business_management';
+  // Anúncios + formulários de lead (páginas e leads_retrieval).
+  const scope = [
+    'ads_read',
+    'ads_management',
+    'business_management',
+    'leads_retrieval',
+    'pages_show_list',
+    'pages_read_engagement',
+    'pages_manage_metadata',
+    'pages_manage_ads',
+  ].join(',');
   const q = new URLSearchParams({
     client_id: env.fbAppId,
     redirect_uri: redirectUri,

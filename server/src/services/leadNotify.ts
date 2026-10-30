@@ -10,7 +10,7 @@ function jidFromNumber(raw: string): string | null {
   return d.length >= 12 ? `${d}@s.whatsapp.net` : null;
 }
 
-function formatPhone(phone: string): string {
+export function formatPhone(phone: string): string {
   const d = phone.replace(/\D/g, '');
   if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
     const ddd = d.slice(2, 4);
@@ -21,7 +21,7 @@ function formatPhone(phone: string): string {
 }
 
 /** Para onde vai a notificação: número configurado ou o próprio número conectado. */
-async function notifyTarget(ws: string, configured: string): Promise<string | null> {
+export async function notifyTarget(ws: string, configured: string): Promise<string | null> {
   const fromCfg = jidFromNumber(configured);
   if (fromCfg) return fromCfg;
   const { ownJid } = await import('../whatsapp/session.js');
