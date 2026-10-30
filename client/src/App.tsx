@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { socket, connectSocket, disconnectSocket } from './socket';
 import { api, getToken, setToken, onUnauthorized, type SessionUser, type WorkspaceInfo } from './api';
 import { Icon } from './icons';
-import { RailInner, useLiquidPill } from './Liquid';
 import { applyBrand } from './prefs';
 import { Login } from './pages/Login';
 import { Connect } from './pages/Connect';
@@ -185,8 +184,6 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
   const number = me ? me.split(':')[0].split('@')[0] : undefined;
   const firstName = user.name.split(' ')[0];
 
-  const { railRef, pillRef } = useLiquidPill([current, railCollapsed, isAdmin]);
-
   const closePicker = () => {
     sessionStorage.setItem(PICKED_KEY, '1');
     setPicker(false);
@@ -194,8 +191,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
 
   return (
     <div className={`app ${railCollapsed ? 'rail-collapsed' : ''}`}>
-      <nav className="rail" aria-label="Menu principal" ref={railRef}>
-        <span className="rail-pill" ref={pillRef} aria-hidden />
+      <nav className="rail" aria-label="Menu principal">
         <div className="rail-brand">
           <img src="/logo.png" alt="" />
           <span className="wordmark label">
@@ -218,10 +214,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
             aria-label={t.label}
             title={t.label}
           >
-            <RailInner>
               <Icon name={t.icon} size={20} />
               <span className="label">{t.label}</span>
-            </RailInner>
             {t.id === 'inbox' && unread > 0 && <span className="rail-badge">{unread > 99 ? '99+' : unread}</span>}
           </button>
         ))}
@@ -232,10 +226,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
             aria-label="Clientes"
             title="Clientes"
           >
-            <RailInner>
               <Icon name="building" size={20} />
               <span className="label">Clientes</span>
-            </RailInner>
           </button>
         )}
         <div className="rail-spacer" />
@@ -245,10 +237,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
           aria-label="Conexão WhatsApp"
           title={connected ? 'WhatsApp conectado' : 'WhatsApp desconectado'}
         >
-          <RailInner>
             <Icon name="wifi" size={20} />
             <span className="label">{connected ? `WhatsApp ${number ? `+${number}` : 'conectado'}` : 'Conectar WhatsApp'}</span>
-          </RailInner>
           <span className={`rail-dot ${connected ? 'on' : ''}`} />
         </button>
         <button
@@ -257,10 +247,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
           aria-label="Configurações"
           title="Configurações"
         >
-          <RailInner>
             <Icon name="settings" size={20} />
             <span className="label">Configurações</span>
-          </RailInner>
         </button>
         <button
           className="rail-ws"

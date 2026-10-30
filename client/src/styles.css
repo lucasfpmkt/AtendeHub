@@ -962,34 +962,39 @@ input, textarea, select { background: rgba(255, 255, 255, 0.82); }
 .rail-user button, .rail-user .icon-btn { background: transparent; border-color: transparent; color: rgba(255, 255, 255, 0.6); }
 .rail-user button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
-/* Pílula "líquida" da aba ativa: cores invertidas (pílula clara, texto escuro) */
-.rail-pill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(180deg, #ffffff 0%, #eef0f6 100%);
-  opacity: 0;
-  clip-path: inset(100%);
-}
-.rail-link .rail-inv {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: inherit;
-  gap: inherit;
-  padding: inherit;
-  color: var(--g-900);
+/* Aba ativa: só ela se destaca — vidro vermelho LawHub + ícone animado */
+.rail .rail-link.active, .rail:hover .rail-link.active, .rail:focus-within .rail-link.active {
+  color: #fff;
   font-weight: 600;
-  pointer-events: none;
-  clip-path: inset(100%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 48%, rgba(255, 255, 255, 0) 52%),
+    linear-gradient(135deg, color-mix(in srgb, var(--p-600) 92%, transparent), color-mix(in srgb, var(--p-600) 62%, transparent));
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(12px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 8px 24px color-mix(in srgb, var(--p-600) 45%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--p-600) 40%, transparent);
+  animation: tab-glow-in 0.35s ease-out;
 }
-.rail-link .rail-inv .lucide { color: var(--p-600); }
-.rail-link.active:hover { background: transparent; }
-.rail-badge, .rail-dot { z-index: 4; }
+.rail .rail-link.active .lucide {
+  color: #fff;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.45));
+  animation: icon-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.rail-link .lucide { transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s; }
+.rail-link:not(.active):hover .lucide { color: color-mix(in srgb, var(--p-600) 55%, #fff); transform: translateX(2px) scale(1.12); }
+.rail-badge, .rail-dot { z-index: 1; }
+@keyframes tab-glow-in {
+  0% { opacity: 0.4; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes icon-pop {
+  0% { transform: scale(0.6) rotate(-12deg); }
+  55% { transform: scale(1.25) rotate(6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
 
 /* Fundo claro e neutro; cards de vidro branco que sobem ao passar o mouse */
 body {
