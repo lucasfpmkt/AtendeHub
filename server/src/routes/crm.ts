@@ -6,6 +6,8 @@ import { wsOf } from '../auth.js';
 import { sendFromConversation } from '../whatsapp/session.js';
 import { mediaFilePath } from '../whatsapp/media.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
+import { resolveLlm } from '../services/llm.js';
+import { askJson, extractJson } from '../services/llmJson.js';
 import { cancelPendingReply, systemNote, syncStageTag } from '../services/inbound.js';
 
 /**
@@ -488,4 +490,68 @@ crmRouter.patch('/tags/:id', async (req, res) => {
 crmRouter.delete('/tags/:id', async (req, res) => {
   const r = await prisma.tag.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
   res.json({ ok: r.count > 0 });
+});
+
+/* ----------------------- Follow-ups automáticos ----------------------- */
+// Chave geral por cliente (desligada por padrão). Ao ligar, só valem para leads que
+// entrarem na etapa a partir de agora.
+
+crmRouter.get('/followups/config', async (req, res) => {
+  const cfg = await prisma.aiConfig.findUnique({ where: { id: wsOf(req) }, select: { followupsEnabled: true, followupsSince: true } });
+  res.json({ enabled: cfg?.followupsEnabled ?? false, since: cfg?.followupsSince ?? null });
+});
+
+crmRouter.patch('/followups/config', async (req, res) => {
+  const ws = wsOf(req);
+  if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'enabled obrigatório' });
+  const cur = await prisma.aiConfig.findUnique({ where: { id: ws } });
+  const data = { followupsEnabled: req.body.enabled, ...(req.body.enabled && !cur?.followupsEnabled ? { followupsSince: new Date() } : {}) };
+  const cfg = cur
+    ? await prisma.aiConfig.update({ where: { id: ws }, data })
+    : await prisma.aiConfig.create({ data: { id: ws, systemPrompt: '', ...data } });
+  res.json({ enabled: cfg.followupsEnabled, since: cfg.followupsSince });
+});
+
+const FOLLOWUP_SYSTEM = `Você escreve mensagens de follow-up de WhatsApp para um escritório de advocacia no Brasil.
+Recebe as etapas de um funil de atendimento. Para CADA etapa, decida se faz sentido um follow-up quando o LEAD para de responder nela e, se fizer, escreva UMA mensagem curta e o tempo de espera em minutos.
+
+Regras:
+- Tom humano, educado, curto (1 a 3 frases), em português do Brasil. Pode usar {nome} para o primeiro nome do lead.
+- A mensagem deve fazer sentido para a etapa (ex.: na coleta de documentos, lembrar dos documentos; na proposta, perguntar se ficou alguma dúvida).
+- Respeite o Código de Ética da OAB e o Provimento 205/2021: nada de promessa de resultado, pressão, urgência artificial, oferta ou desconto.
+- Etapas finais ou sem ação esperada do lead (contrato assinado, fechado, ganho, perdido, desqualificado, arquivado) → minutos 0 e mensagem vazia.
+- Tempos razoáveis: entre 120 minutos (2h) e 2880 minutos (48h).
+- Não use aspas duplas dentro dos textos nem quebre linha.
+
+Responda SOMENTE com JSON: {"etapas":[{"id":"id da etapa","minutos":0,"mensagem":""}]}`;
+
+crmRouter.post('/funnels/:id/followup-suggest', async (req, res) => {
+  const ws = wsOf(req);
+  const funnel = await prisma.funnel.findFirst({
+    where: { id: req.params.id, workspaceId: ws },
+    include: { stages: { orderBy: { order: 'asc' }, select: { id: true, name: true } } },
+  });
+  if (!funnel) return notFound(res);
+  const llm = await resolveLlm(ws);
+  if (!llm.ready) return res.status(400).json({ error: 'A IA da plataforma não está conectada.' });
+  const ids = new Set(funnel.stages.map((s) => s.id));
+  try {
+    const payload = `Funil: ${funnel.name}\nEtapas (em ordem):\n${funnel.stages.map((s, i) => `${i + 1}. id=${s.id} | ${s.name}`).join('\n')}`;
+    const out = await askJson(llm, FOLLOWUP_SYSTEM, payload, (raw) => {
+      const j = extractJson(raw) as { etapas?: unknown };
+      const list = Array.isArray(j.etapas) ? j.etapas : [];
+      const parsed = list
+        .map((x: Record<string, unknown>) => ({
+          stageId: String(x.id ?? ''),
+          minutes: Math.max(0, Math.min(10080, Math.round(Number(x.minutos ?? x.minutes ?? 0)) || 0)),
+          message: String(x.mensagem ?? x.message ?? '').trim().slice(0, 1000),
+        }))
+        .filter((x: { stageId: string }) => ids.has(x.stageId));
+      if (!parsed.length) throw new Error('nenhuma etapa reconhecida');
+      return parsed;
+    }, 3000);
+    res.json(out.map((x) => ({ ...x, minutes: x.message ? x.minutes : 0 })));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });

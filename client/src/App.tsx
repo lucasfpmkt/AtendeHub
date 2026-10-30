@@ -10,6 +10,7 @@ import { Contacts } from './pages/Contacts';
 import { Campaigns } from './pages/Campaigns';
 import { Tags } from './pages/Tags';
 import { Marketing } from './pages/Ads';
+import { Attendance } from './pages/Attendance';
 import { Pipeline } from './pages/Pipeline';
 import { Settings } from './pages/Settings';
 import { Home } from './pages/Home';
@@ -32,6 +33,7 @@ export type Tab =
   | 'campaigns'
   | 'tags'
   | 'marketing'
+  | 'atendimento'
   | 'tasks'
   | 'agenda'
   | 'connect'
@@ -50,6 +52,7 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: 'contacts', label: 'Contatos', icon: 'users' },
   { id: 'campaigns', label: 'Campanhas', icon: 'send' },
   { id: 'marketing', label: 'Marketing', icon: 'share' },
+  { id: 'atendimento', label: 'Análise de atendimento', icon: 'shield' },
   { id: 'tasks', label: 'Gestão de Tarefas', icon: 'check' },
   { id: 'agenda', label: 'Agendas', icon: 'cal' },
 ];
@@ -283,6 +286,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
         {current === 'campaigns' && <Campaigns connected={connected} />}
         {current === 'tags' && <Tags />}
         {current === 'marketing' && <Marketing />}
+        {current === 'atendimento' && <Attendance />}
         {current === 'tasks' && <Tasks />}
         {current === 'agenda' && <Agenda />}
         {current === 'connect' && <Connect status={waStatus} me={me} />}

@@ -36,6 +36,7 @@ import {
   scriptHasActions,
   shouldTriageStart,
   matchesTrigger,
+  matchByTriggers,
   type Agent,
 } from './agents.js';
 
@@ -416,6 +417,18 @@ export async function handleInboundMessage(params: {
     data: { conversationId: conversation.id, direction: 'in', author: 'contact', body: text, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
+  // Lead de campanha: chegou com uma frase-gatilho cadastrada em QUALQUER roteiro de IA
+  // (gatilhos = mensagens prontas dos anúncios). Marca a conversa e o momento.
+  if (!conversation.campaignSource) {
+    const hit = await campaignTriggerHit(ws, text);
+    if (hit) {
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { campaignSource: 'gatilho', campaignAd: hit, campaignAt: new Date() },
+      });
+    }
+  }
+
   conversation = await prisma.conversation.update({
     where: { id: conversation.id },
     data: { lastMessageAt: new Date(), status: 'open', unread: { increment: 1 } },
@@ -593,6 +606,13 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
     data: { lastMessageAt: new Date() },
   });
   emit(ws, { type: 'message:new', conversationId, message: outMsg });
+}
+
+/** Nome do agente cujo gatilho aparece no texto (qualquer agente do cliente, ativo ou não). */
+async function campaignTriggerHit(ws: string, text: string): Promise<string | null> {
+  if (!text.trim()) return null;
+  const agents = await prisma.agent.findMany({ where: { workspaceId: ws, NOT: { triggers: '' } } });
+  return matchByTriggers(text, agents)?.name ?? null;
 }
 
 /** Envia um arquivo da biblioteca do agente e registra na conversa. */

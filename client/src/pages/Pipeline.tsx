@@ -10,6 +10,7 @@ import {
 } from '../api';
 import { Icon } from '../icons';
 import { socket } from '../socket';
+import { Switch } from './Agents';
 
 const AV = ['#3b82f6', '#8b5cf6', '#0ea5e9', '#14b8a6', '#f59e0b', '#ec4899', '#64748b'];
 const avatarColor = (s: string) => AV[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length];
@@ -34,6 +35,11 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
   const [dealModal, setDealModal] = useState<{ deal: Deal | null; stageId: string } | null>(null);
   const [stageModalOpen, setStageModalOpen] = useState(false);
   const [editStage, setEditStage] = useState<Stage | null>(null);
+  const [fuOpen, setFuOpen] = useState(false);
+  const [fuOn, setFuOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.followupsConfig().then((c) => setFuOn(c.enabled)).catch(() => setFuOn(null));
+  }, []);
 
   const tagColor = useMemo(() => {
     const m = new Map<string, string>();
@@ -209,6 +215,10 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
             <button onClick={exportCsv}>
               <Icon name="share" size={16} /> Exportar
             </button>
+            <button onClick={() => setFuOpen(true)} disabled={!board} title="Follow-ups automáticos por etapa">
+              <Icon name="clock" size={16} /> Follow-ups
+              <span className={`fu-dot ${fuOn ? 'on' : ''}`} aria-label={fuOn ? 'ligados' : 'desligados'} />
+            </button>
             <button onClick={() => setStageModalOpen(true)}>
               <Icon name="plus" size={16} /> Etapa
             </button>
@@ -313,6 +323,17 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
             const s = await api.addStage(activeId!, name, color);
             if (followupMinutes > 0 || autoTag) await api.updateStage(s.id, { followupMinutes, followupMessage, autoTag });
             setStageModalOpen(false);
+            refresh();
+          }}
+        />
+      )}
+      {fuOpen && board && (
+        <FollowupsModal
+          board={board}
+          onClose={() => setFuOpen(false)}
+          onEnabled={setFuOn}
+          onSaved={() => {
+            setFuOpen(false);
             refresh();
           }}
         />
@@ -725,6 +746,201 @@ function StageModal({
             }}
           >
             {editing ? 'Salvar etapa' : 'Criar etapa'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type Unit = 'min' | 'h' | 'd';
+const UNIT_MIN: Record<Unit, number> = { min: 1, h: 60, d: 1440 };
+const splitMinutes = (m: number): { n: number; unit: Unit } =>
+  m > 0 && m % 1440 === 0 ? { n: m / 1440, unit: 'd' } : m > 0 && m % 60 === 0 ? { n: m / 60, unit: 'h' } : { n: m || 24, unit: m ? 'min' : 'h' };
+
+interface FuRow {
+  id: string;
+  name: string;
+  color: string;
+  on: boolean;
+  n: number;
+  unit: Unit;
+  message: string;
+  orig: { minutes: number; message: string };
+}
+
+/** Follow-ups automáticos: chave geral do cliente + tempo/mensagem por etapa (a IA sugere, o usuário aprova). */
+function FollowupsModal({
+  board,
+  onClose,
+  onSaved,
+  onEnabled,
+}: {
+  board: Board;
+  onClose: () => void;
+  onSaved: () => void;
+  onEnabled: (on: boolean) => void;
+}) {
+  const [cfg, setCfg] = useState<{ enabled: boolean; since: string | null } | null>(null);
+  const [rows, setRows] = useState<FuRow[]>(() =>
+    board.stages.map((st) => {
+      const { n, unit } = splitMinutes(st.followupMinutes);
+      return {
+        id: st.id,
+        name: st.name,
+        color: st.color,
+        on: st.followupMinutes > 0,
+        n,
+        unit,
+        message: st.followupMessage,
+        orig: { minutes: st.followupMinutes, message: st.followupMessage },
+      };
+    }),
+  );
+  const [busy, setBusy] = useState<'' | 'ai' | 'save' | 'switch'>('');
+  const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    api.followupsConfig().then(setCfg).catch((e) => setErr((e as Error).message));
+  }, []);
+
+  const patch = (id: string, p: Partial<FuRow>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...p } : r)));
+
+  const toggle = async (on: boolean) => {
+    setBusy('switch');
+    setErr('');
+    try {
+      const c = await api.setFollowups(on);
+      setCfg(c);
+      onEnabled(c.enabled);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const suggest = async () => {
+    setBusy('ai');
+    setErr('');
+    setNote('');
+    try {
+      const sug = await api.suggestFollowups(board.funnel.id);
+      const by = new Map(sug.map((x) => [x.stageId, x]));
+      setRows((rs) =>
+        rs.map((r) => {
+          const x = by.get(r.id);
+          if (!x) return r;
+          if (!x.minutes) return { ...r, on: false };
+          const { n, unit } = splitMinutes(x.minutes);
+          return { ...r, on: true, n, unit, message: x.message };
+        }),
+      );
+      setNote('Sugestões da IA preenchidas. Revise e ajuste antes de salvar — nada é salvo sem você confirmar.');
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const save = async () => {
+    const bad = rows.find((r) => r.on && (!r.message.trim() || !(r.n > 0)));
+    if (bad) {
+      setErr(`Etapa "${bad.name}": defina o tempo e a mensagem, ou desligue o follow-up dela.`);
+      return;
+    }
+    setBusy('save');
+    setErr('');
+    try {
+      for (const r of rows) {
+        const minutes = r.on ? Math.round(r.n * UNIT_MIN[r.unit]) : 0;
+        const message = r.on ? r.message.trim() : r.orig.message;
+        if (minutes !== r.orig.minutes || message !== r.orig.message)
+          await api.updateStage(r.id, { followupMinutes: minutes, followupMessage: message });
+      }
+      onSaved();
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy('');
+    }
+  };
+
+  const since = cfg?.since
+    ? new Date(cfg.since).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+        <h3>Follow-ups automáticos · {board.funnel.name}</h3>
+
+        <div className="fu-head">
+          <Switch on={!!cfg?.enabled} onChange={(v) => busy === '' && toggle(v)} label="Ligar follow-ups automáticos deste cliente" />
+          <div>
+            <b>{cfg == null ? 'Carregando…' : cfg.enabled ? 'Ligados para este cliente' : 'Desligados para este cliente'}</b>
+            <div className="muted small">
+              {cfg?.enabled && since ? `Valem para leads que entraram na etapa desde ${since}.` : 'Nenhuma mensagem automática é enviada enquanto estiver desligado.'}
+            </div>
+          </div>
+        </div>
+
+        <ul className="fu-rules muted">
+          <li>Só envia se o lead não respondeu depois da última mensagem do escritório.</li>
+          <li>Só para leads que chegaram na etapa depois de ligar — nada retroativo.</li>
+          <li>Só em horário comercial (seg–sáb, 8h–20h). Use {'{nome}'} para o primeiro nome do lead.</li>
+        </ul>
+
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
+          <b style={{ fontSize: 14 }}>Mensagem por etapa</b>
+          <button className="soft" onClick={suggest} disabled={busy !== ''}>
+            <Icon name="sparkle" size={14} /> {busy === 'ai' ? 'A IA está escrevendo…' : 'Sugerir com IA'}
+          </button>
+        </div>
+        {note && <div className="muted small" style={{ marginBottom: 10 }}>{note}</div>}
+
+        {rows.map((r) => (
+          <div key={r.id} className={`fu-stage ${r.on ? '' : 'off'}`}>
+            <div className="fu-stage-top">
+              <div className="row" style={{ gap: 8 }}>
+                <Switch on={r.on} onChange={(v) => patch(r.id, { on: v })} label={`Follow-up da etapa ${r.name}`} />
+                <span className="stage-dot" style={{ width: 8, height: 8, borderRadius: 99, background: r.color, display: 'inline-block' }} />
+                <b>{r.name}</b>
+              </div>
+              {r.on && (
+                <label className="fu-wait">
+                  enviar após
+                  <input
+                    type="number"
+                    min={1}
+                    value={r.n}
+                    onChange={(e) => patch(r.id, { n: Number(e.target.value) })}
+                  />
+                  <select value={r.unit} onChange={(e) => patch(r.id, { unit: e.target.value as Unit })}>
+                    <option value="min">minutos</option>
+                    <option value="h">horas</option>
+                    <option value="d">dias</option>
+                  </select>
+                  sem resposta
+                </label>
+              )}
+            </div>
+            {r.on && (
+              <textarea
+                value={r.message}
+                placeholder="Ex.: Oi {nome}, conseguiu ver a mensagem anterior? Fico à disposição para tirar suas dúvidas."
+                onChange={(e) => patch(r.id, { message: e.target.value })}
+              />
+            )}
+          </div>
+        ))}
+
+        {err && <div className="att-msg bad" style={{ marginTop: 10 }}>{err}</div>}
+        <div className="modal-actions">
+          <button onClick={onClose}>Cancelar</button>
+          <button className="primary" onClick={save} disabled={busy !== ''}>
+            {busy === 'save' ? 'Salvando…' : 'Salvar etapas'}
           </button>
         </div>
       </div>

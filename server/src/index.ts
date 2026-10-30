@@ -14,6 +14,8 @@ import { mediaFilePath, safeMediaHeaders } from './whatsapp/media.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
 import { startFollowupLoop } from './services/followup.js';
 import { startAdsInsightsLoop } from './services/adsInsights.js';
+import { startAttendanceLoop } from './services/attendance.js';
+import { attendanceRouter } from './routes/attendance.js';
 import { backfillStageTags } from './services/inbound.js';
 import { ensureTenancy } from './services/tenancy.js';
 import { ensureQualifiedStageInAllFunnels } from './services/crmSeed.js';
@@ -88,6 +90,7 @@ app.use('/api/ai', requireAuth, aiRouter);
 app.use('/api/agents', requireAuth, agentsRouter);
 app.use('/api/campaigns', requireAuth, campaignsRouter);
 app.use('/api/ads', requireAuth, adsRouter);
+app.use('/api/attendance', requireAuth, attendanceRouter);
 app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 app.use('/api', requireAuth, workRouter);
 
@@ -140,4 +143,5 @@ server.listen(env.port, async () => {
   await startSavedSessions();
   startFollowupLoop();
   startAdsInsightsLoop(); // análise de campanhas: segunda e quarta, 8h
+  startAttendanceLoop(); // análise de atendimento: diária, 19h
 });

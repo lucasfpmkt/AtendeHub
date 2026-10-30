@@ -228,6 +228,52 @@ export interface Agent {
   order?: number;
 }
 
+export interface AttendanceConfig {
+  enabled: boolean;
+  since: string | null;
+  finalStages: string[];
+  suggested: boolean;
+  stages: { id: string; name: string; funnelName: string }[];
+}
+export interface AttendanceMetrics {
+  leadMsgs: number;
+  humanMsgs: number;
+  aiMsgs: number;
+  firstResponseMin: number | null;
+  avgResponseMin: number | null;
+  maxResponseMin: number | null;
+  slowReplies: number;
+  rawAvgResponseMin: number | null;
+  unansweredMin: number | null;
+}
+export interface AttendanceReviewItem {
+  id: string;
+  conversationId: string;
+  name: string;
+  phone: string;
+  campaign: string;
+  stage: string;
+  score: number;
+  verdict: 'bom' | 'regular' | 'ruim' | '';
+  speed: 'rapido' | 'ok' | 'lento' | '';
+  metrics: Partial<AttendanceMetrics>;
+  summary: string;
+  strengths: string[];
+  errors: string[];
+  missing: string[];
+  recommendation: string;
+  final: boolean;
+  updatedAt: string;
+}
+export interface AttendanceSummary {
+  leads: number;
+  avgScore: number | null;
+  avgFirstResponseMin: number | null;
+  slow: number;
+  bad: number;
+  waiting: number;
+}
+
 export type InsightSeverity = 'critica' | 'media' | 'leve';
 export interface AdsInsightItem {
   severity: InsightSeverity;
@@ -727,6 +773,20 @@ export const api = {
       campaigns?: { name: string; status: string; objective?: string }[];
     }>(`/ads/meta/summary?preset=${preset}`),
   adsMetaTestCapi: (phone?: string) => req<{ ok: boolean }>('/ads/meta/test-capi', { method: 'POST', body: JSON.stringify({ phone }) }),
+  // Follow-ups automáticos (chave geral por cliente) e sugestões da IA por etapa
+  followupsConfig: () => req<{ enabled: boolean; since: string | null }>('/followups/config'),
+  setFollowups: (enabled: boolean) =>
+    req<{ enabled: boolean; since: string | null }>('/followups/config', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  suggestFollowups: (funnelId: string) =>
+    req<{ stageId: string; minutes: number; message: string }[]>(`/funnels/${funnelId}/followup-suggest`, { method: 'POST' }),
+
+  // Análise de atendimento do advogado (só leads de campanha)
+  attendanceConfig: () => req<AttendanceConfig>('/attendance/config'),
+  setAttendanceConfig: (data: { enabled?: boolean; finalStages?: string[] }) =>
+    req<{ enabled: boolean; since: string | null; finalStages: string[] }>('/attendance/config', { method: 'PATCH', body: JSON.stringify(data) }),
+  attendanceReviews: () => req<{ summary: AttendanceSummary; items: AttendanceReviewItem[] }>('/attendance/reviews'),
+  runAttendance: () => req<{ analyzed: number; skipped: number; errors: number }>('/attendance/run', { method: 'POST' }),
+
   // Otimizações: análise das campanhas por IA (segunda e quarta, ou sob demanda)
   adsInsights: () => req<AdsInsightReport[]>('/ads/insights'),
   runAdsInsights: () => req<AdsInsightReport>('/ads/insights/run', { method: 'POST' }),

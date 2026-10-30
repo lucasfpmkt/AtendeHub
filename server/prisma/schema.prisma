@@ -68,6 +68,10 @@ model Contact {
 model Conversation {
   id              String    @id @default(cuid())
   workspaceId String?
+  // Lead de campanha (anúncio): chegou com uma frase-gatilho cadastrada em algum roteiro de IA.
+  campaignSource  String? // "gatilho"
+  campaignAd      String? // nome do agente cujo gatilho bateu
+  campaignAt      DateTime? // quando o gatilho chegou (a análise usa esta data, não a da conversa)
   contactId       String
   contact         Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   channel         String    @default("whatsapp")
@@ -137,6 +141,28 @@ model AdsInsightReport {
   createdAt   DateTime @default(now())
 
   @@index([workspaceId, createdAt])
+}
+
+/// Análise de atendimento de um lead de campanha (só o atendimento humano).
+model AttendanceReview {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  conversationId String   @unique
+  score          Int      @default(0) // 0 a 10
+  verdict        String   @default("") // bom | regular | ruim
+  speed          String   @default("") // rapido | ok | lento
+  metrics        String   @default("{}") // JSON: tempos de resposta etc.
+  summary        String   @default("")
+  strengths      String   @default("[]") // JSON string[]
+  errors         String   @default("[]")
+  missing        String   @default("[]")
+  recommendation String   @default("")
+  analyzedUntil  DateTime // última mensagem considerada (só reanalisa se houver novas)
+  final          Boolean  @default(false) // lead chegou à etapa final: não reanalisa mais
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([workspaceId])
 }
 
 /// Quem mudou o quê em cada agente.
@@ -287,6 +313,14 @@ model AiConfig {
   // Notificação de lead qualificado no WhatsApp do próprio escritório.
   notifyQualified Boolean @default(true)
   notifyNumber    String  @default("") // vazio = o próprio número conectado (QR)
+  // Análise de atendimento (só leads de campanha, só a partir da ativação).
+  attendanceEnabled     Boolean   @default(false)
+  attendanceSince       DateTime? // leads que chegaram antes disso não são analisados
+  attendanceFinalStages String    @default("") // ids de etapas (CSV): ao chegar nelas, a análise do lead encerra
+  attendanceLastRun     String    @default("") // AAAA-MM-DD da última rodada diária
+  // Follow-ups automáticos por etapa: só funcionam com a chave ligada.
+  followupsEnabled      Boolean   @default(false)
+  followupsSince        DateTime? // só leads que entraram na etapa depois de ligar
 }
 
 /// Mensagem agendada (lembrete/consulta) para enviar pelo WhatsApp no futuro.
