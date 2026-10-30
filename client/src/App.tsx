@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { socket, connectSocket, disconnectSocket } from './socket';
 import { api, getToken, setToken, onUnauthorized, type SessionUser, type WorkspaceInfo } from './api';
 import { Icon } from './icons';
-import { Particles, useLiquidIndicator } from './Particles';
+import { RailInner, useLiquidPill } from './Liquid';
 import { applyBrand } from './prefs';
 import { Login } from './pages/Login';
 import { Connect } from './pages/Connect';
@@ -96,7 +96,6 @@ export function App() {
   if (!session) {
     return (
       <>
-        <Particles />
         {blockedMsg && <div className="auth-banner">{blockedMsg}</div>}
         <Login
           onSuccess={(r) => {
@@ -186,7 +185,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
   const number = me ? me.split(':')[0].split('@')[0] : undefined;
   const firstName = user.name.split(' ')[0];
 
-  const { railRef, blobRef } = useLiquidIndicator([current, railCollapsed, isAdmin, unread]);
+  const { railRef, pillRef } = useLiquidPill([current, railCollapsed, isAdmin]);
 
   const closePicker = () => {
     sessionStorage.setItem(PICKED_KEY, '1');
@@ -195,11 +194,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
 
   return (
     <div className={`app ${railCollapsed ? 'rail-collapsed' : ''}`}>
-      <Particles />
       <nav className="rail" aria-label="Menu principal" ref={railRef}>
-        <span className="rail-liquid" ref={blobRef} aria-hidden>
-          <i />
-        </span>
+        <span className="rail-pill" ref={pillRef} aria-hidden />
         <div className="rail-brand">
           <img src="/logo.png" alt="" />
           <span className="wordmark label">
@@ -222,9 +218,11 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
             aria-label={t.label}
             title={t.label}
           >
-            <Icon name={t.icon} size={20} />
+            <RailInner>
+              <Icon name={t.icon} size={20} />
+              <span className="label">{t.label}</span>
+            </RailInner>
             {t.id === 'inbox' && unread > 0 && <span className="rail-badge">{unread > 99 ? '99+' : unread}</span>}
-            <span className="label">{t.label}</span>
           </button>
         ))}
         {isAdmin && (
@@ -234,8 +232,10 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
             aria-label="Clientes"
             title="Clientes"
           >
-            <Icon name="building" size={20} />
-            <span className="label">Clientes</span>
+            <RailInner>
+              <Icon name="building" size={20} />
+              <span className="label">Clientes</span>
+            </RailInner>
           </button>
         )}
         <div className="rail-spacer" />
@@ -245,9 +245,11 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
           aria-label="Conexão WhatsApp"
           title={connected ? 'WhatsApp conectado' : 'WhatsApp desconectado'}
         >
-          <Icon name="wifi" size={20} />
+          <RailInner>
+            <Icon name="wifi" size={20} />
+            <span className="label">{connected ? `WhatsApp ${number ? `+${number}` : 'conectado'}` : 'Conectar WhatsApp'}</span>
+          </RailInner>
           <span className={`rail-dot ${connected ? 'on' : ''}`} />
-          <span className="label">{connected ? `WhatsApp ${number ? `+${number}` : 'conectado'}` : 'Conectar WhatsApp'}</span>
         </button>
         <button
           className={`rail-link ${current === 'settings' ? 'active' : ''}`}
@@ -255,8 +257,10 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
           aria-label="Configurações"
           title="Configurações"
         >
-          <Icon name="settings" size={20} />
-          <span className="label">Configurações</span>
+          <RailInner>
+            <Icon name="settings" size={20} />
+            <span className="label">Configurações</span>
+          </RailInner>
         </button>
         <button
           className="rail-ws"
