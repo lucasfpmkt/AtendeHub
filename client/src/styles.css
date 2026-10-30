@@ -873,7 +873,6 @@ body {
     radial-gradient(40rem 30rem at 70% 0%, rgba(124, 58, 237, 0.06), transparent 60%),
     linear-gradient(180deg, #f8f8fa 0%, #eef0f4 100%);
 }
-.particles { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
 .app > .main, .auth-page { position: relative; z-index: 1; }
 .main, .page, .auth-page, .editor, .ed-right { background: transparent; }
 
@@ -938,89 +937,40 @@ input, textarea, select { background: rgba(255, 255, 255, 0.82); }
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.7) inset;
 }
 .rail-toggle { background: rgba(255, 255, 255, 0.6); border-color: var(--glass-line); }
-.rail-link { z-index: 1; transition: color 0.25s; }
+.rail-link { transition: color 0.25s; }
 .rail-link:hover { background: rgba(255, 255, 255, 0.55); }
-.rail .rail-link.active, .rail:hover .rail-link.active, .rail:focus-within .rail-link.active { background: transparent; box-shadow: none; color: var(--p-700); font-weight: 600; }
-.rail .rail-link.active .lucide { color: var(--p-600); }
+.rail .rail-link.active, .rail:hover .rail-link.active, .rail:focus-within .rail-link.active { background: transparent; box-shadow: none; }
 .rail-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 
-/* Destaque "líquido" da aba ativa */
-.rail-liquid {
+/* Pílula "líquida" da aba ativa: cores invertidas (fundo escuro, texto branco) */
+.rail-pill {
   position: absolute;
   left: 0;
   top: 0;
-  z-index: 0;
+  z-index: 2;
   pointer-events: none;
+  background: var(--g-900);
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.25);
   opacity: 0;
-  transition: transform 0.6s cubic-bezier(0.34, 1.42, 0.5, 1), width 0.35s ease, height 0.35s ease, opacity 0.2s;
-  will-change: transform;
+  clip-path: inset(100%);
 }
-.rail-liquid.no-anim { transition: none; }
-.rail-liquid > i {
+.rail-link .rail-inv {
   position: absolute;
   inset: 0;
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.5) 55%, rgba(255, 255, 255, 0.75) 100%),
-    color-mix(in srgb, var(--p-600) 16%, transparent);
-  border: 1px solid rgba(255, 255, 255, 0.95);
-  box-shadow:
-    0 8px 22px color-mix(in srgb, var(--p-600) 24%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--p-600) 14%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 1),
-    inset 0 -8px 14px color-mix(in srgb, var(--p-600) 12%, transparent);
-  -webkit-backdrop-filter: blur(10px) saturate(180%);
-  backdrop-filter: blur(10px) saturate(180%);
-  overflow: hidden;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: inherit;
+  gap: inherit;
+  padding: inherit;
+  color: #fff;
+  font-weight: 600;
+  pointer-events: none;
+  clip-path: inset(100%);
 }
-/* barra de luz na cor da marca */
-.rail-liquid > i::before {
-  content: '';
-  position: absolute;
-  left: 2px;
-  top: 30%;
-  bottom: 30%;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--p-600);
-  box-shadow: 0 0 10px var(--p-600), 0 0 3px var(--p-600);
-}
-/* brilho que atravessa a pílula */
-.rail-liquid > i::after {
-  content: '';
-  position: absolute;
-  top: -40%;
-  bottom: -40%;
-  width: 40%;
-  left: -60%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.85), transparent);
-  transform: skewX(-18deg);
-}
-.rail-liquid.wobble-v > i { animation: liquid-v 0.7s cubic-bezier(0.3, 0.7, 0.4, 1); }
-.rail-liquid.wobble-h > i { animation: liquid-h 0.7s cubic-bezier(0.3, 0.7, 0.4, 1); }
-.rail-liquid.wobble-v > i::after, .rail-liquid.wobble-h > i::after { animation: liquid-shine 0.8s ease-out; }
-@keyframes liquid-v {
-  0% { transform: scale(1, 1); }
-  22% { transform: scale(0.88, 1.45); border-radius: 22px; }
-  48% { transform: scale(1.06, 0.86); }
-  70% { transform: scale(0.98, 1.05); }
-  100% { transform: scale(1, 1); }
-}
-@keyframes liquid-h {
-  0% { transform: scale(1, 1); }
-  22% { transform: scale(1.4, 0.86); border-radius: 22px; }
-  48% { transform: scale(0.9, 1.06); }
-  70% { transform: scale(1.04, 0.98); }
-  100% { transform: scale(1, 1); }
-}
-@keyframes liquid-shine {
-  0% { left: -60%; }
-  100% { left: 130%; }
-}
+.rail-link .rail-inv .lucide { color: #fff; }
+.rail-link.active:hover { background: transparent; }
+.rail-badge, .rail-dot { z-index: 4; }
 @media (max-width: 860px) {
   .rail, .rail:hover { background: rgba(255, 255, 255, 0.7); border-top-color: var(--glass-edge); }
-  .rail-liquid > i::before { left: 25%; right: 25%; top: auto; bottom: 3px; width: auto; height: 3px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .rail-liquid { transition: none; }
 }
