@@ -758,8 +758,7 @@ svg.chart text { fill: var(--g-400); font-size: 11px; font-family: var(--font); 
   background:
     radial-gradient(42rem 28rem at 8% -6%, rgba(124, 58, 237, 0.20), transparent 60%),
     radial-gradient(36rem 26rem at 100% 8%, rgba(14, 165, 233, 0.18), transparent 60%),
-    radial-gradient(40rem 30rem at 60% 110%, rgba(183, 19, 18, 0.12), transparent 60%),
-    linear-gradient(180deg, #f5f7fb 0%, #eef1f8 100%);
+    radial-gradient(40rem 30rem at 60% 110%, rgba(183, 19, 18, 0.12), transparent 60%);
   background-attachment: local;
 }
 .att .glass {
@@ -857,3 +856,171 @@ svg.chart text { fill: var(--g-400); font-size: 11px; font-family: var(--font); 
 .fu-stage.off { background: var(--g-50); }
 .fu-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--g-300); display: inline-block; }
 .fu-dot.on { background: var(--ok); }
+
+/* ===================== Visual glass em todo o LawHub ===================== */
+:root {
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-strong: rgba(255, 255, 255, 0.8);
+  --glass-line: rgba(255, 255, 255, 0.75);
+  --glass-edge: rgba(17, 24, 39, 0.08);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset, 0 8px 30px rgba(31, 41, 74, 0.07);
+  --glass-blur: blur(18px) saturate(165%);
+}
+body {
+  background:
+    radial-gradient(60rem 42rem at -5% -10%, color-mix(in srgb, var(--p-600) 13%, transparent), transparent 62%),
+    radial-gradient(52rem 40rem at 105% 105%, color-mix(in srgb, var(--p-600) 10%, transparent), transparent 62%),
+    radial-gradient(40rem 30rem at 70% 0%, rgba(124, 58, 237, 0.06), transparent 60%),
+    linear-gradient(180deg, #f8f8fa 0%, #eef0f4 100%);
+}
+.particles { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.app > .main, .auth-page { position: relative; z-index: 1; }
+.main, .page, .auth-page, .editor, .ed-right { background: transparent; }
+
+/* Painéis e cartões: vidro com desfoque (o desfoque fica num pseudo-elemento
+   para não quebrar modais "position: fixed" renderizados dentro deles). */
+.card, .conv-list, .funnel-side, .subnav, .funnel-head, .column, .chat-header, .composer, .auth-card, .script-wrap {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+.card::before, .conv-list::before, .funnel-side::before, .subnav::before, .funnel-head::before, .column::before,
+.chat-header::before, .composer::before, .auth-card::before, .script-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  pointer-events: none;
+}
+.card, .auth-card { border-color: var(--glass-line); box-shadow: var(--glass-shadow); }
+.card { border-radius: 16px; }
+.conv-list, .funnel-side, .subnav { border-color: var(--glass-edge); }
+.conv-list::before, .funnel-side::before, .subnav::before, .chat-header::before, .composer::before { background: rgba(255, 255, 255, 0.7); }
+.funnel-head { border-color: var(--glass-edge); }
+.column::before { background: rgba(255, 255, 255, 0.34); }
+.column-head { background: rgba(255, 255, 255, 0.7); border-color: var(--glass-line); }
+.deal { background: rgba(255, 255, 255, 0.82); border-color: var(--glass-line); box-shadow: 0 2px 10px rgba(31, 41, 74, 0.05); }
+.chat { background: rgba(239, 234, 226, 0.6); }
+.tile, .shortcut, .picker-item, .media-lib-item { background: rgba(255, 255, 255, 0.66); }
+.soft:not(button) { background: rgba(255, 255, 255, 0.5); border-color: var(--glass-line); }
+.att .glass { background: rgba(255, 255, 255, 0.55); }
+
+/* Controles levemente translúcidos */
+button { background: rgba(255, 255, 255, 0.72); }
+button:hover { background: rgba(255, 255, 255, 0.95); }
+button.ghost, button.link, .segmented button, .rail-link, .rail-ws, .att-row-main, button.conv-item { background: transparent; }
+input, textarea, select { background: rgba(255, 255, 255, 0.82); }
+.segmented, .seg-group { background: rgba(17, 24, 39, 0.06); }
+
+/* Modais */
+.modal-backdrop { background: rgba(17, 24, 39, 0.32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.modal {
+  background: rgba(255, 255, 255, 0.84);
+  border-color: var(--glass-line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 30px 80px rgba(17, 24, 39, 0.22);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  backdrop-filter: blur(26px) saturate(170%);
+  border-radius: 20px;
+}
+.fu-head, .fu-stage.off { background: rgba(255, 255, 255, 0.5); }
+.toast { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); background: rgba(17, 24, 39, 0.86); }
+
+/* Menu lateral em vidro */
+.rail {
+  background: rgba(255, 255, 255, 0.5);
+  border-right-color: var(--glass-edge);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.7) inset;
+}
+.rail-toggle { background: rgba(255, 255, 255, 0.6); border-color: var(--glass-line); }
+.rail-link { z-index: 1; transition: color 0.25s; }
+.rail-link:hover { background: rgba(255, 255, 255, 0.55); }
+.rail .rail-link.active, .rail:hover .rail-link.active, .rail:focus-within .rail-link.active { background: transparent; box-shadow: none; color: var(--p-700); font-weight: 600; }
+.rail .rail-link.active .lucide { color: var(--p-600); }
+.rail-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
+
+/* Destaque "líquido" da aba ativa */
+.rail-liquid {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: transform 0.6s cubic-bezier(0.34, 1.42, 0.5, 1), width 0.35s ease, height 0.35s ease, opacity 0.2s;
+  will-change: transform;
+}
+.rail-liquid.no-anim { transition: none; }
+.rail-liquid > i {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.5) 55%, rgba(255, 255, 255, 0.75) 100%),
+    color-mix(in srgb, var(--p-600) 16%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 8px 22px color-mix(in srgb, var(--p-600) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--p-600) 14%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -8px 14px color-mix(in srgb, var(--p-600) 12%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  backdrop-filter: blur(10px) saturate(180%);
+  overflow: hidden;
+}
+/* barra de luz na cor da marca */
+.rail-liquid > i::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 30%;
+  bottom: 30%;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--p-600);
+  box-shadow: 0 0 10px var(--p-600), 0 0 3px var(--p-600);
+}
+/* brilho que atravessa a pílula */
+.rail-liquid > i::after {
+  content: '';
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  width: 40%;
+  left: -60%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  transform: skewX(-18deg);
+}
+.rail-liquid.wobble-v > i { animation: liquid-v 0.7s cubic-bezier(0.3, 0.7, 0.4, 1); }
+.rail-liquid.wobble-h > i { animation: liquid-h 0.7s cubic-bezier(0.3, 0.7, 0.4, 1); }
+.rail-liquid.wobble-v > i::after, .rail-liquid.wobble-h > i::after { animation: liquid-shine 0.8s ease-out; }
+@keyframes liquid-v {
+  0% { transform: scale(1, 1); }
+  22% { transform: scale(0.88, 1.45); border-radius: 22px; }
+  48% { transform: scale(1.06, 0.86); }
+  70% { transform: scale(0.98, 1.05); }
+  100% { transform: scale(1, 1); }
+}
+@keyframes liquid-h {
+  0% { transform: scale(1, 1); }
+  22% { transform: scale(1.4, 0.86); border-radius: 22px; }
+  48% { transform: scale(0.9, 1.06); }
+  70% { transform: scale(1.04, 0.98); }
+  100% { transform: scale(1, 1); }
+}
+@keyframes liquid-shine {
+  0% { left: -60%; }
+  100% { left: 130%; }
+}
+@media (max-width: 860px) {
+  .rail, .rail:hover { background: rgba(255, 255, 255, 0.7); border-top-color: var(--glass-edge); }
+  .rail-liquid > i::before { left: 25%; right: 25%; top: auto; bottom: 3px; width: auto; height: 3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-liquid { transition: none; }
+}

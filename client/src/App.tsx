@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { socket, connectSocket, disconnectSocket } from './socket';
 import { api, getToken, setToken, onUnauthorized, type SessionUser, type WorkspaceInfo } from './api';
 import { Icon } from './icons';
+import { Particles, useLiquidIndicator } from './Particles';
 import { applyBrand } from './prefs';
 import { Login } from './pages/Login';
 import { Connect } from './pages/Connect';
@@ -95,6 +96,7 @@ export function App() {
   if (!session) {
     return (
       <>
+        <Particles />
         {blockedMsg && <div className="auth-banner">{blockedMsg}</div>}
         <Login
           onSuccess={(r) => {
@@ -184,6 +186,8 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
   const number = me ? me.split(':')[0].split('@')[0] : undefined;
   const firstName = user.name.split(' ')[0];
 
+  const { railRef, blobRef } = useLiquidIndicator([current, railCollapsed, isAdmin, unread]);
+
   const closePicker = () => {
     sessionStorage.setItem(PICKED_KEY, '1');
     setPicker(false);
@@ -191,7 +195,11 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
 
   return (
     <div className={`app ${railCollapsed ? 'rail-collapsed' : ''}`}>
-      <nav className="rail" aria-label="Menu principal">
+      <Particles />
+      <nav className="rail" aria-label="Menu principal" ref={railRef}>
+        <span className="rail-liquid" ref={blobRef} aria-hidden>
+          <i />
+        </span>
         <div className="rail-brand">
           <img src="/logo.png" alt="" />
           <span className="wordmark label">
