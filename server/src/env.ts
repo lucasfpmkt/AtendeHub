@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { DEFAULT_DRAFT_PROMPT } from './services/draftPrompt.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,8 +38,7 @@ export const env = {
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
   aiModel: process.env.AI_MODEL ?? 'claude-haiku-5-5',
   aiSystemPrompt:
-    process.env.AI_SYSTEM_PROMPT ??
-    'Você é um assistente de atendimento ao cliente educado, objetivo e em português do Brasil.',
+    process.env.AI_SYSTEM_PROMPT ?? DEFAULT_DRAFT_PROMPT,
 
   // Autenticação (single-operator). Em produção, defina os dois.
   appPassword: process.env.APP_PASSWORD ?? 'admin',

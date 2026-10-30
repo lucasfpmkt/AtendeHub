@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { env } from '../env.js';
 import { resolveLlm } from './llm.js';
+import { effectiveDraftPrompt } from './draftPrompt.js';
 
 /** Configuração de IA do cliente (id = workspaceId). */
 async function getConfig(ws: string) {
@@ -42,17 +43,19 @@ export async function generateReply(ws: string, conversationId: string): Promise
 
   const text = await llm.complete({
     system:
-      `${cfg.systemPrompt}\n\n` +
+      `${effectiveDraftPrompt(cfg.systemPrompt, env.aiSystemPrompt)}\n\n` +
       `Cliente: ${conversation.contact.name ?? conversation.contact.phone}. ` +
       'Responda de forma breve e útil, pronta para enviar no WhatsApp.',
     messages: history,
-    maxTokens: 500,
+    maxTokens: 700,
   });
   return text || 'Desculpe, não consegui gerar uma resposta agora.';
 }
 
 export async function getAiConfig(ws: string) {
-  return getConfig(ws);
+  const cfg = await getConfig(ws);
+  // Mostra em Configurações o texto que de fato está valendo.
+  return { ...cfg, systemPrompt: effectiveDraftPrompt(cfg.systemPrompt, env.aiSystemPrompt) };
 }
 
 export type AiConfigPatch = {

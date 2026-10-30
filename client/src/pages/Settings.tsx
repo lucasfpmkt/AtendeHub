@@ -147,6 +147,16 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
     }
   };
 
+  // Volta para a instrução padrão do LawHub (texto para advogados).
+  const restoreDefault = async () => {
+    if (!confirm('Substituir a instrução atual pela padrão do LawHub?')) return;
+    await api.updateAiConfig({ systemPrompt: '' });
+    const c = await api.aiConfig();
+    setSystemPrompt(c.systemPrompt);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
   const save = async () => {
     await api.updateAiConfig({ systemPrompt });
     setSaved(true);
@@ -333,12 +343,13 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
           </p>
           <div className="field-sm">
             <span>Instrução base do rascunho de resposta (botão ✦ nas conversas sem agente)</span>
-            <textarea rows={4} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
+            <textarea rows={14} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
           </div>
           <div className="row">
             <button className="primary" onClick={save}>
               {saved ? 'Salvo' : 'Salvar'}
             </button>
+            <button onClick={restoreDefault}>Restaurar padrão</button>
           </div>
         </section>
       </div>
