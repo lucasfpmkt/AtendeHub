@@ -428,3 +428,38 @@ model GoogleAdsConfig {
   conversionActionId String  @default("") // id da ação de conversão (upload)
   conversionName     String  @default("") // nome amigável da ação escolhida
 }
+
+/// Captação de leads de formulário (Meta Lead Ads e entrada via Zapier/Make).
+model LeadFormConfig {
+  id          String    @id // = workspaceId
+  enabled     Boolean   @default(false)
+  pageId      String    @default("")
+  pageName    String    @default("")
+  pageToken   String    @default("") // token da página (criptografado)
+  funnelId    String    @default("")
+  stageId     String    @default("")
+  notify      Boolean   @default(true) // avisar o escritório no WhatsApp
+  hookKey     String    @default("") // chave do endereço de entrada (Zapier/Make)
+  lastPollAt  DateTime?
+  lastError   String    @default("")
+  @@index([pageId])
+}
+
+/// Cada lead de formulário recebido (evita duplicar e mostra o histórico).
+model LeadFormEntry {
+  id          String   @id @default(cuid())
+  workspaceId String
+  externalId  String   // id do lead no Meta (ou gerado na entrada externa)
+  source      String   // "meta" | "externo"
+  name        String   @default("")
+  phone       String   @default("")
+  email       String   @default("")
+  formName    String   @default("")
+  campaign    String   @default("")
+  answers     String   @default("[]") // JSON [{q,a}]
+  contactId   String?
+  dealId      String?
+  createdAt   DateTime @default(now())
+  @@unique([workspaceId, externalId])
+  @@index([workspaceId, createdAt])
+}

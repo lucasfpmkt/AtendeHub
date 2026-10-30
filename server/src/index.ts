@@ -29,6 +29,8 @@ import { workRouter } from './routes/work.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { waWebhookRouter } from './routes/waWebhook.js';
 import { adsRouter, metaOauthRouter, googleOauthRouter } from './routes/ads.js';
+import { leadFormsRouter, leadgenWebhookRouter, leadInRouter } from './routes/leadForms.js';
+import { startLeadFormsLoop } from './services/leadForms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +42,9 @@ app.disable('x-powered-by');
 app.use(forceHttps);
 app.use(securityHeaders);
 app.use(cors({ origin: env.clientOrigin }));
+// Webhook PÚBLICO dos formulários do Meta: precisa do corpo cru (assinatura),
+// por isso vem antes do express.json.
+app.use('/api/meta/leadgen', express.raw({ type: '*/*', limit: '1mb' }), leadgenWebhookRouter);
 app.use(express.json({ limit: '2mb' }));
 
 // Webhook PÚBLICO da API Oficial do WhatsApp (a Meta chama sem token de sessão).
@@ -59,6 +64,13 @@ const sendLimit = rateLimit({ name: 'envio', windowMs: 60_000, max: 120, message
 app.use('/api/whatsapp/send-media', sendLimit);
 app.use('/api/conversations', (req, res, next) => (req.method === 'POST' && /\/messages\/?$/.test(req.path) ? sendLimit(req, res, next) : next()));
 app.use('/api', rateLimit({ name: 'api', windowMs: 60_000, max: 900 }));
+// Entrada PÚBLICA de leads (Zapier/Make/site), protegida pela chave na URL.
+app.use(
+  '/api/leads/in',
+  rateLimit({ name: 'leads-in', windowMs: 60_000, max: 60 }),
+  express.urlencoded({ extended: true, limit: '1mb' }),
+  leadInRouter,
+);
 
 // Público
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -91,6 +103,7 @@ app.use('/api/agents', requireAuth, agentsRouter);
 app.use('/api/campaigns', requireAuth, campaignsRouter);
 app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/attendance', requireAuth, attendanceRouter);
+app.use('/api/leadforms', requireAuth, leadFormsRouter);
 app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 app.use('/api', requireAuth, workRouter);
 
@@ -144,4 +157,5 @@ server.listen(env.port, async () => {
   startFollowupLoop();
   startAdsInsightsLoop(); // análise de campanhas: segunda e quarta, 8h
   startAttendanceLoop(); // análise de atendimento: diária, 19h
+  startLeadFormsLoop(); // formulários do Meta: busca de segurança a cada 10 min
 });

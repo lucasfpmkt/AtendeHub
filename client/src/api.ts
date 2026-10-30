@@ -228,6 +228,37 @@ export interface Agent {
   order?: number;
 }
 
+export interface LeadFormEntry {
+  id: string;
+  source: 'meta' | 'externo';
+  name: string;
+  phone: string;
+  email: string;
+  formName: string;
+  campaign: string;
+  answers: { q: string; a: string }[];
+  createdAt: string;
+}
+export interface LeadFormsConfig {
+  enabled: boolean;
+  pageId: string;
+  pageName: string;
+  funnelId: string;
+  stageId: string;
+  notify: boolean;
+  lastPollAt: string | null;
+  lastError: string;
+  metaConnected: boolean;
+  metaName: string;
+  oauthAvailable: boolean;
+  scopesOk: boolean;
+  hookUrl: string;
+  webhookUrl: string;
+  verifyToken: string;
+  funnels: { id: string; name: string; stages: { id: string; name: string }[] }[];
+  entries: LeadFormEntry[];
+}
+
 export interface AttendanceConfig {
   enabled: boolean;
   since: string | null;
@@ -758,6 +789,14 @@ export const api = {
     eventName?: string;
   }) => req('/ads/meta', { method: 'PATCH', body: JSON.stringify(data) }),
   adsMetaOauthUrl: () => req<{ available: boolean; url?: string }>('/ads/meta/oauth-url'),
+
+  // Formulários de lead (Meta Lead Ads + entrada externa Zapier/Make)
+  leadForms: () => req<LeadFormsConfig>('/leadforms/config'),
+  leadFormPages: () => req<{ pages: { id: string; name: string }[] }>('/leadforms/pages'),
+  updateLeadForms: (data: { enabled?: boolean; pageId?: string; funnelId?: string; stageId?: string; notify?: boolean }) =>
+    req<{ ok: true; warning: string }>('/leadforms/config', { method: 'PATCH', body: JSON.stringify(data) }),
+  syncLeadForms: () => req<{ found: number; created: number }>('/leadforms/sync', { method: 'POST' }),
+  rotateLeadHook: () => req<{ hookUrl: string }>('/leadforms/rotate-key', { method: 'POST' }),
   adsMetaAccounts: () => req<{ accounts: { id: string; name: string }[]; error?: string }>('/ads/meta/accounts'),
   adsMetaDisconnect: () => req<{ ok: boolean }>('/ads/meta/disconnect', { method: 'POST' }),
   adsMetaSummary: (preset = 'last_30d') =>

@@ -968,3 +968,45 @@ body {
 @media (max-width: 860px) {
   .rail, .rail:hover { background: rgba(255, 255, 255, 0.85); border-top-color: var(--glass-edge); }
 }
+
+/* Formulários de lead */
+.lf-msg { margin-bottom: 14px; font-size: 13px; padding: 10px 14px; border-radius: 12px; background: var(--ok-50); color: #166534; border: 1px solid var(--ok-200); }
+.lf-msg.bad { background: var(--bad-50); color: #991b1b; border-color: var(--bad-200); }
+.lf-card { display: flex; gap: 14px; margin-bottom: 14px; }
+.lf-card.lf-off { opacity: 0.6; }
+.lf-step { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--p-50); color: var(--p-700); font-weight: 700; font-size: 13px; border: 1px solid var(--p-100); }
+.lf-body { flex: 1; min-width: 0; display: grid; gap: 12px; align-content: start; }
+.lf-body h3, .lf-list h3 { font-size: 15px; font-weight: 600; }
+.lf-body > button { justify-self: start; }
+.lf-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.lf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.lf-row { display: flex; align-items: center; gap: 12px; }
+.lf-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lf-warn { color: #92400e; background: var(--warn-50); border: 1px solid var(--warn-200); border-radius: 10px; padding: 9px 12px; font-size: 13px; }
+.lf-list { margin-bottom: 14px; }
+.lf-entry { border-top: 1px solid var(--g-100); }
+.lf-list h3 + .lf-entry { margin-top: 8px; }
+.lf-entry-main { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 4px; border: 0; background: transparent; text-align: left; min-height: 52px; }
+.lf-entry-main:hover { background: rgba(17, 24, 39, 0.03); }
+.lf-who { display: grid; min-width: 0; }
+.lf-who b, .lf-who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-answers { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; padding: 0 4px 12px 48px; }
+.lf-answers > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--g-50); border: 1px solid var(--g-100); }
+.lf-answers span { font-size: 11.5px; color: var(--g-500); }
+.lf-answers b { font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
+.lf-copy { display: flex; align-items: center; gap: 8px; margin: 6px 0; min-width: 0; }
+.lf-copy code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px 10px; border-radius: 8px; background: var(--g-100); font-size: 12px; }
+.lf-copy button { flex: none; }
+.lf-details summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+.lf-details pre { margin: 8px 0; padding: 12px; border-radius: 10px; background: var(--g-900); color: #e5e7eb; font-family: var(--mono); font-size: 12px; overflow-x: auto; }
+.lf-setup-toggle { width: 100%; justify-content: space-between; border: 0; background: transparent; padding: 0; min-height: 28px; }
+.lf-setup-toggle:hover { background: transparent; }
+.lf-setup { display: grid; gap: 8px; margin-top: 12px; }
+.lf-setup ol { margin: 0; padding-left: 20px; display: grid; gap: 10px; line-height: 1.55; }
+@media (max-width: 760px) {
+  .lf-grid { grid-template-columns: 1fr; }
+  .lf-entry-main { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .lf-when { display: none; }
+  .lf-answers { padding-left: 4px; }
+  .lf-card { flex-direction: column; gap: 10px; }
+}

@@ -279,6 +279,8 @@ adminRouter.delete('/workspaces/:id', requireMaster, async (req, res) => {
     prisma.tag.deleteMany({ where }),
     prisma.adsInsightReport.deleteMany({ where }),
     prisma.attendanceReview.deleteMany({ where }),
+    prisma.leadFormEntry.deleteMany({ where }),
+    prisma.leadFormConfig.deleteMany({ where: { id: ws.id } }),
     prisma.aiConfig.deleteMany({ where: { id: ws.id } }),
     prisma.workspace.delete({ where: { id: ws.id } }), // logins vão junto (cascade)
   ]);
