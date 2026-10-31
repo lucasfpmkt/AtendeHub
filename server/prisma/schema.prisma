@@ -436,6 +436,7 @@ model LeadFormConfig {
   pageId      String    @default("")
   pageName    String    @default("")
   pageToken   String    @default("") // token da página (criptografado)
+  userToken   String    @default("") // token colado à mão (Usuário do sistema ou da página), criptografado
   funnelId    String    @default("")
   stageId     String    @default("")
   notify      Boolean   @default(true) // avisar o escritório no WhatsApp

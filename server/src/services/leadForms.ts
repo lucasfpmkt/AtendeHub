@@ -333,10 +333,35 @@ export async function leadScopesOk(userToken: string): Promise<boolean> {
   }
 }
 
-/** Páginas que o usuário conectado administra (com o token de cada uma). */
+/** Se o token é de uma PÁGINA (e não de usuário), devolve a própria página. */
+async function pageOfToken(token: string): Promise<{ id: string; name: string; token: string } | null> {
+  try {
+    const me = await graph('me?fields=id,name,category', token);
+    return me?.category ? { id: String(me.id), name: String(me.name ?? me.id), token } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Páginas acessíveis com o token (usuário/usuário do sistema → me/accounts; token de página → ela mesma). */
 export async function listPages(userToken: string): Promise<{ id: string; name: string; token: string }[]> {
-  const d = await graph('me/accounts?fields=id,name,access_token&limit=100', userToken);
-  return (d?.data ?? []).map((p: any) => ({ id: String(p.id), name: String(p.name ?? p.id), token: String(p.access_token ?? '') }));
+  try {
+    const d = await graph('me/accounts?fields=id,name,access_token&limit=100', userToken);
+    const pages = (d?.data ?? []).map((p: any) => ({ id: String(p.id), name: String(p.name ?? p.id), token: String(p.access_token ?? '') }));
+    if (pages.length) return pages;
+  } catch (err) {
+    const page = await pageOfToken(userToken);
+    if (page) return [page];
+    throw err;
+  }
+  const page = await pageOfToken(userToken);
+  return page ? [page] : [];
+}
+
+/** Token pronto para formulários: com as permissões de leads ou de uma página. */
+export async function tokenReadyForLeads(token: string): Promise<boolean> {
+  if (await leadScopesOk(token)) return true;
+  return Boolean(await pageOfToken(token));
 }
 
 /** Assina o webhook "leadgen" do app na página. */

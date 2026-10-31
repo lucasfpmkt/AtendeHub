@@ -11,10 +11,10 @@ import {
   ingestLead,
   leadConfigOf,
   leadFromPayload,
-  leadScopesOk,
   listPages,
   pullLeads,
   subscribePage,
+  tokenReadyForLeads,
   validSignature,
   webhookVerifyToken,
 } from '../services/leadForms.js';
@@ -24,7 +24,10 @@ const baseUrl = (req: Request) => env.publicUrl || `${req.protocol}://${req.get(
 /* ------------------------- Autenticado: /api/leadforms ------------------- */
 export const leadFormsRouter = Router();
 
+/** Token usado para os formulários: o colado aqui ou o da conexão de anúncios. */
 async function userToken(ws: string) {
+  const lf = await prisma.leadFormConfig.findUnique({ where: { id: ws }, select: { userToken: true } });
+  if (lf?.userToken) return dec(lf.userToken);
   const meta = await prisma.metaConfig.findUnique({ where: { id: ws } });
   return meta?.token ? dec(meta.token) : '';
 }
@@ -33,7 +36,7 @@ leadFormsRouter.get('/config', async (req, res) => {
   const ws = wsOf(req);
   const cfg = await leadConfigOf(ws);
   const meta = await prisma.metaConfig.findUnique({ where: { id: ws } });
-  const token = meta?.token ? dec(meta.token) : '';
+  const token = await userToken(ws);
   const funnels = await prisma.funnel.findMany({
     where: { workspaceId: ws },
     orderBy: { order: 'asc' },
@@ -52,7 +55,9 @@ leadFormsRouter.get('/config', async (req, res) => {
     metaConnected: Boolean(token),
     metaName: meta?.connectedName ?? '',
     oauthAvailable: metaOauthEnabled,
-    scopesOk: token ? await leadScopesOk(token) : false,
+    manualToken: Boolean(cfg.userToken),
+    instantAvailable: Boolean(env.fbAppSecret),
+    scopesOk: token ? await tokenReadyForLeads(token) : false,
     hookUrl: `${baseUrl(req)}/api/leads/in/${cfg.hookKey}`,
     webhookUrl: `${baseUrl(req)}/api/meta/leadgen`,
     verifyToken: webhookVerifyToken(),
@@ -94,6 +99,23 @@ leadFormsRouter.patch('/config', async (req, res) => {
   const b = req.body ?? {};
   const data: Record<string, unknown> = {};
   let warning = '';
+
+  // Token colado à mão (sem o login do Meta): valida antes de salvar.
+  if (typeof b.userToken === 'string') {
+    const t = b.userToken.trim();
+    if (!t) data.userToken = '';
+    else {
+      try {
+        const pages = await listPages(t);
+        if (!pages.length) return res.status(400).json({ error: 'Esse token não tem acesso a nenhuma página. Atribua a página ao usuário do sistema e gere o token de novo.' });
+      } catch (err) {
+        return res.status(400).json({ error: `O Meta recusou o token: ${(err as Error).message}` });
+      }
+      data.userToken = encPageToken(t);
+    }
+    await prisma.leadFormConfig.update({ where: { id: ws }, data });
+    return res.json({ ok: true, warning: '' });
+  }
 
   if (typeof b.pageId === 'string' && b.pageId && b.pageId !== cfg.pageId) {
     const token = await userToken(ws);
