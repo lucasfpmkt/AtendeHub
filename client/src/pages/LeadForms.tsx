@@ -32,6 +32,8 @@ export function LeadForms() {
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState('');
   const [showSetup, setShowSetup] = useState(false);
+  const [tokenOpen, setTokenOpen] = useState(false);
+  const [token, setToken] = useState('');
 
   const load = () => api.leadForms().then(setCfg);
   useEffect(() => {
@@ -104,30 +106,78 @@ export function LeadForms() {
         <div className="lf-step">1</div>
         <div className="lf-body">
           <h3>Conexão com o Meta</h3>
-          {!cfg.metaConnected ? (
-            <>
-              <p className="muted small">Entre com a conta do Facebook que administra a página do escritório.</p>
-              <button className="primary" onClick={connect} disabled={!cfg.oauthAvailable}>
-                <Icon name="share" size={15} /> Conectar com o Meta
-              </button>
-            </>
-          ) : !cfg.scopesOk ? (
-            <>
-              <p className="lf-warn">
-                Conectado{cfg.metaName ? ` como ${cfg.metaName}` : ''}, mas falta liberar a permissão de formulários. Clique em reconectar e
-                aceite todas as permissões (páginas e leads).
-              </p>
-              <button className="primary" onClick={connect}>
-                <Icon name="refresh" size={15} /> Reconectar com o Meta
-              </button>
-            </>
-          ) : (
-            <p className="row" style={{ gap: 8 }}>
+          {ready ? (
+            <p className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <span className="pill ok">
                 <Icon name="check" size={13} /> Conectado
               </span>
-              <span className="muted small">{cfg.metaName || 'Conta do Meta'} · permissões de formulário liberadas</span>
+              <span className="muted small">
+                {cfg.manualToken ? 'Pelo token colado aqui' : cfg.metaName || 'Conta do Meta'} · acesso aos formulários liberado
+              </span>
+              <button className="link small" onClick={() => setTokenOpen(!tokenOpen)}>
+                Trocar token
+              </button>
             </p>
+          ) : cfg.oauthAvailable ? (
+            <>
+              <p className={cfg.metaConnected ? 'lf-warn' : 'muted small'}>
+                {cfg.metaConnected
+                  ? `Conectado${cfg.metaName ? ` como ${cfg.metaName}` : ''}, mas falta liberar a permissão de formulários. Reconecte e aceite todas as permissões (páginas e leads).`
+                  : 'Entre com a conta do Facebook que administra a página do escritório.'}
+              </p>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <button className="primary" onClick={connect}>
+                  <Icon name="share" size={15} /> {cfg.metaConnected ? 'Reconectar com o Meta' : 'Conectar com o Meta'}
+                </button>
+                <button onClick={() => setTokenOpen(!tokenOpen)}>Usar um token</button>
+              </div>
+            </>
+          ) : (
+            <p className="lf-warn">
+              {cfg.metaConnected
+                ? 'O token usado nos anúncios não tem acesso à página nem aos leads. Cole abaixo um token com essas permissões.'
+                : 'Cole abaixo um token do Meta com acesso à página e aos leads.'}
+            </p>
+          )}
+
+          {(tokenOpen || (!ready && !cfg.oauthAvailable)) && (
+            <div className="lf-token">
+              <ol className="small">
+                <li>
+                  No <b>Gerenciador de Negócios</b> › Configurações do negócio › <b>Usuários do sistema</b>, abra (ou crie) um usuário do
+                  sistema <b>administrador</b>.
+                </li>
+                <li>
+                  Em <b>Atribuir ativos</b>, adicione a <b>Página</b> do escritório com controle total.
+                </li>
+                <li>
+                  Clique em <b>Gerar token</b>, escolha o app e marque: <code>leads_retrieval</code>, <code>pages_show_list</code>,{' '}
+                  <code>pages_read_engagement</code>, <code>pages_manage_metadata</code>, <code>pages_manage_ads</code> e{' '}
+                  <code>ads_read</code>. Validade: <b>nunca expira</b>.
+                </li>
+                <li>Cole o token aqui:</li>
+              </ol>
+              <div className="lf-copy">
+                <input type="password" placeholder="EAAG…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
+                <button
+                  className="primary"
+                  disabled={!token.trim() || busy !== ''}
+                  onClick={() =>
+                    run('token', async () => {
+                      const r = await api.updateLeadForms({ userToken: token.trim() });
+                      if (r.warning) throw new Error(r.warning);
+                      setToken('');
+                      setTokenOpen(false);
+                      setPages(null);
+                      return 'Token salvo. Agora escolha a página no passo 2.';
+                    })
+                  }
+                >
+                  {busy === 'token' ? 'Verificando…' : 'Salvar token'}
+                </button>
+              </div>
+              <p className="muted small">O token fica guardado criptografado e só é usado para ler os leads da página.</p>
+            </div>
           )}
         </div>
       </div>
@@ -318,6 +368,12 @@ export function LeadForms() {
             <p className="small">
               Sem isto os leads chegam pela verificação a cada 10 minutos. Com isto, chegam em segundos.
             </p>
+            {!cfg.instantAvailable && (
+              <p className="lf-warn small">
+                Para o aviso instantâneo, o servidor precisa do segredo do app do Meta (variáveis FB_APP_ID e FB_APP_SECRET no Easypanel).
+                Sem elas, a verificação a cada 10 minutos continua funcionando normalmente.
+              </p>
+            )}
             <ol className="small">
               <li>
                 No <b>painel do app do Meta</b> (developers.facebook.com), em <b>Webhooks</b>, escolha <b>Page</b>, clique em <b>Assinar</b>{' '}

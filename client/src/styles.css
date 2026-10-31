@@ -1010,3 +1010,6 @@ body {
   .lf-answers { padding-left: 4px; }
   .lf-card { flex-direction: column; gap: 10px; }
 }
+.lf-token { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--g-50); border: 1px solid var(--g-100); }
+.lf-token ol { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.5; }
+.lf-token .lf-copy input { flex: 1; min-width: 0; }
