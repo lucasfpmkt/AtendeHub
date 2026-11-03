@@ -532,6 +532,10 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     if (!fresh?.aiEnabled) return;
 
     if (text) await deliver(ws, conversationId, text, sendText);
+    else if (actions.length === 0) {
+      await systemNote(ws, conversationId, `${agent.name} não gerou resposta para esta mensagem. Vou tentar de novo em instantes; se persistir, responda manualmente.`);
+      return;
+    }
 
     // Mídias pedidas pelo roteiro (imagem, áudio, vídeo, documento), na ordem pedida.
     for (const act of actions) {
@@ -864,4 +868,62 @@ async function applyNotify(ws: string, conversationId: string, reason: string) {
     data: { unread: { increment: 1 } },
   });
   emit(ws, { type: 'conversation:update', conversation: updated });
+}
+
+
+/* ----------------------- Recuperação de respostas ----------------------- */
+// A resposta da IA é agendada em memória (delay do agente). Se o servidor
+// reinicia nesse intervalo (deploy, queda), a resposta se perdia e o lead
+// ficava sem retorno. A cada minuto, procura conversas com a IA ligada cuja
+// última mensagem é do lead e ainda sem resposta, e responde (até 2 tentativas
+// por mensagem, para não insistir num erro).
+const recoveryTries = new Map<string, number>();
+let recovering = false;
+
+async function recoverPendingReplies() {
+  if (recovering) return;
+  recovering = true;
+  try {
+    const now = Date.now();
+    const convs = await prisma.conversation.findMany({
+      where: {
+        aiEnabled: true,
+        status: { not: 'closed' },
+        lastMessageAt: { gte: new Date(now - 6 * 60 * 60_000), lte: new Date(now - 90_000) },
+      },
+      select: { id: true, workspaceId: true },
+      orderBy: { lastMessageAt: 'desc' },
+      take: 80,
+    });
+    const { sendText: sessionSend } = await import('../whatsapp/session.js');
+    for (const c of convs) {
+      if (!c.workspaceId || pending.has(c.id)) continue;
+      const last = await prisma.message.findFirst({
+        where: { conversationId: c.id, author: { not: 'system' } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, direction: true, createdAt: true },
+      });
+      if (!last || last.direction !== 'in' || now - last.createdAt.getTime() < 90_000) continue;
+      const key = `${c.id}:${last.id}`;
+      const tries = recoveryTries.get(key) ?? 0;
+      if (tries >= 2) continue;
+      recoveryTries.set(key, tries + 1);
+      const ws = c.workspaceId;
+      console.log(`[agentes:${ws}] recuperando resposta pendente da conversa ${c.id} (tentativa ${tries + 1})`);
+      schedule(ws, c.id, (jid, text) => sessionSend(ws, jid, text), 500, 0);
+    }
+    if (recoveryTries.size > 5000) recoveryTries.clear();
+  } catch (err) {
+    console.error('[agentes] recuperação de respostas falhou:', (err as Error).message);
+  } finally {
+    recovering = false;
+  }
+}
+
+export function startAiRecoveryLoop() {
+  const t = setInterval(() => void recoverPendingReplies(), 60_000);
+  t.unref?.();
+  // Primeira passada depois que as sessões do WhatsApp tiveram tempo de reconectar.
+  const first = setTimeout(() => void recoverPendingReplies(), 45_000);
+  first.unref?.();
 }
