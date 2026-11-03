@@ -361,7 +361,14 @@ export async function listPages(userToken: string): Promise<{ id: string; name: 
 /** Token pronto para formulários: com as permissões de leads ou de uma página. */
 export async function tokenReadyForLeads(token: string): Promise<boolean> {
   if (await leadScopesOk(token)) return true;
-  return Boolean(await pageOfToken(token));
+  // Token de usuário do sistema nem sempre lista as permissões em /me/permissions:
+  // se ele enxerga ao menos uma página, libera — e qualquer permissão faltando
+  // aparece como erro do Meta na busca dos leads.
+  try {
+    return (await listPages(token)).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Assina o webhook "leadgen" do app na página. */
