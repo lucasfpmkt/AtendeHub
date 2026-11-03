@@ -16,7 +16,7 @@ import { startFollowupLoop } from './services/followup.js';
 import { startAdsInsightsLoop } from './services/adsInsights.js';
 import { startAttendanceLoop } from './services/attendance.js';
 import { attendanceRouter } from './routes/attendance.js';
-import { backfillStageTags } from './services/inbound.js';
+import { backfillStageTags, startAiRecoveryLoop } from './services/inbound.js';
 import { ensureTenancy } from './services/tenancy.js';
 import { ensureQualifiedStageInAllFunnels } from './services/crmSeed.js';
 import { adminRouter } from './routes/admin.js';
@@ -157,5 +157,6 @@ server.listen(env.port, async () => {
   startFollowupLoop();
   startAdsInsightsLoop(); // análise de campanhas: segunda e quarta, 8h
   startAttendanceLoop(); // análise de atendimento: diária, 19h
+  startAiRecoveryLoop(); // responde leads que ficaram sem resposta (ex.: reinício no meio do delay)
   startLeadFormsLoop(); // formulários do Meta: busca de segurança a cada 10 min
 });
