@@ -1392,6 +1392,26 @@ function ScriptArea({
           ? 'Buscar mídia...'
           : 'Buscar agente...';
 
+  // A camada colorida fica por trás do texto e precisa quebrar as linhas nos
+  // mesmos pontos. No Windows a barra de rolagem ocupa espaço dentro da caixa
+  // (e não na camada), o que desalinhava as linhas: desconta essa largura.
+  useEffect(() => {
+    const ta = ref.current;
+    const hl = hlRef.current;
+    if (!ta || !hl) return;
+    const sync = () => {
+      const cs = getComputedStyle(ta);
+      const borders = parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+      const bar = Math.max(0, ta.offsetWidth - ta.clientWidth - borders);
+      hl.style.right = `${bar}px`;
+      hl.scrollTop = ta.scrollTop;
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(ta);
+    return () => ro.disconnect();
+  }, [value, fontSize]);
+
   // Fecha ao clicar fora do menu.
   useEffect(() => {
     if (!menu) return;
