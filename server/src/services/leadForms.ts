@@ -26,6 +26,7 @@ export interface LeadIn {
   campaign?: string;
   ad?: string;
   platform?: string;
+  createdAt?: Date; // quando o lead preencheu (Meta); ausente = agora
 }
 
 /* ------------------------------- Telefone -------------------------------- */
@@ -126,6 +127,7 @@ export function leadFromGraph(lead: any, formName = ''): LeadIn {
     campaign: lead.campaign_name || '',
     ad: lead.ad_name || '',
     platform: lead.platform || '',
+    createdAt: lead.created_time ? new Date(lead.created_time) : undefined,
   };
 }
 
@@ -283,6 +285,14 @@ export async function ingestLead(ws: string, lead: LeadIn): Promise<{ created: b
     console.log(`[leadforms:${ws}] lead ${lead.externalId} → contato ${contact.id}${dealId ? ` / negócio ${dealId}` : ''}`);
 
     if (cfg?.notify ?? true) notifyFormLead(ws, lead, phone).catch((e) => console.warn(`[leadforms:${ws}] aviso falhou:`, e.message));
+    // IA manda a 1ª mensagem — só para lead recente (a busca de 7 dias não dispara para leads antigos).
+    const fresh = !lead.createdAt || Date.now() - lead.createdAt.getTime() < 60 * 60_000;
+    if (cfg?.aiOutreach && phone && fresh) {
+      const { startAiOutreach } = await import('./inbound.js');
+      startAiOutreach(ws, contact.id, cfg.aiAgentId, outreachContext(lead)).catch((e) =>
+        console.warn(`[leadforms:${ws}] IA não iniciou a conversa:`, e.message),
+      );
+    }
     return { created: true, entryId: entry.id };
   } catch (err) {
     // Corrida com outro processo inserindo o mesmo lead: trata como duplicado.
@@ -291,6 +301,20 @@ export async function ingestLead(ws: string, lead: LeadIn): Promise<{ created: b
   } finally {
     ingestLocks.delete(lockKey);
   }
+}
+
+/** Contexto que a IA recebe para escrever a 1ª mensagem ao lead do formulário. */
+export function outreachContext(lead: LeadIn): string {
+  return [
+    '[CONTEXTO PARA A IA — não é uma mensagem do lead]',
+    `Esta pessoa acabou de preencher um formulário${lead.formName ? ` ("${lead.formName}")` : ''} de anúncio${lead.campaign ? ` da campanha "${lead.campaign}"` : ''} e ainda não falou com o escritório no WhatsApp.`,
+    lead.name ? `Nome: ${lead.name}` : '',
+    ...(lead.answers.length ? ['Respostas do formulário:', ...lead.answers.map((x) => `- ${x.q}: ${x.a}`)] : []),
+    '',
+    'Escreva a PRIMEIRA mensagem do escritório para ela, seguindo o seu roteiro: cumprimente pelo primeiro nome, diga que recebeu o cadastro do formulário, use as respostas acima para não repetir perguntas já respondidas e faça a próxima pergunta do roteiro. Mensagem curta, de WhatsApp.',
+  ]
+    .filter((l) => l !== '')
+    .join('\n');
 }
 
 /** Aviso no WhatsApp do escritório (mesmo destino do "lead qualificado"). */

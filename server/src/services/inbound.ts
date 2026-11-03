@@ -500,7 +500,7 @@ function schedule(ws: string, conversationId: string, sendText: SendText, delayM
   );
 }
 
-async function respondWithAI(ws: string, conversationId: string, sendText: SendText, hop: number) {
+async function respondWithAI(ws: string, conversationId: string, sendText: SendText, hop: number, seed?: ChatTurn[]) {
   try {
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
@@ -509,7 +509,8 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     if (!agent || !agent.active) agent = await getActiveTriage(ws);
     if (!agent) return; // nenhum agente ativo
 
-    const history = await historyOf(conversationId);
+    // `seed`: contexto inicial quando a IA começa a conversa (ex.: lead de formulário).
+    const history = seed?.length ? [...(await historyOf(conversationId)), ...seed] : await historyOf(conversationId);
     if (history.length === 0) return;
     // Na 1ª resposta após transferência, o novo agente fala mesmo sem nova mensagem do cliente.
     if (hop === 0 && history[history.length - 1].role !== 'user') return;
@@ -921,4 +922,39 @@ export function startAiRecoveryLoop() {
   // Primeira passada depois que as sessões do WhatsApp tiveram tempo de reconectar.
   const first = setTimeout(() => void recoverPendingReplies(), 45_000);
   first.unref?.();
+}
+
+
+/**
+ * Lead de formulário: a IA inicia a conversa no WhatsApp seguindo o roteiro do
+ * agente (o lead ainda não escreveu). Não faz nada se já houver conversa com
+ * mensagens para este contato.
+ */
+export async function startAiOutreach(ws: string, contactId: string, agentId: string, context: string): Promise<'sent' | 'skipped'> {
+  let agent = agentId ? await getAgent(ws, agentId) : null;
+  if (!agent || !agent.active) agent = await getActiveTriage(ws);
+  if (!agent) return 'skipped';
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { workspaceId: ws, contactId, status: { not: 'closed' } },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+  if (conversation) {
+    const hasMsgs = await prisma.message.count({ where: { conversationId: conversation.id, author: { not: 'system' } } });
+    if (hasMsgs) return 'skipped'; // lead já está conversando
+    conversation = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { aiEnabled: true, assignedAgentId: agent.id },
+    });
+  } else {
+    conversation = await prisma.conversation.create({
+      data: { workspaceId: ws, contactId, aiEnabled: true, assignedAgentId: agent.id, lastMessageAt: new Date() },
+    });
+  }
+  emit(ws, { type: 'conversation:update', conversation });
+  await systemNote(ws, conversation.id, `📋 Lead de formulário: ${agent.name} iniciou a conversa.`);
+
+  const { sendText: sessionSend } = await import('../whatsapp/session.js');
+  await respondWithAI(ws, conversation.id, (jid, text) => sessionSend(ws, jid, text), 0, [{ role: 'user', content: context }]);
+  return 'sent';
 }

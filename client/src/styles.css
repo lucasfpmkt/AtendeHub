@@ -1028,3 +1028,5 @@ body {
 .picker-list { display: grid; grid-auto-rows: max-content; align-content: start; }
 .picker-item { height: auto; min-height: 68px; overflow: visible; }
 .picker-body b { display: block; line-height: 1.3; }
+.lf-row.lf-ai { align-items: flex-start; }
+.lf-row.lf-ai > .switch { margin-top: 2px; }
