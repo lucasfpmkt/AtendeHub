@@ -1013,3 +1013,14 @@ body {
 .lf-token { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--g-50); border: 1px solid var(--g-100); }
 .lf-token ol { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.5; }
 .lf-token .lf-copy input { flex: 1; min-width: 0; }
+
+/* Janela aberta de dentro de um painel/cartão de vidro: o painel sobe para a
+   frente, senão o cartão seguinte (também isolado) cobre a janela. */
+.card:has(.modal-backdrop), .conv-list:has(.modal-backdrop), .funnel-side:has(.modal-backdrop), .subnav:has(.modal-backdrop),
+.funnel-head:has(.modal-backdrop), .column:has(.modal-backdrop), .chat-header:has(.modal-backdrop), .composer:has(.modal-backdrop),
+.auth-card:has(.modal-backdrop), .script-wrap:has(.modal-backdrop) { z-index: 90; }
+
+/* Seletor de cliente: os cartões não encolhem dentro da lista com rolagem */
+.picker-item { flex: none; align-items: center; }
+.picker-body { gap: 8px; }
+.picker-body .pill { line-height: 18px; }
