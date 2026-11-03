@@ -1024,3 +1024,7 @@ body {
 .picker-item { flex: none; align-items: center; }
 .picker-body { gap: 8px; }
 .picker-body .pill { line-height: 18px; }
+/* Lista em grade: cada cartão ocupa a altura do próprio conteúdo (nunca encolhe) */
+.picker-list { display: grid; grid-auto-rows: max-content; align-content: start; }
+.picker-item { height: auto; min-height: 68px; overflow: visible; }
+.picker-body b { display: block; line-height: 1.3; }
