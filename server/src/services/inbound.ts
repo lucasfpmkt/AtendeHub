@@ -35,7 +35,6 @@ import {
   offlineReply,
   runAgent,
   scriptHasActions,
-  shouldTriageStart,
   matchesTrigger,
   matchByTriggers,
   type Agent,
@@ -62,16 +61,6 @@ export function cancelPendingReply(conversationId: string) {
   const t = pending.get(conversationId);
   if (t) clearTimeout(t);
   pending.delete(conversationId);
-}
-
-/** Houve resposta de um humano (operador) nesta conversa nas últimas horas? */
-async function hasRecentHumanReply(conversationId: string, windowMs = 3 * 60 * 60 * 1000): Promise<boolean> {
-  const last = await prisma.message.findFirst({
-    where: { conversationId, direction: 'out', author: 'agent' },
-    orderBy: { createdAt: 'desc' },
-    select: { createdAt: true },
-  });
-  return Boolean(last) && Date.now() - last!.createdAt.getTime() < windowMs;
 }
 
 async function historyOf(conversationId: string): Promise<ChatTurn[]> {
@@ -410,11 +399,13 @@ export async function handleInboundMessage(params: {
 
   let startedBy: Agent | null = null;
   if (!conversation) {
-    // Conversa nova: a IA SEMPRE assume o lead que chega, seguindo o roteiro.
-    // Começa pela triagem (que encaminha ao agente do tema, como no roteiro); sem
-    // triagem ativa, assume o agente de tema cujo gatilho bateu.
+    // Conversa nova: a IA só assume quando a mensagem traz uma frase-gatilho
+    // cadastrada (triagem ou agente de tema). Sem gatilho (amigos, família,
+    // contatos pessoais) a IA não entra. Começa pela triagem, que segue o roteiro.
     const triage = await getActiveTriage(ws);
-    const first = triage ?? matchByTriggers(text, await getActiveThemeAgents(ws));
+    const themeHit = matchByTriggers(text, await getActiveThemeAgents(ws));
+    const hit = triage ? await matchesTrigger(ws, triage, text) : Boolean(themeHit);
+    const first = hit ? (triage ?? themeHit) : null;
     const start = Boolean(first);
     conversation = await prisma.conversation.create({
       data: {
@@ -465,14 +456,15 @@ export async function handleInboundMessage(params: {
     const triage = await getActiveTriage(ws);
     if (triage) {
       const triggerHit = await matchesTrigger(ws, triage, text);
-      const start = triggerHit || (!(await hasRecentHumanReply(conversation.id)) && (await shouldTriageStart(ws, triage, text)));
+      // Só com gatilho: contato que volta sem frase-gatilho fica com a equipe.
+      const start = triggerHit;
       if (start) {
         conversation = await prisma.conversation.update({
           where: { id: conversation.id },
           data: { aiEnabled: true, assignedAgentId: conversation.assignedAgentId ?? triage.id },
         });
         emit(ws, { type: 'conversation:update', conversation });
-        await systemNote(ws, conversation.id, `${triage.name} ${triggerHit ? 'assumiu pelo gatilho' : 'reassumiu o atendimento (contato recorrente)'}.`);
+        await systemNote(ws, conversation.id, `${triage.name} assumiu pelo gatilho.`);
       }
     }
   }
