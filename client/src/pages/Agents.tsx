@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type Agent, type AgentHistoryItem, type AgentMediaItem } from '../api';
 import { Icon } from '../icons';
 
-const DELAYS = [5, 10, 15, 20, 30, 45, 60];
 
 const splitTriggers = (raw: string) =>
   raw
@@ -830,32 +829,6 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
                   />
                 </label>
               )}
-              <div className="soft stack-sm">
-                <div className="row between">
-                  <b className="small">Delay de resposta</b>
-                  <span className="row" style={{ gap: 4 }}>
-                    <input
-                      className="mono"
-                      type="number"
-                      min={1}
-                      max={300}
-                      value={a.delaySeconds}
-                      onChange={(e) => set('delaySeconds', Number(e.target.value) || 1)}
-                      style={{ width: 70, padding: '4px 8px' }}
-                      aria-label="Delay em segundos"
-                    />
-                    <span className="muted small">seg</span>
-                  </span>
-                </div>
-                <span className="muted small">Tempo que o agente espera o lead terminar de digitar antes de responder.</span>
-                <div className="seg">
-                  {DELAYS.map((s) => (
-                    <button key={s} className={a.delaySeconds === s ? 'active' : ''} onClick={() => set('delaySeconds', s)}>
-                      {s}s
-                    </button>
-                  ))}
-                </div>
-              </div>
               <label className="row between">
                 <span className="small" style={{ fontWeight: 600 }}>
                   Agente ativo

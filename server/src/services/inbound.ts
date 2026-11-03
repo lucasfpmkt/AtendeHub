@@ -410,18 +410,21 @@ export async function handleInboundMessage(params: {
 
   let startedBy: Agent | null = null;
   if (!conversation) {
-    // Conversa nova: a triagem só assume se passar pela porta de entrada (gatilhos).
+    // Conversa nova: a IA SEMPRE assume o lead que chega, seguindo o roteiro.
+    // Começa pela triagem (que encaminha ao agente do tema, como no roteiro); sem
+    // triagem ativa, assume o agente de tema cujo gatilho bateu.
     const triage = await getActiveTriage(ws);
-    const start = triage ? await shouldTriageStart(ws, triage, text) : false;
+    const first = triage ?? matchByTriggers(text, await getActiveThemeAgents(ws));
+    const start = Boolean(first);
     conversation = await prisma.conversation.create({
       data: {
         workspaceId: ws,
         contactId: contact.id,
         aiEnabled: start,
-        assignedAgentId: start ? triage!.id : null,
+        assignedAgentId: start ? first!.id : null,
       },
     });
-    if (start) startedBy = triage;
+    if (start) startedBy = first;
   }
 
   const message = await prisma.message.create({
@@ -489,9 +492,9 @@ export async function handleInboundMessage(params: {
     return;
   }
 
-  // Agenda a resposta da IA respeitando o delay do agente.
-  const agent = (await getAgent(ws, conversation.assignedAgentId)) ?? (await getActiveTriage(ws));
-  schedule(ws, conversation.id, sendText, Math.max(1, agent?.delaySeconds ?? 8) * 1000, 0);
+  // A IA responde na hora. Só 2s de margem para juntar mensagens enviadas em
+  // sequência (ex.: "oi" + "preciso de ajuda") numa resposta só.
+  schedule(ws, conversation.id, sendText, 2000, 0);
 }
 
 function schedule(ws: string, conversationId: string, sendText: SendText, delayMs: number, hop: number) {
