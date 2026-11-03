@@ -1425,7 +1425,7 @@ function ScriptArea({
     setSub(null);
     setSubQuery('');
     setSubFunnel(null);
-    requestAnimationFrame(() => ref.current?.focus());
+    requestAnimationFrame(() => ref.current?.focus({ preventScroll: true }));
   };
 
   // Insere um texto no lugar do '@' e posiciona o cursor.
@@ -1434,6 +1434,8 @@ function ScriptArea({
     if (!el || !menu) return;
     const base = el.value;
     const next = base.slice(0, menu.at) + insert + base.slice(menu.at + 1); // remove o '@'
+    // Trocar o texto por código faz o navegador rolar até o fim: guarda a rolagem.
+    const top = el.scrollTop;
     onChange(next);
     const caret = menu.at + insert.length + caretOffset;
     setMenu(null);
@@ -1442,8 +1444,10 @@ function ScriptArea({
     setSubQuery('');
     setSubFunnel(null);
     requestAnimationFrame(() => {
-      el.focus();
+      el.focus({ preventScroll: true });
       el.setSelectionRange(caret, caret);
+      el.scrollTop = top;
+      if (hlRef.current) hlRef.current.scrollTop = top;
     });
   };
 
