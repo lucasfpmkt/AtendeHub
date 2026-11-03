@@ -440,6 +440,8 @@ model LeadFormConfig {
   funnelId    String    @default("")
   stageId     String    @default("")
   notify      Boolean   @default(true) // avisar o escritório no WhatsApp
+  aiOutreach  Boolean   @default(false) // IA manda a 1ª mensagem no WhatsApp para o lead novo
+  aiAgentId   String    @default("") // agente que inicia a conversa (vazio = triagem ativa)
   hookKey     String    @default("") // chave do endereço de entrada (Zapier/Make)
   lastPollAt  DateTime?
   lastError   String    @default("")

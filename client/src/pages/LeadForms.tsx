@@ -249,6 +249,46 @@ export function LeadForms() {
             </div>
           </div>
 
+          <div className="lf-row lf-ai">
+            <Switch
+              on={cfg.aiOutreach}
+              onChange={(v) =>
+                save(
+                  { aiOutreach: v },
+                  v ? 'Pronto! A IA vai mandar a primeira mensagem para cada lead novo de formulário.' : 'A IA não manda mais a primeira mensagem.',
+                )
+              }
+              label="IA manda a primeira mensagem"
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b>IA manda a primeira mensagem no WhatsApp</b>
+              <div className="muted small">
+                Assim que o lead cai, o agente escreve para ele seguindo o roteiro, já usando as respostas do formulário. Só para leads
+                novos (até 1 hora) — a busca dos últimos 7 dias não dispara mensagem.
+              </div>
+              {cfg.aiOutreach && (
+                <label className="field-sm" style={{ marginTop: 8, maxWidth: 360 }}>
+                  <span>Agente que inicia a conversa</span>
+                  <select value={cfg.aiAgentId} onChange={(e) => save({ aiAgentId: e.target.value })}>
+                    <option value="">Triagem ativa (padrão)</option>
+                    {cfg.agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                        {a.type === 'triage' ? ' (triagem)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {cfg.aiOutreach && (
+                <div className="lf-warn small" style={{ marginTop: 8 }}>
+                  Em números conectados por QR code, mandar mensagem para quem nunca falou com o escritório aumenta o risco de bloqueio
+                  pelo WhatsApp. Com volume alto, prefira a API Oficial.
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="lf-actions">
             <button
               onClick={() =>

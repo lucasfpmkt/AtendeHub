@@ -50,6 +50,13 @@ leadFormsRouter.get('/config', async (req, res) => {
     funnelId: cfg.funnelId,
     stageId: cfg.stageId,
     notify: cfg.notify,
+    aiOutreach: cfg.aiOutreach,
+    aiAgentId: cfg.aiAgentId,
+    agents: await prisma.agent.findMany({
+      where: { workspaceId: ws, active: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, type: true },
+    }),
     lastPollAt: cfg.lastPollAt,
     lastError: cfg.lastError,
     metaConnected: Boolean(token),
@@ -147,6 +154,11 @@ leadFormsRouter.patch('/config', async (req, res) => {
     if (ok) data.stageId = b.stageId;
   }
   if (typeof b.notify === 'boolean') data.notify = b.notify;
+  if (typeof b.aiOutreach === 'boolean') data.aiOutreach = b.aiOutreach;
+  if (typeof b.aiAgentId === 'string') {
+    const ok = !b.aiAgentId || (await prisma.agent.findFirst({ where: { id: b.aiAgentId, workspaceId: ws } }));
+    if (ok) data.aiAgentId = b.aiAgentId;
+  }
   if (typeof b.enabled === 'boolean') data.enabled = b.enabled;
 
   await prisma.leadFormConfig.update({ where: { id: ws }, data });

@@ -246,6 +246,9 @@ export interface LeadFormsConfig {
   funnelId: string;
   stageId: string;
   notify: boolean;
+  aiOutreach: boolean;
+  aiAgentId: string;
+  agents: { id: string; name: string; type: string }[];
   lastPollAt: string | null;
   lastError: string;
   metaConnected: boolean;
@@ -795,7 +798,7 @@ export const api = {
   // Formulários de lead (Meta Lead Ads + entrada externa Zapier/Make)
   leadForms: () => req<LeadFormsConfig>('/leadforms/config'),
   leadFormPages: () => req<{ pages: { id: string; name: string }[] }>('/leadforms/pages'),
-  updateLeadForms: (data: { userToken?: string; enabled?: boolean; pageId?: string; funnelId?: string; stageId?: string; notify?: boolean }) =>
+  updateLeadForms: (data: { userToken?: string; enabled?: boolean; pageId?: string; funnelId?: string; stageId?: string; notify?: boolean; aiOutreach?: boolean; aiAgentId?: string }) =>
     req<{ ok: true; warning: string }>('/leadforms/config', { method: 'PATCH', body: JSON.stringify(data) }),
   syncLeadForms: () => req<{ found: number; created: number }>('/leadforms/sync', { method: 'POST' }),
   rotateLeadHook: () => req<{ hookUrl: string }>('/leadforms/rotate-key', { method: 'POST' }),
