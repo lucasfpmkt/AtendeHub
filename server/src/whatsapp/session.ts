@@ -531,6 +531,30 @@ export async function startSavedSessions() {
   }
 }
 
+/**
+ * Confere no WhatsApp qual é o JID real do número (celulares antigos do Brasil
+ * podem estar registrados sem o 9º dígito). Tenta o número e a variante; devolve
+ * null se nenhum existir ou se não der para consultar (desconectado/API Oficial).
+ */
+export async function resolveWaJid(ws: string, candidates: string[]): Promise<string | null> {
+  if (cloudInfo.get(ws)) return null;
+  const s = sessionOf(ws);
+  if (!s.sock || s.status !== 'connected') return null;
+  for (const num of candidates) {
+    try {
+      const r = await Promise.race([
+        s.sock.onWhatsApp(num),
+        new Promise<undefined>((res) => setTimeout(() => res(undefined), 8000)),
+      ]);
+      const hit = (r ?? []).find((x: { exists?: boolean; jid?: string }) => x?.exists && x.jid);
+      if (hit?.jid) return jidNormalizedUser(hit.jid);
+    } catch {
+      /* tenta o próximo */
+    }
+  }
+  return null;
+}
+
 /** Envia texto pelo WhatsApp do cliente (QR ou API Oficial). */
 export async function sendText(ws: string, jid: string, text: string): Promise<string | undefined> {
   const cloud = cloudInfo.get(ws);

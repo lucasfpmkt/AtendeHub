@@ -31,12 +31,37 @@ export interface LeadIn {
 
 /* ------------------------------- Telefone -------------------------------- */
 
-/** Número em dígitos com DDI (assume Brasil quando vem sem DDI). */
+// DDDs válidos no Brasil.
+const DDDS = new Set(
+  '11 12 13 14 15 16 17 18 19 21 22 24 27 28 31 32 33 34 35 37 38 41 42 43 44 45 46 47 48 49 51 53 54 55 61 62 63 64 65 66 67 68 69 71 73 74 75 77 79 81 82 83 84 85 86 87 88 89 91 92 93 94 95 96 97 98 99'.split(' '),
+);
+// Códigos de operadora usados em discagem de longa distância (0 + XX + DDD + número).
+const CARRIERS = new Set(['12', '14', '15', '21', '23', '25', '31', '41', '43']);
+
+/**
+ * Número em dígitos com DDI, corrigindo os erros comuns de quem preenche
+ * formulário: sem DDI, com 0 ou código de operadora na frente, DDI repetido e,
+ * principalmente, celular sem o 9 (55 + DDD + 8 dígitos começando com 6–9).
+ */
 export function normalizePhone(raw?: string | null): string {
-  let d = String(raw ?? '').replace(/\D/g, '');
+  const str = String(raw ?? '').trim();
+  let d = str.replace(/\D/g, '');
   if (!d) return '';
+  // Número internacional explícito (+DDI que não é 55): mantém como veio.
+  if (str.startsWith('+') && !d.startsWith('55')) return d.length >= 8 && d.length <= 15 ? d : '';
   d = d.replace(/^0+/, '');
+  if (d.startsWith('5555') && (d.length === 14 || d.length === 15)) d = d.slice(2); // DDI digitado duas vezes
+  // 0 + operadora + DDD + número (ex.: 0 15 11 98888-7777)
+  if (!d.startsWith('55') && (d.length === 12 || d.length === 13) && CARRIERS.has(d.slice(0, 2)) && DDDS.has(d.slice(2, 4))) d = d.slice(2);
   if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
+    const ddd = d.slice(2, 4);
+    let rest = d.slice(4);
+    if (!DDDS.has(ddd)) return d; // DDD inválido: mantém como veio
+    // Celular sem o 9: 8 dígitos começando com 6, 7, 8 ou 9 → acrescenta o 9.
+    if (rest.length === 8 && /^[6-9]/.test(rest)) rest = `9${rest}`;
+    return `55${ddd}${rest}`;
+  }
   return d.length >= 10 && d.length <= 15 ? d : '';
 }
 
@@ -209,7 +234,14 @@ export async function ingestLead(ws: string, lead: LeadIn): Promise<{ created: b
     const tags = [sourceLabel];
 
     // Contato: pelo número (com/sem 9º dígito); sem telefone, um contato só do formulário.
-    const waJid = phone ? await canonicalJid(ws, `${phone}@s.whatsapp.net`) : `form:${lead.externalId}`;
+    // Confere no WhatsApp o JID real (com ou sem o 9); sem conexão, usa o número corrigido.
+    let waJid = `form:${lead.externalId}`;
+    if (phone) {
+      const { resolveWaJid } = await import('../whatsapp/session.js');
+      const alt = brVariant(phone);
+      const real = await resolveWaJid(ws, alt ? [phone, alt] : [phone]).catch(() => null);
+      waJid = await canonicalJid(ws, real ?? `${phone}@s.whatsapp.net`);
+    }
     const noteLines = [
       `📋 ${sourceLabel}${lead.formName ? ` — ${lead.formName}` : ''} (${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })})`,
       lead.campaign ? `Campanha: ${lead.campaign}${lead.ad ? ` · Anúncio: ${lead.ad}` : ''}` : '',
