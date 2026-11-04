@@ -2,7 +2,9 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { clearAccessCache, hashPassword, allowedWorkspaceIds, requireMaster } from '../auth.js';
 import { createWorkspace } from '../services/tenancy.js';
-import { dropSession, getStatus } from '../whatsapp/session.js';
+import { dropSession, getStatus, refreshChannel } from '../whatsapp/session.js';
+import { mediaDirOf } from '../whatsapp/media.js';
+import { rm } from 'node:fs/promises';
 import { getPlatformConfig, updatePlatformConfig } from '../services/platform.js';
 import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
 import { mediaUnderstandingReady } from '../services/mediaAI.js';
@@ -127,6 +129,9 @@ adminRouter.patch('/admins/:id', requireMaster, async (req, res) => {
     }
   }
   clearAccessCache();
+  // API Oficial em memória e arquivos de mídia do cliente (LGPD).
+  await refreshChannel(ws.id).catch(() => {});
+  await rm(mediaDirOf(ws.id), { recursive: true, force: true }).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -281,6 +286,13 @@ adminRouter.delete('/workspaces/:id', requireMaster, async (req, res) => {
     prisma.attendanceReview.deleteMany({ where }),
     prisma.leadFormEntry.deleteMany({ where }),
     prisma.leadFormConfig.deleteMany({ where: { id: ws.id } }),
+    prisma.scheduledMessage.deleteMany({ where }),
+    prisma.campaign.deleteMany({ where }),
+    prisma.agentMedia.deleteMany({ where }),
+    // Canais e integrações (com tokens cifrados): não podem sobrar de ex-cliente.
+    prisma.waConfig.deleteMany({ where: { id: ws.id } }),
+    prisma.metaConfig.deleteMany({ where: { id: ws.id } }),
+    prisma.googleAdsConfig.deleteMany({ where: { id: ws.id } }),
     prisma.aiConfig.deleteMany({ where: { id: ws.id } }),
     prisma.workspace.delete({ where: { id: ws.id } }), // logins vão junto (cascade)
   ]);

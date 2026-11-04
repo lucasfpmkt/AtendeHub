@@ -91,7 +91,15 @@ async function runFollowupsOnce() {
 
         const text = fillName(stage.followupMessage, contact.name);
         if (!text) continue;
-        const waMessageId = await sendText(ws, contact.waJid, text);
+        const failKey = `${deal.id}:${stage.id}`;
+        if ((followupFails.get(failKey) ?? 0) >= 3) continue; // já falhou 3x: não insiste o dia todo
+        let waMessageId: string | undefined;
+        try {
+          waMessageId = await sendText(ws, contact.waJid, text);
+        } catch (err) {
+          followupFails.set(failKey, (followupFails.get(failKey) ?? 0) + 1);
+          throw err;
+        }
         const message = await prisma.message.create({
           data: { conversationId: conversation.id, direction: 'out', author: 'ai', body: text, waMessageId },
         });
@@ -121,16 +129,24 @@ async function runFollowupsOnce() {
   }
 }
 
+// Falhas de envio de follow-up por negócio+etapa (reinicia com o servidor).
+const followupFails = new Map<string, number>();
+
 /** Envia as mensagens agendadas (lembretes) cujo horário chegou. */
 async function runScheduledMessagesOnce() {
+  if (scheduledRunning) return; // ciclo anterior ainda enviando: não duplica
+  scheduledRunning = true;
+  try {
+  const active = await activeWorkspaceIds();
+  // Só clientes ativos e na ordem do horário: agendamentos de cliente inativo,
+  // excluído ou desconectado não travam mais a fila dos outros.
   const due = await prisma.scheduledMessage.findMany({
-    where: { sent: false, sendAt: { lte: new Date() } },
+    where: { sent: false, sendAt: { lte: new Date() }, workspaceId: { in: [...active] } },
+    orderBy: { sendAt: 'asc' },
     take: 50,
   });
-  const active = due.length ? await activeWorkspaceIds() : new Set<string>();
   for (const sched of due) {
     try {
-      if (!active.has(sched.workspaceId)) continue; // cliente inativo/vencido
       const conversation = await prisma.conversation.findUnique({
         where: { id: sched.conversationId },
         include: { contact: true },
@@ -155,7 +171,11 @@ async function runScheduledMessagesOnce() {
       console.error('[agendada] falha ao enviar:', (err as Error).message);
     }
   }
+  } finally {
+    scheduledRunning = false;
+  }
 }
+let scheduledRunning = false;
 
 let timer: NodeJS.Timeout | null = null;
 

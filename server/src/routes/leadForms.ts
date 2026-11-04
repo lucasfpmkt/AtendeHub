@@ -224,6 +224,7 @@ leadInRouter.post('/:key', async (req, res) => {
   if (key.length < 20) return res.status(404).json({ error: 'Endereço inválido.' });
   const cfg = await prisma.leadFormConfig.findFirst({ where: { hookKey: key } });
   if (!cfg) return res.status(404).json({ error: 'Endereço inválido.' });
+  if (!cfg.enabled) return res.status(403).json({ error: 'Captação de leads desligada neste cliente.' });
   const lead = leadFromPayload(req.body ?? {});
   if (!lead.phone && !lead.email && !lead.name) {
     return res.status(400).json({ error: 'Envie ao menos nome, telefone ou e-mail do lead.' });

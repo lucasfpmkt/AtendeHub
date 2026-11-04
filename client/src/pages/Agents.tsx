@@ -562,6 +562,17 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   }, []);
 
   const dirty = useMemo(() => a && saved && JSON.stringify(a) !== JSON.stringify(saved), [a, saved]);
+  const [saving, setSaving] = useState(false);
+  // Fechar/recarregar a aba com roteiro não salvo: o navegador pede confirmação.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   useEffect(() => {
     if (!toast) return;
@@ -576,6 +587,9 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
   const setTriggers = (list: string[]) => set('triggers', list.join(', '));
 
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
     const x = await api.updateAgent(a.id, {
       name: a.name,
       type: a.type,
@@ -593,6 +607,11 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
     setSaved(x);
     setA(structuredClone(x));
     setToast('Agente salvo');
+    } catch (e) {
+      setToast(`Não foi possível salvar: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addTrigger = () => {
@@ -632,8 +651,8 @@ function AgentEditor({ id, allAgents, onClose }: { id: string; allAgents: Agent[
           ))}
           <div className="row" style={{ marginLeft: 'auto' }}>
             {dirty && <span className="muted small">Alterações não salvas</span>}
-            <button className="primary sm" onClick={save} disabled={!dirty}>
-              Salvar
+            <button className="primary sm" onClick={save} disabled={!dirty || saving}>
+              {saving ? 'Salvando…' : 'Salvar'}
             </button>
             <button className="sm danger-text" onClick={() => (dirty ? setConfirmClose(true) : onClose())}>
               <Icon name="x" size={14} /> Fechar

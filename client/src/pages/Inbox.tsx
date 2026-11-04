@@ -83,7 +83,24 @@ export function Inbox({
       .map((t) => t.trim())
       .filter(Boolean);
 
-  const loadConversations = () => api.conversations().then(setConversations);
+  // Cada carga recebe um número; só a mais recente é aplicada (respostas fora de
+  // ordem não sobrescrevem dados novos).
+  const convReq = useRef(0);
+  const loadConversations = () => {
+    const n = ++convReq.current;
+    return api
+      .conversations()
+      .then((cs) => {
+        if (n === convReq.current) setConversations(cs);
+      })
+      .catch(() => {});
+  };
+  // Rajada de eventos (várias mensagens chegando): uma recarga só a cada 400 ms.
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reloadSoon = () => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => void loadConversations(), 400);
+  };
 
   // Veio do CRM pedindo para abrir a conversa de um contato.
   useEffect(() => {
@@ -103,17 +120,18 @@ export function Inbox({
     api.tags().then(setTagCat).catch(() => {});
     api.quickReplies().then(setQuick);
     const onNew = (e: { conversationId: string; message: Message }) => {
-      loadConversations();
+      reloadSoon();
       if (activeRef.current === e.conversationId) {
         setMessages((m) => (m.some((x) => x.id === e.message.id) ? m : [...m, e.message]));
         if (e.message.direction === 'in') api.markRead(e.conversationId);
       }
     };
     socket.on('message:new', onNew);
-    socket.on('conversation:update', loadConversations);
+    socket.on('conversation:update', reloadSoon);
     return () => {
       socket.off('message:new', onNew);
-      socket.off('conversation:update', loadConversations);
+      socket.off('conversation:update', reloadSoon);
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -121,8 +139,18 @@ export function Inbox({
   useEffect(() => {
     if (!activeId) return;
     setError('');
-    api.messages(activeId).then(setMessages);
-    api.markRead(activeId).then(loadConversations);
+    setMessages([]); // não mostra as mensagens da conversa anterior enquanto carrega
+    let cancelled = false;
+    api
+      .messages(activeId)
+      .then((ms) => {
+        if (!cancelled) setMessages(ms);
+      })
+      .catch((e) => !cancelled && setError((e as Error).message));
+    api.markRead(activeId).then(loadConversations).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
@@ -146,10 +174,11 @@ export function Inbox({
     setText('');
     if (taRef.current) taRef.current.style.height = '';
     setError('');
+    const convId = activeId;
     try {
       // O servidor pausa a IA desta conversa quando a equipe responde.
-      const msg = await api.send(activeId, body);
-      setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
+      const msg = await api.send(convId, body);
+      if (activeRef.current === convId) setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
       loadConversations();
     } catch (e) {
       setText(body);
@@ -196,9 +225,10 @@ export function Inbox({
     setSendingFile(true);
     try {
       const caption = withCaption ? text.trim() : '';
-      const msg = await api.sendMedia(activeId, file, caption);
+      const convId = activeId;
+      const msg = await api.sendMedia(convId, file, caption);
       if (caption) setText('');
-      setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
+      if (activeRef.current === convId) setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
       loadConversations();
     } catch (x) {
       setError((x as Error).message);
@@ -293,9 +323,11 @@ export function Inbox({
   const draft = async () => {
     if (!activeId) return;
     setAiBusy(true);
+    const convId = activeId;
     try {
-      const { text: suggestion } = await api.draft(activeId);
-      setText(suggestion);
+      const { text: suggestion } = await api.draft(convId);
+      // Trocou de conversa enquanto a IA escrevia: não cola o texto no cliente errado.
+      if (activeRef.current === convId) setText(suggestion);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -305,8 +337,12 @@ export function Inbox({
 
   const patch = async (data: { status?: string; assignedAgentId?: string | null; aiEnabled?: boolean }) => {
     if (!active) return;
-    await api.setConversation(active.id, data);
-    loadConversations();
+    try {
+      await api.setConversation(active.id, data);
+      loadConversations();
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   const quickMatches = text.startsWith('/') ? quick.filter((x) => x.shortcut.startsWith(text.trim())) : [];

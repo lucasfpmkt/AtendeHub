@@ -161,7 +161,8 @@ export function normalizeTurns(turns: ChatTurn[]): ChatTurn[] {
 }
 
 async function completeAnthropic(apiKey: string, model: string, opts: { system: string; messages: ChatTurn[]; maxTokens?: number }) {
-  const client = new Anthropic({ apiKey });
+  // Tempo-limite curto: sem isso o SDK espera até 10 min e repete, travando a conversa.
+  const client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 });
   const resp = await client.messages.create({
     model,
     max_tokens: opts.maxTokens ?? 600,

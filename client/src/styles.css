@@ -873,7 +873,8 @@ body {
     radial-gradient(40rem 30rem at 70% 0%, rgba(124, 58, 237, 0.06), transparent 60%),
     linear-gradient(180deg, #f8f8fa 0%, #eef0f4 100%);
 }
-.app > .main, .auth-page { position: relative; z-index: 1; }
+/* (sem z-index: assim as janelas abertas ficam acima do menu lateral) */
+.app > .main, .auth-page { position: relative; }
 .main, .page, .auth-page, .editor, .ed-right { background: transparent; }
 
 /* Painéis e cartões: vidro com desfoque (o desfoque fica num pseudo-elemento

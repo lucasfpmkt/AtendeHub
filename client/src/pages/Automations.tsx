@@ -95,8 +95,13 @@ function QuickReplies() {
                     className="icon-btn"
                     aria-label="Excluir mensagem rápida"
                     onClick={async () => {
-                      await api.deleteQuickReply(x.id);
-                      load();
+                      if (!confirm('Excluir esta mensagem rápida?')) return;
+                      try {
+                        await api.deleteQuickReply(x.id);
+                        load();
+                      } catch (e) {
+                        alert(`Não foi possível excluir: ${(e as Error).message}`);
+                      }
                     }}
                   >
                     <Icon name="trash" />
@@ -196,8 +201,13 @@ function Keywords() {
                     className="icon-btn"
                     aria-label="Excluir regra"
                     onClick={async () => {
-                      await api.deleteKeywordRule(x.id);
-                      load();
+                      if (!confirm('Excluir esta regra?')) return;
+                      try {
+                        await api.deleteKeywordRule(x.id);
+                        load();
+                      } catch (e) {
+                        alert(`Não foi possível excluir: ${(e as Error).message}`);
+                      }
                     }}
                   >
                     <Icon name="trash" />

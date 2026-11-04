@@ -84,6 +84,10 @@ model Conversation {
   messages        Message[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  @@index([workspaceId, lastMessageAt])
+  @@index([contactId, status])
+  @@index([aiEnabled, lastMessageAt])
 }
 
 /// Um agente de IA. Pode ser de triagem (recebe tudo e roteia) ou de tema
@@ -235,6 +239,10 @@ model Message {
   mediaName      String? // nome original (documentos)
   mimeType       String?
   createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([waMessageId])
+  @@index([mediaId])
 }
 
 /// Um funil de vendas. Pode haver vários (Funil Padrão, Rescisão, etc.).
@@ -284,6 +292,10 @@ model Deal {
   qualifiedNotifiedAt DateTime? // quando o escritório foi avisado deste lead qualificado
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+  @@index([workspaceId])
+  @@index([contactId])
+  @@index([stageId, stageSince])
 }
 
 /// Catálogo de etiquetas coloridas (usadas em contatos e negócios).

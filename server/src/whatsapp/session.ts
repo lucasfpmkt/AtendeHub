@@ -3,6 +3,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  normalizeMessageContent,
   generateMessageIDV2,
   jidNormalizedUser,
   S_WHATSAPP_NET,
@@ -210,6 +211,8 @@ async function requestPair(ws: string, s: Session) {
  * Com `phone`, conecta por código (digitado no celular) em vez de QR.
  */
 export async function startWhatsApp(ws: string, opts: { phone?: string; force?: boolean } = {}) {
+  // Cliente na API Oficial: nunca abre sessão Baileys (evita dois canais no mesmo número).
+  if (cloudInfo.has(ws)) return;
   const s = sessionOf(ws);
   if (opts.phone) {
     s.pairPhone = opts.phone;
@@ -324,13 +327,19 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
               s.sock = null;
               s.starting = false;
               setStatus(ws, 'disconnected');
-              void startWhatsApp(ws);
+              void startWhatsApp(ws).catch(() => {});
             }
           }, 3000);
         }, 60_000);
       }
 
       if (connection === 'close') {
+        // 'close' atrasado de um socket já substituído (reconexão forçada, watchdog,
+        // troca para API Oficial): ignora, para não derrubar o socket atual nem abrir outro.
+        if (s.sock !== sock) {
+          console.log(`[wa:${ws}] close de socket antigo ignorado`);
+          return;
+        }
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         s.me = undefined;
@@ -352,7 +361,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
           // Queda de rede etc.: reconecta com espera crescente (2s, 4s, 8s… até 60s).
           s.retries = (s.retries ?? 0) + 1;
           const delay = Math.min(60_000, 2000 * 2 ** Math.min(s.retries - 1, 5));
-          setTimeout(() => void startWhatsApp(ws), delay);
+          setTimeout(() => void startWhatsApp(ws).catch(() => {}), delay);
         }
       }
     });
@@ -436,9 +445,16 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
 
     // Lê texto e baixa mídia (imagem/áudio/vídeo/documento) de uma mensagem.
     const readMessage = async (m: any): Promise<{ body: string; media?: { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer } } | null> => {
-      const msg = m.message;
+      // Desembrulha mensagens temporárias, de visualização única, editadas etc.
+      const msg: any = normalizeMessageContent(m.message);
       if (!msg) return null;
-      const text = msg.conversation ?? msg.extendedTextMessage?.text ?? '';
+      const text =
+        msg.conversation ??
+        msg.extendedTextMessage?.text ??
+        msg.buttonsResponseMessage?.selectedDisplayText ??
+        msg.listResponseMessage?.title ??
+        msg.templateButtonReplyMessage?.selectedDisplayText ??
+        '';
 
       let spec: { kind: MediaKind; mimetype: string; filename?: string; caption?: string } | null = null;
       if (msg.imageMessage) spec = { kind: 'image', mimetype: msg.imageMessage.mimetype ?? 'image/jpeg', caption: msg.imageMessage.caption ?? '' };
@@ -453,6 +469,14 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       }
 
       if (spec) {
+        // Arquivo grande (vídeo/documento de centenas de MB) não é baixado: estoura a
+        // memória do servidor e derrubaria todos os clientes.
+        const node: any = msg.imageMessage ?? msg.videoMessage ?? msg.audioMessage ?? msg.documentMessage ?? msg.documentWithCaptionMessage?.message?.documentMessage;
+        const size = Number(node?.fileLength ?? 0);
+        if (size > 25 * 1024 * 1024) {
+          const caption = (spec.caption ?? '').trim();
+          return { body: `${caption ? `${caption}\n` : ''}${kindLabel(spec.kind)} (arquivo de ${Math.round(size / 1024 / 1024)} MB — abra no celular)` };
+        }
         try {
           const buffer = (await downloadMediaMessage(m, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage })) as Buffer;
           const caption = (spec.caption ?? '').trim();
@@ -472,8 +496,10 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       }
       for (const m of messages) {
         const jid = chatJidOf(m.key);
-        if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid === 'status@broadcast') continue; // ignora grupos/canais/status
+        if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid.endsWith('@broadcast') || jid.endsWith('@bot')) continue; // grupos/canais/status/listas
         if (isSelfChat(s, jid)) continue; // "Mensagem para você" (ex.: notificações do LawHub)
+        // Eco do que o próprio LawHub enviou: pula antes de baixar a mídia de novo.
+        if (m.key.fromMe && m.key.id && selfSent.has(m.key.id)) continue;
 
         const parsed = await readMessage(m);
         if (!parsed) continue;
@@ -510,6 +536,11 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         }).catch((err) => console.error(`[wa:${ws}] falha ao processar mensagem:`, err));
       }
     });
+  } catch (err) {
+    // Falhou antes de abrir o socket (disco, banco, rede): não fica preso em "conectando".
+    console.error(`[wa:${ws}] falha ao iniciar o WhatsApp:`, (err as Error).message);
+    if (!s.sock) setStatus(ws, 'disconnected');
+    throw err;
   } finally {
     s.starting = false;
   }
@@ -527,7 +558,12 @@ export async function startSavedSessions() {
   const all = await prisma.workspace.findMany({ where: { active: true }, select: { id: true } });
   for (const w of all) {
     if (cloudInfo.has(w.id)) continue; // usa API Oficial: não abre Baileys
-    if (existsSync(path.join(await authDirOf(w.id), 'creds.json'))) void startWhatsApp(w.id);
+    if (existsSync(path.join(await authDirOf(w.id), 'creds.json'))) {
+      void startWhatsApp(w.id).catch(() => {
+        // Tenta de novo em 1 min (ex.: disco/rede instável na subida).
+        setTimeout(() => void startWhatsApp(w.id).catch(() => {}), 60_000);
+      });
+    }
   }
 }
 

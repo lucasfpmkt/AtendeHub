@@ -115,8 +115,13 @@ export function Tasks() {
                         className="icon-btn"
                         aria-label="Excluir tarefa"
                         onClick={async () => {
-                          await api.deleteTask(t.id);
-                          load();
+                          if (!confirm('Excluir esta tarefa?')) return;
+                          try {
+                            await api.deleteTask(t.id);
+                            load();
+                          } catch (e) {
+                            alert(`Não foi possível excluir: ${(e as Error).message}`);
+                          }
                         }}
                       >
                         <Icon name="trash" />
