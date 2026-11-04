@@ -158,7 +158,6 @@ export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): stri
   const semana = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long' }).format(now);
   const script = (agent.script || '').replace(/\{\{\s*data_atual(?:_sistema)?\s*\}\}/gi, hoje);
   return [
-    `Data de hoje: ${hoje} (${semana}), horário de Brasília. Use sempre esta data para qualquer cálculo de prazo.`,
     script || '(sem roteiro — atenda com cordialidade e pergunte o motivo do contato)',
     agent.regras ? `\n— Regras de comportamento —\n${agent.regras}` : '',
     faq.length ? `\n— Perguntas frequentes (use quando o cliente perguntar fora do roteiro) —\n${faq.map((f) => `P: ${f.q}\nR: ${f.a}`).join('\n')}` : '',
@@ -178,6 +177,8 @@ export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): stri
       ? `Mídias disponíveis para enviar (use o nome exato): ${mediaNames.map((n) => `"${n}"`).join(', ')}. Envie só quando o roteiro mandar.`
       : '',
     'Use só os marcadores que o roteiro pedir. Nunca escreva "⚡ Ação" nem os marcadores no meio da mensagem ao cliente.',
+    'Se a conversa começar com "[CONTEXTO PARA A IA", são dados que o próprio lead preencheu num formulário de anúncio: use-os e não pergunte de novo o que já está ali.',
+    `Data de hoje: ${hoje} (${semana}), horário de Brasília. Use sempre esta data para qualquer cálculo de prazo.`,
   ]
     .filter(Boolean)
     .join('\n');

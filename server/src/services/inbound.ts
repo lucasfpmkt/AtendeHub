@@ -509,8 +509,11 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     if (!agent || !agent.active) agent = await getActiveTriage(ws);
     if (!agent) return; // nenhum agente ativo
 
-    // `seed`: contexto inicial quando a IA começa a conversa (ex.: lead de formulário).
-    const history = seed?.length ? [...(await historyOf(conversationId)), ...seed] : await historyOf(conversationId);
+    // Contexto guardado na conversa (ex.: respostas do formulário) vai sempre no início,
+    // para a IA não esquecer o que o lead preencheu depois da 1ª mensagem.
+    // `seed`: contexto da 1ª resposta quando a IA começa a conversa.
+    const ctx: ChatTurn[] = !seed?.length && conversation.aiContext ? [{ role: 'user', content: conversation.aiContext }] : [];
+    const history = seed?.length ? [...(await historyOf(conversationId)), ...seed] : [...ctx, ...(await historyOf(conversationId))];
     if (history.length === 0) return;
     // Na 1ª resposta após transferência, o novo agente fala mesmo sem nova mensagem do cliente.
     if (hop === 0 && history[history.length - 1].role !== 'user') return;
@@ -949,11 +952,11 @@ export async function startAiOutreach(ws: string, contactId: string, agentId: st
     if (hasMsgs) return 'skipped'; // lead já está conversando
     conversation = await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { aiEnabled: true, assignedAgentId: agent.id },
+      data: { aiEnabled: true, assignedAgentId: agent.id, aiContext: context },
     });
   } else {
     conversation = await prisma.conversation.create({
-      data: { workspaceId: ws, contactId, aiEnabled: true, assignedAgentId: agent.id, lastMessageAt: new Date() },
+      data: { workspaceId: ws, contactId, aiEnabled: true, assignedAgentId: agent.id, lastMessageAt: new Date(), aiContext: context },
     });
   }
   emit(ws, { type: 'conversation:update', conversation });

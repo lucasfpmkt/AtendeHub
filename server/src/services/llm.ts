@@ -165,7 +165,9 @@ async function completeAnthropic(apiKey: string, model: string, opts: { system: 
   const resp = await client.messages.create({
     model,
     max_tokens: opts.maxTokens ?? 600,
-    system: opts.system,
+    // Cache do prompt: o roteiro (system) é igual em toda resposta do agente, então
+    // fica em cache por alguns minutos e as leituras seguintes custam ~10% do preço.
+    system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
     messages: normalizeTurns(opts.messages),
   });
   return resp.content

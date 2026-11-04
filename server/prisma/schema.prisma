@@ -69,6 +69,7 @@ model Conversation {
   id              String    @id @default(cuid())
   workspaceId String?
   // Lead de campanha (anúncio): chegou com uma frase-gatilho cadastrada em algum roteiro de IA.
+  aiContext       String    @default("") // contexto inicial para a IA (ex.: respostas do formulário)
   campaignSource  String? // "gatilho"
   campaignAd      String? // nome do agente cujo gatilho bateu
   campaignAt      DateTime? // quando o gatilho chegou (a análise usa esta data, não a da conversa)
