@@ -126,8 +126,8 @@ export function Attendance() {
             Análise de atendimento <span className="att-beta">teste</span>
           </h1>
           <p className="sub">
-            A IA avalia como o advogado atende os leads de anúncio: rapidez, erros e o que faltou. Só entram leads que chegaram com
-            uma frase-gatilho de algum roteiro de IA.
+            A IA avalia como o advogado atende os leads de anúncio: rapidez, erros e o que faltou. Só entram leads de campanha: quem
+            chegou com uma frase-gatilho de algum roteiro de IA ou preencheu um formulário de anúncio.
           </p>
         </div>
       </header>
@@ -264,7 +264,7 @@ function Row({ it, open, onToggle }: { it: AttendanceReviewItem; open: boolean; 
         <span className="att-who">
           <b>{it.name}</b>
           <span className="muted small">
-            {[it.campaign && `Roteiro: ${it.campaign}`, it.stage && `Etapa: ${it.stage}`].filter(Boolean).join(' · ') || it.phone}
+            {[it.campaign && `Campanha: ${it.campaign}`, it.stage && `Etapa: ${it.stage}`].filter(Boolean).join(' · ') || it.phone}
           </span>
         </span>
         <span className="att-tags">

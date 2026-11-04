@@ -339,7 +339,7 @@ export async function ingestLead(ws: string, lead: LeadIn): Promise<{ created: b
     const fresh = !lead.createdAt || Date.now() - lead.createdAt.getTime() < 60 * 60_000;
     if (cfg?.aiOutreach && phone && fresh) {
       const { startAiOutreach } = await import('./inbound.js');
-      startAiOutreach(ws, contact.id, cfg.aiAgentId, outreachContext(lead)).catch((e) =>
+      startAiOutreach(ws, contact.id, cfg.aiAgentId, outreachContext(lead), lead.formName ?? '').catch((e) =>
         console.warn(`[leadforms:${ws}] IA não iniciou a conversa:`, e.message),
       );
     }
