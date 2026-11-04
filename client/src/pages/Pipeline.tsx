@@ -50,10 +50,11 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
   const loadFunnels = () =>
     api.funnels().then((fs) => {
       setFunnels(fs);
-      setActiveId((cur) => cur ?? fs[0]?.id ?? null);
+      // Funil salvo de outro cliente (troca de workspace) ou apagado: usa o primeiro.
+      setActiveId((cur) => (cur && fs.some((f) => f.id === cur) ? cur : fs[0]?.id ?? null));
     });
 
-  const loadBoard = (id: string) => api.board(id).then(setBoard);
+  const loadBoard = (id: string) => api.board(id).then(setBoard).catch(() => {});
 
   useEffect(() => {
     loadFunnels();
@@ -62,11 +63,12 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
   }, []);
 
   useEffect(() => {
-    if (activeId) {
+    // Só abre o funil depois de confirmar que ele é deste cliente.
+    if (activeId && funnels.some((f) => f.id === activeId)) {
       localStorage.setItem('lawhub.funnel', activeId);
       loadBoard(activeId);
     }
-  }, [activeId]);
+  }, [activeId, funnels]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Atualiza o quadro em tempo real quando a IA (ou outra ação) mexe no CRM.
   useEffect(() => {
@@ -150,7 +152,7 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
     URL.revokeObjectURL(url);
   };
 
-  const allDeals = board?.stages.flatMap((s) => s.deals.map((d) => ({ ...d, stageName: s.name }))) ?? [];
+  const allDeals = board?.stages?.flatMap((s) => s.deals.map((d) => ({ ...d, stageName: s.name }))) ?? [];
 
   return (
     <div className="funnel-layout">
@@ -243,6 +245,11 @@ export function Pipeline({ onOpenConversation }: { onOpenConversation?: (contact
                 onDrop={() => onDrop(stage.id)}
                 onDragStartStage={() => setDragStage(stage.id)}
                 onDragStartDeal={setDragDeal}
+                onDragEndDeal={() => {
+                  // Soltou fora de uma coluna: limpa o destaque.
+                  setDragDeal(null);
+                  setDropStage(null);
+                }}
                 onOpenDeal={(d) => setDealModal({ deal: d, stageId: stage.id })}
                 onNewDeal={() => setDealModal({ deal: null, stageId: stage.id })}
                 onOpenConversation={onOpenConversation}
@@ -362,6 +369,7 @@ function KanbanColumn({
   onDrop,
   onDragStartStage,
   onDragStartDeal,
+  onDragEndDeal,
   onOpenDeal,
   onNewDeal,
   onOpenConversation,
@@ -375,6 +383,7 @@ function KanbanColumn({
   onDrop: () => void;
   onDragStartStage: () => void;
   onDragStartDeal: (id: string) => void;
+  onDragEndDeal?: () => void;
   onOpenDeal: (d: Deal) => void;
   onNewDeal: () => void;
   onOpenConversation?: (contactId: string) => void;
@@ -432,6 +441,7 @@ function KanbanColumn({
             className="deal"
             draggable
             onDragStart={() => onDragStartDeal(d.id)}
+            onDragEnd={() => onDragEndDeal?.()}
             onClick={() => onOpenDeal(d)}
           >
             <div className="deal-top">

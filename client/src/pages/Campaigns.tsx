@@ -50,6 +50,8 @@ export function Campaigns({ connected }: { connected: boolean }) {
   const disparar = async () => {
     const usingTpl = mode === 'template' && tpl;
     if (!usingTpl && !body.trim()) return;
+    // Disparo vai na hora para todo o público escolhido e não dá para desfazer.
+    if (!confirm('Enviar esta campanha AGORA para todos os contatos do público escolhido? Não dá para desfazer.')) return;
     setBusy(true);
     setMsg(null);
     try {

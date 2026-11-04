@@ -329,8 +329,13 @@ function EventModal({ event, onClose, onSaved }: { event: Partial<CalEvent>; onC
               className="danger-text"
               style={{ marginRight: 'auto' }}
               onClick={async () => {
-                await api.deleteEvent(event.id!);
-                onSaved();
+                if (!confirm('Excluir este evento?')) return;
+                try {
+                  await api.deleteEvent(event.id!);
+                  onSaved();
+                } catch (e) {
+                  alert(`Não foi possível excluir: ${(e as Error).message}`);
+                }
               }}
             >
               <Icon name="trash" size={14} /> Excluir

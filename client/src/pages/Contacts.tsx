@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type Contact } from '../api';
 
 export function Contacts() {
@@ -6,10 +6,22 @@ export function Contacts() {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Contact | null>(null);
 
-  const load = () => api.contacts(q).then(setContacts);
+  // Só a busca mais recente vale (a resposta de "jo" não pode chegar depois da de "joão").
+  const reqN = useRef(0);
+  const load = () => {
+    const n = ++reqN.current;
+    return api
+      .contacts(q)
+      .then((cs) => {
+        if (n === reqN.current) setContacts(cs);
+      })
+      .catch(() => {});
+  };
 
+  // Espera parar de digitar (300 ms) antes de buscar.
   useEffect(() => {
-    load();
+    const t = setTimeout(() => void load(), q ? 300 : 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 

@@ -159,12 +159,21 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
       setWaStatus(s.status);
       setMe(s.me);
     });
-    const refreshUnread = () =>
+    const loadUnread = () =>
       api
         .conversations()
         .then((cs) => setUnread(cs.reduce((s, c) => s + (c.unread ?? 0), 0)))
         .catch(() => {});
-    refreshUnread();
+    // Várias mensagens seguidas: recalcula o contador uma vez só (a cada 2 s).
+    let unreadTimer: ReturnType<typeof setTimeout> | null = null;
+    const refreshUnread = () => {
+      if (unreadTimer) return;
+      unreadTimer = setTimeout(() => {
+        unreadTimer = null;
+        void loadUnread();
+      }, 2000);
+    };
+    void loadUnread();
     const onStatus = (e: { status: string; me?: string }) => {
       setWaStatus(e.status);
       setMe(e.me);
@@ -176,6 +185,7 @@ function Shell({ session, onLogout }: { session: Session; onLogout: () => void }
       socket.off('wa:status', onStatus);
       socket.off('message:new', refreshUnread);
       socket.off('conversation:update', refreshUnread);
+      if (unreadTimer) clearTimeout(unreadTimer);
       disconnectSocket();
     };
   }, []);

@@ -1,3 +1,4 @@
+import { errorHandler } from './asyncErrors.js';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -118,6 +119,18 @@ if (env.serveClient) {
     res.sendFile(path.join(clientDir, 'index.html'));
   });
 }
+
+// Erros de qualquer rota viram resposta 4xx/5xx (nunca derrubam o processo).
+app.use(errorHandler);
+
+// Rede de segurança: uma promise esquecida ou um erro solto em um cliente não pode
+// derrubar o servidor de todos os clientes. Registra e segue.
+process.on('unhandledRejection', (reason) => {
+  console.error('[processo] promise rejeitada sem tratamento:', reason instanceof Error ? reason.stack ?? reason.message : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[processo] erro não tratado:', err.stack ?? err.message);
+});
 
 const server = http.createServer(app);
 const io = new IOServer(server, {

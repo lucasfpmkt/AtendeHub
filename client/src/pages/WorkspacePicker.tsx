@@ -11,10 +11,19 @@ export function WorkspacePicker({ currentId, onClose }: { currentId: string; onC
   const [selected, setSelected] = useState(currentId);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
 
-  useEffect(() => {
-    api.adminWorkspaces().then(setList);
-  }, []);
+  const loadList = () => {
+    setErr('');
+    api
+      .adminWorkspaces()
+      .then(setList)
+      .catch((e) => {
+        setList([]);
+        setErr((e as Error).message || 'Não foi possível carregar os clientes.');
+      });
+  };
+  useEffect(loadList, []);
 
   const visible = useMemo(
     () => (list ?? []).filter((w) => !q || w.name.toLowerCase().includes(q.toLowerCase()) || String(w.code).includes(q)),
@@ -23,10 +32,16 @@ export function WorkspacePicker({ currentId, onClose }: { currentId: string; onC
 
   const open = async () => {
     setBusy(true);
-    await api.switchWorkspace(selected);
-    sessionStorage.setItem('lawhub.pickedWorkspace', '1');
-    // Recarrega para trocar dados, tempo real e WhatsApp para o cliente escolhido.
-    window.location.reload();
+    setErr('');
+    try {
+      await api.switchWorkspace(selected);
+      sessionStorage.setItem('lawhub.pickedWorkspace', '1');
+      // Recarrega para trocar dados, tempo real e WhatsApp para o cliente escolhido.
+      window.location.reload();
+    } catch (e) {
+      setErr((e as Error).message || 'Não foi possível abrir este cliente.');
+      setBusy(false);
+    }
   };
 
   return (
@@ -50,6 +65,14 @@ export function WorkspacePicker({ currentId, onClose }: { currentId: string; onC
           <div className="conv-search" style={{ margin: '0 20px 10px' }}>
             <Icon name="search" size={16} />
             <input placeholder="Buscar cliente ou número" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+        )}
+        {err && (
+          <div className="att-msg bad" style={{ margin: '0 20px 10px' }}>
+            {err}{' '}
+            <button className="link" onClick={loadList}>
+              Tentar de novo
+            </button>
           </div>
         )}
         <div className="picker-list" role="radiogroup" aria-label="Clientes">

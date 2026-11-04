@@ -512,10 +512,37 @@ function schedule(ws: string, conversationId: string, sendText: SendText, delayM
   );
 }
 
+// Conversas com uma resposta da IA sendo gerada agora (evita duas respostas em paralelo).
+const inFlight = new Set<string>();
+// Teto de segurança: se a IA mandar mais que isso numa hora, provavelmente está
+// conversando com outro robô (chatbot de empresa) — desliga e avisa a equipe.
+const AI_MAX_PER_HOUR = 30;
+
 async function respondWithAI(ws: string, conversationId: string, sendText: SendText, hop: number, seed?: ChatTurn[]) {
+  if (inFlight.has(conversationId)) {
+    // Já tem resposta em andamento: tenta de novo daqui a pouco (ela verá a mensagem nova).
+    schedule(ws, conversationId, sendText, 3000, hop);
+    return;
+  }
+  inFlight.add(conversationId);
+  const startedAt = new Date();
   try {
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
+
+    const recentAi = await prisma.message.count({
+      where: { conversationId, author: 'ai', createdAt: { gte: new Date(Date.now() - 60 * 60_000) } },
+    });
+    if (recentAi >= AI_MAX_PER_HOUR) {
+      const updated = await prisma.conversation.update({ where: { id: conversationId }, data: { aiEnabled: false } });
+      emit(ws, { type: 'conversation:update', conversation: updated });
+      await systemNote(
+        ws,
+        conversationId,
+        `A IA mandou ${recentAi} mensagens na última hora e foi pausada por segurança (pode ser outro robô respondendo). Confira a conversa e devolva para a IA se estiver tudo certo.`,
+      );
+      return;
+    }
 
     let agent = await getAgent(ws, conversation.assignedAgentId);
     if (!agent || !agent.active) agent = await getActiveTriage(ws);
@@ -541,6 +568,18 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     // (ou a IA foi desligada), descarta a resposta em vez de falar por cima.
     const fresh = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { aiEnabled: true } });
     if (!fresh?.aiEnabled) return;
+    // O lead mandou outra mensagem enquanto a IA escrevia: descarta esta resposta e
+    // gera uma nova já considerando tudo (evita duas respostas seguidas).
+    if (!seed?.length) {
+      const newer = await prisma.message.findFirst({
+        where: { conversationId, direction: 'in', createdAt: { gt: startedAt } },
+        select: { id: true },
+      });
+      if (newer) {
+        schedule(ws, conversationId, sendText, 1500, hop);
+        return;
+      }
+    }
 
     if (text) await deliver(ws, conversationId, text, sendText);
     else if (actions.length === 0) {
@@ -619,6 +658,8 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
       conversationId,
       `A IA não conseguiu responder (${(err as Error).message}). Verifique a chave e o modelo em Ajustes ou responda manualmente.`,
     ).catch(() => {});
+  } finally {
+    inFlight.delete(conversationId);
   }
 }
 
@@ -911,9 +952,11 @@ async function recoverPendingReplies() {
       orderBy: { lastMessageAt: 'desc' },
       take: 80,
     });
-    const { sendText: sessionSend } = await import('../whatsapp/session.js');
+    const { sendText: sessionSend, getStatus: getWaStatus } = await import('../whatsapp/session.js');
     for (const c of convs) {
-      if (!c.workspaceId || pending.has(c.id)) continue;
+      if (!c.workspaceId || pending.has(c.id) || inFlight.has(c.id)) continue;
+      // WhatsApp fora do ar: não gasta tentativa (nem IA) agora; tenta quando voltar.
+      if (getWaStatus(c.workspaceId).status !== 'connected') continue;
       const last = await prisma.message.findFirst({
         where: { conversationId: c.id, author: { not: 'system' } },
         orderBy: { createdAt: 'desc' },

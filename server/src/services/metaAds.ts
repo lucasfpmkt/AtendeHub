@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { prisma } from '../db.js';
 import { dec } from '../crypto.js';
 import { env } from '../env.js';
@@ -42,7 +42,9 @@ export function verifyOauthState(state?: string | null): string | null {
   const [payload, sig] = state.split('.');
   if (!payload || !sig) return null;
   const expected = b64url(createHmac('sha256', env.appSecret).update(payload).digest());
-  if (sig.length !== expected.length) return null;
+  // Confere a assinatura de verdade (antes só o tamanho era comparado: dava para
+  // forjar o "state" e gravar o token de outra conta no cliente da vítima).
+  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64').toString());
     if (typeof data.exp !== 'number' || data.exp <= Date.now() || !data.ws) return null;
