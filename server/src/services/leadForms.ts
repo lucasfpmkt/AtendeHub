@@ -155,7 +155,11 @@ export function mapAnswers(pairs: { key: string; value: string }[]) {
 export function leadFromGraph(lead: any, formName = ''): LeadIn {
   const pairs = (lead?.field_data ?? []).map((f: any) => ({
     key: String(f?.name ?? ''),
-    value: Array.isArray(f?.values) ? f.values.join(', ') : String(f?.values ?? ''),
+    value: (Array.isArray(f?.values) ? f.values.join(', ') : String(f?.values ?? ''))
+      // Opções de múltipla escolha vêm como "parcelas_atrasadas": deixa legível.
+      .split(', ')
+      .map((v: string) => (!/\s/.test(v) && v.includes('_') && !/@/.test(v) ? v.replace(/_/g, ' ') : v))
+      .join(', '),
   }));
   const m = mapAnswers(pairs);
   return {
