@@ -518,7 +518,7 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     const llm = await resolveLlm(ws);
     // Biblioteca de mídias do agente: a IA recebe os nomes e pede com [[MIDIA: NOME]].
     const agentMedia = await prisma.agentMedia.findMany({ where: { agentId: agent.id }, orderBy: { createdAt: 'asc' } });
-    const { text, actions } = llm.ready
+    const { text, actions, raw } = llm.ready
       ? await runAgent(agent, history, llm, agentMedia.map((m) => m.name))
       : offlineReply(agent, history);
 
@@ -529,7 +529,12 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
 
     if (text) await deliver(ws, conversationId, text, sendText);
     else if (actions.length === 0) {
-      await systemNote(ws, conversationId, `${agent.name} não gerou resposta para esta mensagem. Vou tentar de novo em instantes; se persistir, responda manualmente.`);
+      const peek = (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      await systemNote(
+        ws,
+        conversationId,
+        `${agent.name} não gerou mensagem para o lead${peek ? ` (a IA devolveu só: "${peek}")` : ' (resposta vazia)'}. Vou tentar de novo em instantes; se persistir, revise o roteiro ou responda manualmente.`,
+      );
       return;
     }
 
