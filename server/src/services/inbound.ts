@@ -46,6 +46,22 @@ async function hasFormName(ws: string, waJid: string) {
   return Boolean(c?.name && /formul[aá]rio/i.test(c.tags ?? ''));
 }
 
+/**
+ * Mensagem de formulário do Meta que abre direto no WhatsApp ("Olá! Preenchi seu
+ * formulário…" + linhas "Pergunta?: resposta"). É lead de anúncio: a IA assume.
+ */
+async function formAgentOf(ws: string): Promise<Agent | null> {
+  const cfg = await prisma.leadFormConfig.findUnique({ where: { id: ws }, select: { aiAgentId: true } });
+  const a = cfg?.aiAgentId ? await getAgent(ws, cfg.aiAgentId) : null;
+  return a && a.active ? a : null;
+}
+
+export function looksLikeFormMessage(text: string): boolean {
+  if (/preenchi\s+(o\s+|seu\s+|o\s+seu\s+|um\s+)?formul[aá]rio/i.test(text)) return true;
+  const qa = text.split('\n').filter((l) => /\?\s*:\s*\S/.test(l)).length;
+  return qa >= 2;
+}
+
 function phoneFromJid(jid: string): string {
   return jid.split('@')[0].split(':')[0];
 }
@@ -218,7 +234,7 @@ export async function recordOutgoingMessage(params: {
   cancelPendingReply(conversation.id);
   const updated = await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: new Date(), aiEnabled: false },
+    data: { lastMessageAt: new Date(), aiEnabled: false, ...(wasAi || conversation.aiPausedBy === 'humano' ? { aiPausedBy: 'humano' } : {}) },
   });
 
   emit(ws, { type: 'message:new', conversationId: conversation.id, message });
@@ -228,7 +244,7 @@ export async function recordOutgoingMessage(params: {
     await systemNote(
       ws,
       conversation.id,
-      'Uma mensagem foi enviada pelo celular/WhatsApp Web (ou por resposta automática do WhatsApp Business), então a IA foi pausada nesta conversa. Use "Devolver para IA" para retomar.',
+      `O advogado respondeu pelo celular/WhatsApp Web, então a IA pausou. Se o lead escrever e ninguém da equipe responder em ${AI_RESUME_MIN} minutos, a IA retoma sozinha.`,
     ).catch(() => {});
   }
 }
@@ -475,7 +491,10 @@ async function handleInboundMessageNow(params: InboundParams) {
     const triage = await getActiveTriage(ws);
     const themeHit = matchByTriggers(text, await getActiveThemeAgents(ws));
     const hit = triage ? await matchesTrigger(ws, triage, text) : Boolean(themeHit);
-    const first = hit ? (triage ?? themeHit) : null;
+    // Formulário do Meta no WhatsApp: assume com o agente escolhido em Formulários (ou a triagem).
+    const formMsg = !hit && looksLikeFormMessage(text);
+    const formAgent = formMsg ? await formAgentOf(ws) : null;
+    const first = hit ? (triage ?? themeHit) : formMsg ? (formAgent ?? triage ?? null) : null;
     const start = Boolean(first);
     conversation = await prisma.conversation.create({
       data: {
@@ -494,6 +513,12 @@ async function handleInboundMessageNow(params: InboundParams) {
 
   // Lead de campanha: chegou com uma frase-gatilho cadastrada em QUALQUER roteiro de IA
   // (gatilhos = mensagens prontas dos anúncios). Marca a conversa e o momento.
+  if (!conversation.campaignSource && looksLikeFormMessage(text)) {
+    conversation = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { campaignSource: 'formulario', campaignAd: 'Formulário no WhatsApp', campaignAt: new Date() },
+    });
+  }
   if (!conversation.campaignSource) {
     const hit = await campaignTriggerHit(ws, text);
     if (hit) {
@@ -537,13 +562,13 @@ async function handleInboundMessageNow(params: InboundParams) {
   if (!conversation.aiEnabled && !startedBy) {
     const triage = await getActiveTriage(ws);
     if (triage) {
-      const triggerHit = await matchesTrigger(ws, triage, text);
-      // Só com gatilho: contato que volta sem frase-gatilho fica com a equipe.
+      const triggerHit = (await matchesTrigger(ws, triage, text)) || looksLikeFormMessage(text);
+      // Só com gatilho (ou mensagem de formulário): contato que volta sem gatilho fica com a equipe.
       const start = triggerHit;
       if (start) {
         conversation = await prisma.conversation.update({
           where: { id: conversation.id },
-          data: { aiEnabled: true, assignedAgentId: conversation.assignedAgentId ?? triage.id },
+          data: { aiEnabled: true, aiPausedBy: null, assignedAgentId: conversation.assignedAgentId ?? triage.id },
         });
         emit(ws, { type: 'conversation:update', conversation });
         await systemNote(ws, conversation.id, `${triage.name} assumiu pelo gatilho.`);
@@ -610,7 +635,7 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
       where: { conversationId, author: 'ai', mediaId: null, createdAt: { gte: since } },
     });
     if (recentAi >= AI_MAX_PER_HOUR) {
-      const updated = await prisma.conversation.update({ where: { id: conversationId }, data: { aiEnabled: false } });
+      const updated = await prisma.conversation.update({ where: { id: conversationId }, data: { aiEnabled: false, aiPausedBy: 'limite' } });
       emit(ws, { type: 'conversation:update', conversation: updated });
       await systemNote(
         ws,
@@ -722,7 +747,7 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     if (actions.some((a) => a.type === 'deactivate')) {
       const updated = await prisma.conversation.update({
         where: { id: conversationId },
-        data: { aiEnabled: false },
+        data: { aiEnabled: false, aiPausedBy: 'roteiro' },
       });
       emit(ws, { type: 'conversation:update', conversation: updated });
       await systemNote(ws, conversationId, `${agent.name} encerrou a parte automática. A conversa está com a equipe.`);
@@ -1051,6 +1076,9 @@ async function applyNotify(ws: string, conversationId: string, reason: string) {
 // última mensagem é do lead e ainda sem resposta, e responde (até 2 tentativas
 // por mensagem, para não insistir num erro).
 const recoveryTries = new Map<string, number>();
+// A IA pausou porque o advogado respondeu: se o lead escrever e a equipe ficar
+// esse tempo sem responder, a IA retoma sozinha.
+export const AI_RESUME_MIN = 15;
 let recovering = false;
 
 async function recoverPendingReplies() {
@@ -1102,6 +1130,48 @@ async function recoverPendingReplies() {
       schedule(ws, c.id, (jid, text) => sessionSend(ws, jid, text), 500, 0);
     }
     if (recoveryTries.size > 5000) recoveryTries.clear();
+
+    // Retomada: pausada pelo advogado, lead esperando há 15 min e equipe sem responder há 15 min.
+    const paused = await prisma.conversation.findMany({
+      where: {
+        aiEnabled: false,
+        aiPausedBy: 'humano',
+        status: { not: 'closed' },
+        lastMessageAt: { gte: new Date(now - 24 * 60 * 60_000) },
+      },
+      select: { id: true, workspaceId: true, assignedAgentId: true },
+      orderBy: { lastMessageAt: 'desc' },
+      take: 80,
+    });
+    const limit = AI_RESUME_MIN * 60_000;
+    for (const c of paused) {
+      if (!c.workspaceId) continue;
+      if (getWaStatus(c.workspaceId).status !== 'connected') continue;
+      const lastIn = await prisma.message.findFirst({
+        where: { conversationId: c.id, direction: 'in' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      const lastOut = await prisma.message.findFirst({
+        where: { conversationId: c.id, direction: 'out' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (!lastIn || (lastOut && lastOut.createdAt > lastIn.createdAt)) continue; // lead não está esperando
+      if (now - lastIn.createdAt.getTime() < limit) continue;
+      if (lastOut && now - lastOut.createdAt.getTime() < limit) continue;
+      const agent = (c.assignedAgentId && (await getAgent(c.workspaceId, c.assignedAgentId))) || (await getActiveTriage(c.workspaceId));
+      if (!agent || !agent.active) continue;
+      const updated = await prisma.conversation.update({
+        where: { id: c.id },
+        data: { aiEnabled: true, aiPausedBy: null, aiResumedAt: new Date(), assignedAgentId: c.assignedAgentId ?? agent.id },
+      });
+      emit(c.workspaceId, { type: 'conversation:update', conversation: updated });
+      await systemNote(c.workspaceId, c.id, `${AI_RESUME_MIN} minutos sem resposta da equipe: ${agent.name} retomou o atendimento.`).catch(() => {});
+      console.log(`[agentes:${c.workspaceId}] IA retomou a conversa ${c.id} após ${AI_RESUME_MIN} min sem resposta da equipe`);
+      const ws = c.workspaceId;
+      schedule(ws, c.id, (jid, text) => sessionSend(ws, jid, text), 500, 0);
+    }
   } catch (err) {
     console.error('[agentes] recuperação de respostas falhou:', (err as Error).message);
   } finally {
