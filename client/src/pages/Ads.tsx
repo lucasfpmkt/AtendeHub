@@ -248,7 +248,7 @@ export function MetaAds() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder={cfg.hasToken ? '•••••••• (salvo — deixe em branco para manter)' : 'cole o token'}
-                  autoComplete="off"
+                  autoComplete="new-password" data-lpignore="true" data-1p-ignore="true"
                 />
               </div>
             </>
@@ -660,16 +660,16 @@ export function GoogleAds() {
             <div className="duo">
               <div className="field-sm">
                 <span>Client Secret</span>
-                <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.hasClientSecret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+                <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.hasClientSecret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
               </div>
               <div className="field-sm">
                 <span>Developer Token</span>
-                <input type="password" value={devToken} onChange={(e) => setDevToken(e.target.value)} placeholder={cfg.hasDeveloperToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+                <input type="password" value={devToken} onChange={(e) => setDevToken(e.target.value)} placeholder={cfg.hasDeveloperToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
               </div>
             </div>
             <div className="field-sm">
               <span>Refresh Token (OAuth)</span>
-              <input type="password" value={refresh} onChange={(e) => setRefresh(e.target.value)} placeholder={cfg.hasRefreshToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+              <input type="password" value={refresh} onChange={(e) => setRefresh(e.target.value)} placeholder={cfg.hasRefreshToken ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
             </div>
             <div className="row" style={{ gap: 8 }}>
               <button className="primary" onClick={save}>
