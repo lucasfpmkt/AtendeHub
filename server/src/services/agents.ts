@@ -168,7 +168,7 @@ export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): stri
     'Toda resposta precisa ter uma mensagem para o cliente. As linhas "⚡ Ação" do roteiro são instruções para você, nunca texto para copiar: execute-as com os marcadores abaixo.',
     'AÇÕES: quando o roteiro mandar executar uma ação, escreva a mensagem prevista e, em linhas separadas no FIM, só os marcadores aplicáveis:',
     '- "Transferir para agente: NOME" → [[TRANSFERIR: NOME]]',
-    '- "Desativar: agente" (ou quando o cliente pedir para falar com uma pessoa) → [[DESATIVAR]]',
+    '- "Desativar: agente" → [[DESATIVAR]] (só quando o roteiro mandar desativar; se o lead pedir para falar com o advogado ou com uma pessoa, siga o que o roteiro diz para esse caso e continue o atendimento)',
     '- "Mudar etapa: ETAPA" → [[ETAPA: ETAPA]]',
     '- "Adicionar etiqueta: NOME" → [[ETIQUETA: NOME]]',
     '- "Notificar equipe: MOTIVO" → [[NOTIFICAR: MOTIVO]]',
@@ -200,9 +200,10 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
       const line = m[1].trim();
       const val = (re: RegExp) => line.match(re)?.[1]?.replace(/\(.*\)\s*$/, '').trim();
       let v: string | undefined;
-      if ((v = val(/^transferir(?:\s+para\s+(?:o\s+)?agente)?\s*:\s*(.+)$/i))) actions.push({ type: 'transfer', agentName: v });
-      else if (/^desativar/i.test(line)) actions.push({ type: 'deactivate' });
-      else if ((v = val(/^mudar\s+(?:de\s+)?etapa\s*:\s*(.+)$/i))) actions.push({ type: 'stage', name: v });
+      // Transferir/Desativar NÃO são inferidos de linha copiada: o modelo às vezes
+      // repete blocos inteiros do roteiro e isso encerrava a conversa no meio.
+      // Essas duas só valem com o marcador explícito [[TRANSFERIR]] / [[DESATIVAR]].
+      if ((v = val(/^mudar\s+(?:de\s+)?etapa\s*:\s*(.+)$/i))) actions.push({ type: 'stage', name: v });
       else if ((v = val(/^adicionar\s+etiqueta\s*:\s*(.+)$/i))) actions.push({ type: 'tag', name: v });
       else if ((v = val(/^notificar(?:\s+equipe)?\s*:\s*(.+)$/i))) actions.push({ type: 'notify', reason: v });
       else if ((v = val(/^enviar\s+m[ií]dia\s*:\s*(.+)$/i))) actions.push({ type: 'media', name: v });
