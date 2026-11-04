@@ -133,6 +133,20 @@ export function mapAnswers(pairs: { key: string; value: string }[]) {
     else if (!email && EMAIL_KEYS.includes(k)) email = v;
     else if (!IGNORE_KEYS.has(k)) answers.push({ q: prettyQuestion(key), a: v });
   }
+  // Campos com nomes livres ("Número do WhatsApp", "Seu celular", "E-mail para contato"…):
+  // procura pelo nome do campo e, por último, pelo conteúdo da resposta.
+  const take = (test: (q: string, a: string) => boolean) => {
+    const i = answers.findIndex((x) => test(norm(x.q), x.a));
+    return i >= 0 ? answers.splice(i, 1)[0].a : '';
+  };
+  const looksPhone = (a: string) => {
+    const d = a.replace(/\D/g, '');
+    return d.length >= 10 && d.length <= 13 && /^[\d\s()+.-]+$/.test(a.trim());
+  };
+  if (!phone) phone = take((q, a) => /(telefone|celular|whats|zap|fone|phone|contato|numero)/.test(q) && looksPhone(a));
+  if (!phone) phone = take((_q, a) => looksPhone(a));
+  if (!email) email = take((q, a) => /mail/.test(q) && /@/.test(a)) || take((_q, a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.trim()));
+  if (!name && !first) name = take((q) => /(^|_)(nome|name)(_|$)/.test(q) && !/empresa|company|razao/.test(q));
   if (!name) name = [first, last].filter(Boolean).join(' ');
   return { name, phone, email, answers };
 }
