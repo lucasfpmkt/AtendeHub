@@ -63,13 +63,25 @@ export function cancelPendingReply(conversationId: string) {
   pending.delete(conversationId);
 }
 
-async function historyOf(conversationId: string): Promise<ChatTurn[]> {
+async function historyOf(conversationId: string, answeredUntil?: Date | null): Promise<ChatTurn[]> {
   const msgs = await prisma.message.findMany({
     where: { conversationId, author: { not: 'system' } },
     orderBy: { createdAt: 'desc' },
-    take: 40,
+    take: 60,
   });
-  return msgs.reverse().map((m: { direction: string; body: string }) => ({
+  msgs.reverse();
+  // Mensagens do lead que chegaram enquanto a IA enviava a resposta anterior ficam
+  // ANTES dessa resposta na ordem do banco: move para o fim, como "ainda sem resposta".
+  if (answeredUntil) {
+    const pendingIn = msgs.filter((m) => m.direction === 'in' && m.createdAt > answeredUntil);
+    const lastOut = msgs.reduce((t, m) => (m.direction === 'out' && m.createdAt > t ? m.createdAt : t), new Date(0));
+    if (pendingIn.length && pendingIn.some((m) => m.createdAt < lastOut)) {
+      const rest = msgs.filter((m) => !pendingIn.includes(m));
+      msgs.length = 0;
+      msgs.push(...rest, ...pendingIn);
+    }
+  }
+  return msgs.map((m: { direction: string; body: string }) => ({
     role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',
     content: m.body,
   }));
@@ -168,7 +180,41 @@ export async function recordOutgoingMessage(params: {
     data: { conversationId: conversation.id, direction: 'out', author: 'agent', body, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
+  // Resposta automática do WhatsApp Business (saudação/ausência) ou de outro sistema
+  // no mesmo número: sai segundos depois da mensagem do lead, no começo da conversa
+  // ou com o mesmo texto para vários contatos. Essa NÃO pausa a IA.
+  if (conversation.aiEnabled) {
+    const lastIn = await prisma.message.findFirst({
+      where: { conversationId: conversation.id, direction: 'in' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    const quick = !!lastIn && Date.now() - lastIn.createdAt.getTime() < 8000;
+    if (quick && body.trim()) {
+      const inCount = await prisma.message.count({ where: { conversationId: conversation.id, direction: 'in' } });
+      const repeated =
+        body.trim().length >= 15 &&
+        (await prisma.message.count({
+          where: {
+            body,
+            direction: 'out',
+            author: 'agent',
+            createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60_000) },
+            conversation: { workspaceId: ws, NOT: { id: conversation.id } },
+          },
+        })) > 0;
+      if (inCount <= 2 || repeated) {
+        const updatedAuto = await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: new Date() } });
+        emit(ws, { type: 'message:new', conversationId: conversation.id, message });
+        emit(ws, { type: 'conversation:update', conversation: updatedAuto });
+        console.log(`[agentes:${ws}] mensagem automática do WhatsApp detectada na conversa ${conversation.id}; IA continua.`);
+        return;
+      }
+    }
+  }
+
   // Operador respondeu pelo celular: pausa a IA e cancela resposta agendada.
+  const wasAi = conversation.aiEnabled;
   cancelPendingReply(conversation.id);
   const updated = await prisma.conversation.update({
     where: { id: conversation.id },
@@ -177,6 +223,14 @@ export async function recordOutgoingMessage(params: {
 
   emit(ws, { type: 'message:new', conversationId: conversation.id, message });
   emit(ws, { type: 'conversation:update', conversation: updated });
+  // Deixa claro na conversa POR QUE a IA parou (antes parava sem aviso).
+  if (wasAi) {
+    await systemNote(
+      ws,
+      conversation.id,
+      'Uma mensagem foi enviada pelo celular/WhatsApp Web (ou por resposta automática do WhatsApp Business), então a IA foi pausada nesta conversa. Use "Devolver para IA" para retomar.',
+    ).catch(() => {});
+  }
 }
 
 /**
@@ -353,7 +407,7 @@ export async function reclassifyAllStages(ws: string): Promise<number> {
 }
 
 /** Processa uma mensagem recebida do WhatsApp. */
-export async function handleInboundMessage(params: {
+type InboundParams = {
   workspaceId: string;
   waJid: string;
   pushName?: string;
@@ -361,7 +415,23 @@ export async function handleInboundMessage(params: {
   waMessageId?: string;
   media?: InboundMedia;
   sendText: SendText;
-}) {
+};
+
+// Mensagens do MESMO contato são processadas uma de cada vez, na ordem: duas
+// mensagens quase juntas criavam duas conversas (uma sem IA) ou se perdiam.
+const inboundChains = new Map<string, Promise<void>>();
+export function handleInboundMessage(params: InboundParams): Promise<void> {
+  const key = `${params.workspaceId}:${params.waJid}`;
+  const prev = inboundChains.get(key) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(() => handleInboundMessageNow(params));
+  inboundChains.set(key, next);
+  void next.finally(() => {
+    if (inboundChains.get(key) === next) inboundChains.delete(key);
+  }).catch(() => {});
+  return next;
+}
+
+async function handleInboundMessageNow(params: InboundParams) {
   const { workspaceId: ws, waJid, pushName, body, waMessageId, media, sendText } = params;
   if (!body?.trim() && !media) return;
 
@@ -514,6 +584,9 @@ function schedule(ws: string, conversationId: string, sendText: SendText, delayM
 
 // Conversas com uma resposta da IA sendo gerada agora (evita duas respostas em paralelo).
 const inFlight = new Set<string>();
+// Novas tentativas em erro passageiro do provedor de IA: 20 s, 1 min, 3 min, 10 min.
+const TRANSIENT_DELAYS = [20_000, 60_000, 180_000, 600_000];
+const transientTries = new Map<string, number>();
 // Teto de segurança: se a IA mandar mais que isso numa hora, provavelmente está
 // conversando com outro robô (chatbot de empresa) — desliga e avisa a equipe.
 const AI_MAX_PER_HOUR = 30;
@@ -530,8 +603,11 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
 
+    // Teto por hora conta só depois da última vez que a IA foi devolvida/ligada.
+    const hourAgo = new Date(Date.now() - 60 * 60_000);
+    const since = conversation.aiResumedAt && conversation.aiResumedAt > hourAgo ? conversation.aiResumedAt : hourAgo;
     const recentAi = await prisma.message.count({
-      where: { conversationId, author: 'ai', createdAt: { gte: new Date(Date.now() - 60 * 60_000) } },
+      where: { conversationId, author: 'ai', mediaId: null, createdAt: { gte: since } },
     });
     if (recentAi >= AI_MAX_PER_HOUR) {
       const updated = await prisma.conversation.update({ where: { id: conversationId }, data: { aiEnabled: false } });
@@ -546,16 +622,39 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
 
     let agent = await getAgent(ws, conversation.assignedAgentId);
     if (!agent || !agent.active) agent = await getActiveTriage(ws);
-    if (!agent) return; // nenhum agente ativo
+    if (!agent) {
+      // Agente desativado/apagado e sem triagem ativa: avisa e devolve para a equipe
+      // (antes descartava as respostas em silêncio).
+      const updated = await prisma.conversation.update({ where: { id: conversationId }, data: { aiEnabled: false } });
+      emit(ws, { type: 'conversation:update', conversation: updated });
+      await systemNote(ws, conversationId, 'Nenhum agente de IA ativo para esta conversa (o agente foi desativado). A conversa ficou com a equipe.');
+      return;
+    }
+
+    // Última mensagem do lead até agora: depois de responder, fica marcada como
+    // "respondida" — assim uma mensagem que chegou DURANTE o envio não fica sem resposta.
+    const lastIn = await prisma.message.findFirst({
+      where: { conversationId, direction: 'in' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    const answered = conversation.aiAnsweredUntil;
 
     // Contexto guardado na conversa (ex.: respostas do formulário) vai sempre no início,
     // para a IA não esquecer o que o lead preencheu depois da 1ª mensagem.
     // `seed`: contexto da 1ª resposta quando a IA começa a conversa.
     const ctx: ChatTurn[] = !seed?.length && conversation.aiContext ? [{ role: 'user', content: conversation.aiContext }] : [];
-    const history = seed?.length ? [...(await historyOf(conversationId)), ...seed] : [...ctx, ...(await historyOf(conversationId))];
+    const past = await historyOf(conversationId, answered);
+    const history = seed?.length ? [...past, ...seed] : [...ctx, ...past];
     if (history.length === 0) return;
     // Na 1ª resposta após transferência, o novo agente fala mesmo sem nova mensagem do cliente.
-    if (hop === 0 && history[history.length - 1].role !== 'user') return;
+    if (hop === 0 && !seed?.length) {
+      const pendingIn = answered ? !!lastIn && lastIn.createdAt > answered : history[history.length - 1].role === 'user';
+      if (!pendingIn) return;
+    }
+    const markAnswered = async () => {
+      if (lastIn) await prisma.conversation.update({ where: { id: conversationId }, data: { aiAnsweredUntil: lastIn.createdAt } }).catch(() => {});
+    };
 
     const llm = await resolveLlm(ws);
     // Biblioteca de mídias do agente: a IA recebe os nomes e pede com [[MIDIA: NOME]].
@@ -581,8 +680,13 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
       }
     }
 
-    if (text) await deliver(ws, conversationId, text, sendText);
-    else if (actions.length === 0) {
+    if (text) {
+      await deliver(ws, conversationId, text, sendText);
+      await markAnswered();
+      transientTries.delete(conversationId);
+    } else if (actions.length) {
+      await markAnswered(); // só ações: não reaplica na recuperação
+    } else if (actions.length === 0) {
       const peek = (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
       await systemNote(
         ws,
@@ -653,6 +757,18 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     }
   } catch (err) {
     console.error('[agentes] falha ao responder:', err);
+    // Erro passageiro do provedor (sobrecarga 529, limite 429, 5xx, tempo esgotado):
+    // tenta de novo com espera crescente, sem nota, antes de desistir.
+    const e = err as { status?: number; message?: string };
+    const status = e.status ?? Number(/respondeu (\d{3})/.exec(e.message ?? '')?.[1] ?? 0);
+    const transient = [408, 409, 425, 429, 500, 502, 503, 504, 529].includes(status) || /overload|timeout|timed out|ECONNRESET|ETIMEDOUT|fetch failed|socket hang up/i.test(e.message ?? '');
+    const tries = transientTries.get(conversationId) ?? 0;
+    if (transient && tries < TRANSIENT_DELAYS.length) {
+      transientTries.set(conversationId, tries + 1);
+      schedule(ws, conversationId, sendText, TRANSIENT_DELAYS[tries], hop);
+      return;
+    }
+    transientTries.delete(conversationId);
     await systemNote(
       ws,
       conversationId,
@@ -948,7 +1064,7 @@ async function recoverPendingReplies() {
         status: { not: 'closed' },
         lastMessageAt: { gte: new Date(now - 6 * 60 * 60_000), lte: new Date(now - 90_000) },
       },
-      select: { id: true, workspaceId: true },
+      select: { id: true, workspaceId: true, aiAnsweredUntil: true },
       orderBy: { lastMessageAt: 'desc' },
       take: 80,
     });
@@ -957,12 +1073,26 @@ async function recoverPendingReplies() {
       if (!c.workspaceId || pending.has(c.id) || inFlight.has(c.id)) continue;
       // WhatsApp fora do ar: não gasta tentativa (nem IA) agora; tenta quando voltar.
       if (getWaStatus(c.workspaceId).status !== 'connected') continue;
-      const last = await prisma.message.findFirst({
-        where: { conversationId: c.id, author: { not: 'system' } },
+      // Mensagem do lead ainda sem resposta: depois da última já respondida pela IA
+      // (ou, em conversas antigas, a última mensagem ser do lead).
+      const lastIn = await prisma.message.findFirst({
+        where: { conversationId: c.id, direction: 'in' },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, direction: true, createdAt: true },
+        select: { id: true, createdAt: true },
       });
-      if (!last || last.direction !== 'in' || now - last.createdAt.getTime() < 90_000) continue;
+      if (!lastIn || now - lastIn.createdAt.getTime() < 90_000) continue;
+      let unanswered: boolean;
+      if (c.aiAnsweredUntil) unanswered = lastIn.createdAt > c.aiAnsweredUntil;
+      else {
+        const last = await prisma.message.findFirst({
+          where: { conversationId: c.id, author: { not: 'system' } },
+          orderBy: { createdAt: 'desc' },
+          select: { direction: true },
+        });
+        unanswered = last?.direction === 'in';
+      }
+      if (!unanswered) continue;
+      const last = lastIn;
       const key = `${c.id}:${last.id}`;
       const tries = recoveryTries.get(key) ?? 0;
       if (tries >= 2) continue;
@@ -1028,4 +1158,16 @@ export async function startAiOutreach(
   const { sendText: sessionSend } = await import('../whatsapp/session.js');
   await respondWithAI(ws, conversation.id, (jid, text) => sessionSend(ws, jid, text), 0, [{ role: 'user', content: context }]);
   return 'sent';
+}
+
+
+/**
+ * IA devolvida/ligada ou agente trocado na conversa: responde já o que estiver
+ * pendente (antes esperava a recuperação, de 1,5 a 2,5 min, ou o lead escrever de novo).
+ */
+export async function kickAI(ws: string, conversationId: string) {
+  for (const k of recoveryTries.keys()) if (k.startsWith(`${conversationId}:`)) recoveryTries.delete(k);
+  transientTries.delete(conversationId);
+  const { sendText: sessionSend } = await import('../whatsapp/session.js');
+  schedule(ws, conversationId, (jid, text) => sessionSend(ws, jid, text), 800, 0);
 }

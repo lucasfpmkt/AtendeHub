@@ -89,6 +89,33 @@ function chatJidOf(key: { remoteJid?: string | null; remoteJidAlt?: string | nul
   return jid;
 }
 
+/** Tipos que antes sumiam (localização, contato, editada…): vira texto para o CRM e a IA. */
+function describeOther(msg: any): string | null {
+  const loc = msg.locationMessage ?? msg.liveLocationMessage;
+  if (loc) {
+    const where = [loc.name, loc.address].filter(Boolean).join(' – ');
+    return `📍 Localização${where ? `: ${where}` : ''} (${loc.degreesLatitude}, ${loc.degreesLongitude})`;
+  }
+  const tel = (v?: string) => v?.match(/TEL[^:]*:([+\d\s()-]+)/i)?.[1]?.trim();
+  if (msg.contactMessage) {
+    const c = msg.contactMessage;
+    return `👤 Contato: ${c.displayName ?? ''}${tel(c.vcard) ? ` (${tel(c.vcard)})` : ''}`.trim();
+  }
+  if (msg.contactsArrayMessage?.contacts?.length) {
+    return `👤 Contatos: ${msg.contactsArrayMessage.contacts.map((c: any) => `${c.displayName ?? ''}${tel(c.vcard) ? ` (${tel(c.vcard)})` : ''}`).join(', ')}`;
+  }
+  const edited = msg.protocolMessage?.editedMessage ?? msg.editedMessage?.message?.protocolMessage?.editedMessage;
+  if (edited) {
+    const t = edited.conversation ?? edited.extendedTextMessage?.text;
+    if (t) return `✏️ (mensagem editada) ${t}`;
+  }
+  if (msg.pollCreationMessage ?? msg.pollCreationMessageV3) {
+    const p = msg.pollCreationMessage ?? msg.pollCreationMessageV3;
+    return `📊 Enquete: ${p.name ?? ''}`;
+  }
+  return null;
+}
+
 const userOf = (jid?: string | null) => (jid ? jid.split('@')[0].split(':')[0] : '');
 
 /** É a conversa do número consigo mesmo ("Mensagem para você")? Não vira contato no CRM. */
@@ -454,11 +481,13 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         msg.buttonsResponseMessage?.selectedDisplayText ??
         msg.listResponseMessage?.title ??
         msg.templateButtonReplyMessage?.selectedDisplayText ??
+        describeOther(msg) ??
         '';
 
       let spec: { kind: MediaKind; mimetype: string; filename?: string; caption?: string } | null = null;
       if (msg.imageMessage) spec = { kind: 'image', mimetype: msg.imageMessage.mimetype ?? 'image/jpeg', caption: msg.imageMessage.caption ?? '' };
       else if (msg.videoMessage) spec = { kind: 'video', mimetype: msg.videoMessage.mimetype ?? 'video/mp4', caption: msg.videoMessage.caption ?? '' };
+      else if (msg.ptvMessage) spec = { kind: 'video', mimetype: msg.ptvMessage.mimetype ?? 'video/mp4', caption: '' };
       else if (msg.audioMessage) spec = { kind: 'audio', mimetype: msg.audioMessage.mimetype ?? 'audio/ogg' };
       else if (msg.stickerMessage) spec = { kind: 'sticker', mimetype: 'image/webp' };
       else if (msg.documentMessage)
@@ -471,7 +500,7 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
       if (spec) {
         // Arquivo grande (vídeo/documento de centenas de MB) não é baixado: estoura a
         // memória do servidor e derrubaria todos os clientes.
-        const node: any = msg.imageMessage ?? msg.videoMessage ?? msg.audioMessage ?? msg.documentMessage ?? msg.documentWithCaptionMessage?.message?.documentMessage;
+        const node: any = msg.imageMessage ?? msg.videoMessage ?? msg.ptvMessage ?? msg.audioMessage ?? msg.documentMessage ?? msg.documentWithCaptionMessage?.message?.documentMessage;
         const size = Number(node?.fileLength ?? 0);
         if (size > 25 * 1024 * 1024) {
           const caption = (spec.caption ?? '').trim();
@@ -495,7 +524,17 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         console.log(`[wa:${ws}] upsert ${type} ${m.key.fromMe ? 'enviada' : 'recebida'} ${m.key.remoteJid ?? '?'}${m.key.remoteJidAlt ? ` (${m.key.remoteJidAlt})` : ''}${m.messageStubType ? ` stub=${m.messageStubType}` : ''}`);
       }
       for (const m of messages) {
-        const jid = chatJidOf(m.key);
+        let jid = chatJidOf(m.key);
+        // LID sem o número junto: pergunta ao Baileys qual é o telefone. Sem isso o lead
+        // virava um segundo contato (com a IA desligada) no meio da conversa.
+        if (jid?.endsWith('@lid')) {
+          try {
+            const pn = await (sock as any).signalRepository?.lidMapping?.getPNForLID?.(jid);
+            if (pn) jid = jidNormalizedUser(pn);
+          } catch {
+            /* mantém o LID */
+          }
+        }
         if (!jid || jid.endsWith('@g.us') || jid.endsWith('@newsletter') || jid.endsWith('@broadcast') || jid.endsWith('@bot')) continue; // grupos/canais/status/listas
         if (isSelfChat(s, jid)) continue; // "Mensagem para você" (ex.: notificações do LawHub)
         // Eco do que o próprio LawHub enviou: pula antes de baixar a mídia de novo.

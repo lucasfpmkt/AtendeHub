@@ -8,7 +8,7 @@ import { mediaFilePath } from '../whatsapp/media.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
 import { resolveLlm } from '../services/llm.js';
 import { askJson, extractJson } from '../services/llmJson.js';
-import { cancelPendingReply, systemNote, syncStageTag } from '../services/inbound.js';
+import { cancelPendingReply, systemNote, syncStageTag, kickAI } from '../services/inbound.js';
 
 /**
  * CRM do cliente aberto. Toda consulta filtra por workspaceId; antes de
@@ -184,8 +184,13 @@ crmRouter.post('/conversations/:id/messages', async (req, res) => {
 
 crmRouter.patch('/conversations/:id', async (req, res) => {
   const ws = wsOf(req);
-  if (!(await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: ws } }))) return notFound(res);
+  const before = await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: ws } });
+  if (!before) return notFound(res);
   const { aiEnabled, status, assignedAgentId } = req.body ?? {};
+  // Tipos errados viram 400 (antes derrubavam o servidor).
+  if (aiEnabled !== undefined && typeof aiEnabled !== 'boolean') return res.status(400).json({ error: 'aiEnabled inválido' });
+  if (status !== undefined && !['open', 'closed', 'pending'].includes(status)) return res.status(400).json({ error: 'status inválido' });
+  if (assignedAgentId !== undefined && assignedAgentId !== null && typeof assignedAgentId !== 'string') return res.status(400).json({ error: 'agente inválido' });
   if (assignedAgentId && !(await prisma.agent.findFirst({ where: { id: assignedAgentId, workspaceId: ws } }))) {
     return notFound(res);
   }
@@ -201,6 +206,12 @@ crmRouter.patch('/conversations/:id', async (req, res) => {
     },
   });
   if (conversation.aiEnabled === false) cancelPendingReply(conversation.id);
+  // IA devolvida ou agente trocado: zera o teto por hora e responde já o que estiver pendente.
+  const resumed = conversation.aiEnabled && (!before.aiEnabled || before.assignedAgentId !== conversation.assignedAgentId);
+  if (resumed) {
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { aiResumedAt: new Date() } }).catch(() => {});
+    await kickAI(ws, conversation.id).catch(() => {});
+  }
   emit(ws, { type: 'conversation:update', conversation });
   res.json(conversation);
 });
