@@ -72,6 +72,7 @@ model Conversation {
   aiContext       String    @default("") // contexto inicial para a IA (ex.: respostas do formulário)
   aiAnsweredUntil DateTime? // última mensagem do lead já considerada numa resposta da IA
   aiResumedAt     DateTime? // quando a IA foi devolvida/ligada nesta conversa (zera o teto por hora)
+  aiPausedBy      String? // "humano" (advogado respondeu) | "roteiro" | "manual" | "limite"
   campaignSource  String? // "gatilho"
   campaignAd      String? // nome do agente cujo gatilho bateu
   campaignAt      DateTime? // quando o gatilho chegou (a análise usa esta data, não a da conversa)

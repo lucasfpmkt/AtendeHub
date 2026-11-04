@@ -8,7 +8,7 @@ import { mediaFilePath } from '../whatsapp/media.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
 import { resolveLlm } from '../services/llm.js';
 import { askJson, extractJson } from '../services/llmJson.js';
-import { cancelPendingReply, systemNote, syncStageTag, kickAI } from '../services/inbound.js';
+import { cancelPendingReply, systemNote, syncStageTag, kickAI, AI_RESUME_MIN } from '../services/inbound.js';
 
 /**
  * CRM do cliente aberto. Toda consulta filtra por workspaceId; antes de
@@ -172,9 +172,9 @@ crmRouter.post('/conversations/:id/messages', async (req, res) => {
     const conv = await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: ws } });
     if (conv?.aiEnabled) {
       cancelPendingReply(conv.id);
-      const updated = await prisma.conversation.update({ where: { id: conv.id }, data: { aiEnabled: false } });
+      const updated = await prisma.conversation.update({ where: { id: conv.id }, data: { aiEnabled: false, aiPausedBy: 'humano' } });
       emit(ws, { type: 'conversation:update', conversation: updated });
-      await systemNote(ws, conv.id, 'A equipe assumiu a conversa. A IA foi pausada.');
+      await systemNote(ws, conv.id, `A equipe assumiu a conversa e a IA pausou. Se o lead escrever e ninguém responder em ${AI_RESUME_MIN} minutos, a IA retoma sozinha.`);
     }
     res.json(message);
   } catch (err) {
@@ -205,11 +205,15 @@ crmRouter.patch('/conversations/:id', async (req, res) => {
         : {}),
     },
   });
-  if (conversation.aiEnabled === false) cancelPendingReply(conversation.id);
+  if (conversation.aiEnabled === false) {
+    cancelPendingReply(conversation.id);
+    // Desligada à mão na tela: não retoma sozinha.
+    if (before.aiEnabled && aiEnabled === false) await prisma.conversation.update({ where: { id: conversation.id }, data: { aiPausedBy: 'manual' } }).catch(() => {});
+  }
   // IA devolvida ou agente trocado: zera o teto por hora e responde já o que estiver pendente.
   const resumed = conversation.aiEnabled && (!before.aiEnabled || before.assignedAgentId !== conversation.assignedAgentId);
   if (resumed) {
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { aiResumedAt: new Date() } }).catch(() => {});
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { aiResumedAt: new Date(), aiPausedBy: null } }).catch(() => {});
     await kickAI(ws, conversation.id).catch(() => {});
   }
   emit(ws, { type: 'conversation:update', conversation });
