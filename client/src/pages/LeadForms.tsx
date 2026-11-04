@@ -158,7 +158,7 @@ export function LeadForms() {
                 <li>Cole o token aqui:</li>
               </ol>
               <div className="lf-copy">
-                <input type="password" placeholder="EAAG…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
+                <input type="password" placeholder="EAAG…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
                 <button
                   className="primary"
                   disabled={!token.trim() || busy !== ''}

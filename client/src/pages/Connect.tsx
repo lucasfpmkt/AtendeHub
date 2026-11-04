@@ -303,7 +303,7 @@ export function Connect({ status, me }: { status: string; me?: string }) {
               value={cloud?.token ?? ''}
               onChange={(e) => setCloud((c) => c && { ...c, token: e.target.value })}
               placeholder={cloud?.hasToken ? '•••••••• (token salvo — deixe em branco para manter)' : 'cole o token'}
-              autoComplete="off"
+              autoComplete="new-password" data-lpignore="true" data-1p-ignore="true"
             />
           </div>
 

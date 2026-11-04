@@ -568,7 +568,7 @@ function PlatformAI() {
         {pv && (
           <div className="field-sm">
             <span>Chave da API {pr?.keyUrl && <a href={pr.keyUrl} target="_blank" rel="noreferrer" className="small">(onde pegar)</a>}</span>
-            <input type="password" value={key} onChange={(e) => (crm ? setCrmApiKey : setApiKey)(e.target.value)} placeholder={hk ? '•••••••• (salva)' : pr?.keyHint || 'cole a chave'} autoComplete="off" />
+            <input type="password" value={key} onChange={(e) => (crm ? setCrmApiKey : setApiKey)(e.target.value)} placeholder={hk ? '•••••••• (salva)' : pr?.keyHint || 'cole a chave'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
           </div>
         )}
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -620,7 +620,7 @@ function PlatformAI() {
               value={mediaApiKey}
               onChange={(e) => setMediaApiKey(e.target.value)}
               placeholder={mediaHasKey ? '•••••••• (salva)' : 'cole a chave do Gemini'}
-              autoComplete="off"
+              autoComplete="new-password" data-lpignore="true" data-1p-ignore="true"
             />
           </div>
           <div className="field-sm">
@@ -674,11 +674,11 @@ function PlatformAI() {
         <div className="duo">
           <div className="field-sm">
             <span>Client Secret</span>
-            <input type="password" value={gadsSecret} onChange={(e) => setGadsSecret(e.target.value)} placeholder={gadsHas.secret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+            <input type="password" value={gadsSecret} onChange={(e) => setGadsSecret(e.target.value)} placeholder={gadsHas.secret ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
           </div>
           <div className="field-sm">
             <span>Developer Token</span>
-            <input type="password" value={gadsDevToken} onChange={(e) => setGadsDevToken(e.target.value)} placeholder={gadsHas.dev ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="off" />
+            <input type="password" value={gadsDevToken} onChange={(e) => setGadsDevToken(e.target.value)} placeholder={gadsHas.dev ? '•••••••• (salvo)' : 'cole aqui'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
           </div>
         </div>
         <div className="field-sm">
@@ -688,7 +688,7 @@ function PlatformAI() {
               (OAuth Playground)
             </a>
           </span>
-          <input type="password" value={gadsRefresh} onChange={(e) => setGadsRefresh(e.target.value)} placeholder={gadsHas.refresh ? '•••••••• (salvo)' : 'cole o refresh token (1//...)'} autoComplete="off" />
+          <input type="password" value={gadsRefresh} onChange={(e) => setGadsRefresh(e.target.value)} placeholder={gadsHas.refresh ? '•••••••• (salvo)' : 'cole o refresh token (1//...)'} autoComplete="new-password" data-lpignore="true" data-1p-ignore="true" />
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button className="primary" onClick={saveGads}>
