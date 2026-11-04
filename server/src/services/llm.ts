@@ -26,7 +26,7 @@ export const PROVIDERS: ProviderPreset[] = [
     kind: 'anthropic',
     baseUrl: '',
     defaultModel: 'claude-haiku-5-5',
-    models: ['claude-haiku-5-5', 'claude-sonnet-4-5', 'claude-3-5-haiku-latest', 'claude-3-5-sonnet-latest'],
+    models: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'],
     keyHint: 'sk-ant-...',
     keyUrl: 'https://console.anthropic.com/settings/keys',
   },
