@@ -431,6 +431,18 @@ export async function handleInboundMessage(params: {
         where: { id: conversation.id },
         data: { campaignSource: 'gatilho', campaignAd: hit, campaignAt: new Date() },
       });
+    } else {
+      // Lead de formulário (últimos 7 dias) que escreveu no WhatsApp: também é lead de campanha.
+      const form = await prisma.leadFormEntry.findFirst({
+        where: { workspaceId: ws, contactId: contact.id, createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60_000) } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (form) {
+        conversation = await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { campaignSource: 'formulario', campaignAd: form.formName || 'Formulário', campaignAt: new Date() },
+        });
+      }
     }
   }
 
@@ -938,7 +950,15 @@ export function startAiRecoveryLoop() {
  * agente (o lead ainda não escreveu). Não faz nada se já houver conversa com
  * mensagens para este contato.
  */
-export async function startAiOutreach(ws: string, contactId: string, agentId: string, context: string): Promise<'sent' | 'skipped'> {
+export async function startAiOutreach(
+  ws: string,
+  contactId: string,
+  agentId: string,
+  context: string,
+  formName = '',
+): Promise<'sent' | 'skipped'> {
+  // Lead de formulário conta como lead de campanha (Análise de atendimento).
+  const campaign = { campaignSource: 'formulario', campaignAd: formName || 'Formulário', campaignAt: new Date() };
   let agent = agentId ? await getAgent(ws, agentId) : null;
   if (!agent || !agent.active) agent = await getActiveTriage(ws);
   if (!agent) return 'skipped';
@@ -952,11 +972,11 @@ export async function startAiOutreach(ws: string, contactId: string, agentId: st
     if (hasMsgs) return 'skipped'; // lead já está conversando
     conversation = await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { aiEnabled: true, assignedAgentId: agent.id, aiContext: context },
+      data: { aiEnabled: true, assignedAgentId: agent.id, aiContext: context, ...campaign },
     });
   } else {
     conversation = await prisma.conversation.create({
-      data: { workspaceId: ws, contactId, aiEnabled: true, assignedAgentId: agent.id, lastMessageAt: new Date(), aiContext: context },
+      data: { workspaceId: ws, contactId, aiEnabled: true, assignedAgentId: agent.id, lastMessageAt: new Date(), aiContext: context, ...campaign },
     });
   }
   emit(ws, { type: 'conversation:update', conversation });
