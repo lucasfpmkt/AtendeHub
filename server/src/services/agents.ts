@@ -146,19 +146,27 @@ export type AgentAction =
   | { type: 'tag'; name: string }
   | { type: 'notify'; reason: string }
   | { type: 'media'; name: string };
-export type AgentReply = { text: string; actions: AgentAction[] };
+export type AgentReply = { text: string; actions: AgentAction[]; raw?: string };
 
 /** System prompt: roteiro + regras + FAQ + como sinalizar as ações. */
 export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): string {
   const faq = parseFaq(agent.faq);
+  // Data de hoje (Brasília): o roteiro pode usar {{data_atual_sistema}} / {{data_atual}}
+  // (ex.: cálculo de prescrição) e o modelo não sabe a data sozinho.
+  const now = new Date();
+  const hoje = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric' }).format(now);
+  const semana = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long' }).format(now);
+  const script = (agent.script || '').replace(/\{\{\s*data_atual(?:_sistema)?\s*\}\}/gi, hoje);
   return [
-    agent.script || '(sem roteiro — atenda com cordialidade e pergunte o motivo do contato)',
+    `Data de hoje: ${hoje} (${semana}), horário de Brasília. Use sempre esta data para qualquer cálculo de prazo.`,
+    script || '(sem roteiro — atenda com cordialidade e pergunte o motivo do contato)',
     agent.regras ? `\n— Regras de comportamento —\n${agent.regras}` : '',
     faq.length ? `\n— Perguntas frequentes (use quando o cliente perguntar fora do roteiro) —\n${faq.map((f) => `P: ${f.q}\nR: ${f.a}`).join('\n')}` : '',
     '\n— Instruções de operação —',
     'Você está atendendo por WhatsApp. Responda em português do Brasil, de forma natural e humana, mensagens curtas.',
     'Siga o roteiro passo a passo, usando o histórico para saber em que etapa está.',
     'Envie apenas a próxima mensagem do atendimento, sem rótulos, sem marcações de etapa e sem comentários fora do personagem.',
+    'Toda resposta precisa ter uma mensagem para o cliente. As linhas "⚡ Ação" do roteiro são instruções para você, nunca texto para copiar: execute-as com os marcadores abaixo.',
     'AÇÕES: quando o roteiro mandar executar uma ação, escreva a mensagem prevista e, em linhas separadas no FIM, só os marcadores aplicáveis:',
     '- "Transferir para agente: NOME" → [[TRANSFERIR: NOME]]',
     '- "Desativar: agente" (ou quando o cliente pedir para falar com uma pessoa) → [[DESATIVAR]]',
@@ -184,6 +192,21 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
   for (const m of raw.matchAll(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'tag', name: m[1] });
   for (const m of raw.matchAll(/\[\[\s*NOTIFICAR\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'notify', reason: m[1] });
   for (const m of raw.matchAll(/\[\[\s*M[IÍ]DIA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'media', name: m[1] });
+  // O modelo às vezes copia a linha do roteiro ("⚡ Ação: Mudar etapa: X") em vez
+  // do marcador [[...]]: entende essas linhas também, para a ação não se perder.
+  if (!actions.length) {
+    for (const m of raw.matchAll(/^\s*⚡\s*A[çc][ãa]o\s*:\s*(.+)$/gim)) {
+      const line = m[1].trim();
+      const val = (re: RegExp) => line.match(re)?.[1]?.replace(/\(.*\)\s*$/, '').trim();
+      let v: string | undefined;
+      if ((v = val(/^transferir(?:\s+para\s+(?:o\s+)?agente)?\s*:\s*(.+)$/i))) actions.push({ type: 'transfer', agentName: v });
+      else if (/^desativar/i.test(line)) actions.push({ type: 'deactivate' });
+      else if ((v = val(/^mudar\s+(?:de\s+)?etapa\s*:\s*(.+)$/i))) actions.push({ type: 'stage', name: v });
+      else if ((v = val(/^adicionar\s+etiqueta\s*:\s*(.+)$/i))) actions.push({ type: 'tag', name: v });
+      else if ((v = val(/^notificar(?:\s+equipe)?\s*:\s*(.+)$/i))) actions.push({ type: 'notify', reason: v });
+      else if ((v = val(/^enviar\s+m[ií]dia\s*:\s*(.+)$/i))) actions.push({ type: 'media', name: v });
+    }
+  }
   let text = raw
     .replace(/\[\[[^\]]*\]\]/g, '')
     .replace(/^\s*⚡.*$/gim, '') // por segurança, nunca envia a linha de ação crua
@@ -194,8 +217,23 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
 
 /** Gera a resposta de um agente seguindo seu roteiro. */
 export async function runAgent(agent: Agent, history: ChatTurn[], llm: Llm, mediaNames: string[] = []): Promise<AgentReply> {
-  const raw = await llm.complete({ system: buildSystemPrompt(agent, mediaNames), messages: history, maxTokens: 700 });
-  return parseReply(agent, raw);
+  const system = buildSystemPrompt(agent, mediaNames);
+  const raw = await llm.complete({ system, messages: history, maxTokens: 700 });
+  const reply = parseReply(agent, raw);
+  if (reply.text) return reply;
+  // Veio sem mensagem ao cliente (só ação, linha do roteiro ou vazio): pede de novo,
+  // deixando claro que precisa da mensagem. Mantém as ações da 1ª tentativa.
+  console.warn(`[agentes] ${agent.name}: resposta sem mensagem ao cliente, tentando de novo. Bruto: ${JSON.stringify(raw.slice(0, 300))}`);
+  const raw2 = await llm.complete({
+    system:
+      system +
+      '\n\nIMPORTANTE: escreva agora a mensagem que vai para o cliente no WhatsApp (texto natural, sem "⚡ Ação" e sem rótulos). Se o roteiro pedir uma ação, coloque o marcador [[...]] numa linha separada no FIM, depois da mensagem.',
+    messages: history,
+    maxTokens: 700,
+  });
+  const second = parseReply(agent, raw2);
+  if (!second.text) console.warn(`[agentes] ${agent.name}: 2ª tentativa também sem mensagem. Bruto: ${JSON.stringify(raw2.slice(0, 300))}`);
+  return { text: second.text, actions: second.actions.length ? second.actions : reply.actions, raw: second.text ? undefined : raw2 || raw };
 }
 
 /** Resposta sem provedor de IA: a primeira "Mensagem:" do roteiro (para testes). */
