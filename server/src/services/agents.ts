@@ -34,6 +34,29 @@ export async function getActiveTriage(ws: string): Promise<Agent | null> {
   return prisma.agent.findFirst({ where: { workspaceId: ws, type: 'triage', active: true }, orderBy: { order: 'asc' } });
 }
 
+/** Todos os agentes principais (triagem) ativos, na ordem do painel. */
+export async function getActiveTriageAgents(ws: string): Promise<Agent[]> {
+  return prisma.agent.findMany({ where: { workspaceId: ws, type: 'triage', active: true }, orderBy: { order: 'asc' } });
+}
+
+/**
+ * Agente principal cujo GATILHO bate com a mensagem. Vários clientes usam um agente
+ * principal por campanha (cada um com seus gatilhos): antes só o 1º era conferido e
+ * os gatilhos dos outros nunca ligavam a IA. Se mais de um bater, vence o gatilho
+ * mais longo (o mais específico).
+ */
+export async function triageByTrigger(ws: string, text: string): Promise<Agent | null> {
+  const hay = normalize(text);
+  let best: { agent: Agent; len: number } | null = null;
+  for (const agent of await getActiveTriageAgents(ws)) {
+    for (const t of splitTriggers(agent.triggers)) {
+      const n = normalize(t);
+      if (n && hay.includes(n) && (!best || n.length > best.len)) best = { agent, len: n.length };
+    }
+  }
+  return best?.agent ?? null;
+}
+
 export async function getActiveThemeAgents(ws: string): Promise<Agent[]> {
   return prisma.agent.findMany({ where: { workspaceId: ws, type: 'theme', active: true }, orderBy: { order: 'asc' } });
 }
