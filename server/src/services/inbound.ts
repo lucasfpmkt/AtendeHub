@@ -29,6 +29,7 @@ import {
   findAgentByName,
   getActiveThemeAgents,
   getActiveTriage,
+  triageByTrigger,
   getAgent,
   logAgent,
   normalize,
@@ -489,12 +490,14 @@ async function handleInboundMessageNow(params: InboundParams) {
     // cadastrada (triagem ou agente de tema). Sem gatilho (amigos, família,
     // contatos pessoais) a IA não entra. Começa pela triagem, que segue o roteiro.
     const triage = await getActiveTriage(ws);
+    // Gatilho de QUALQUER agente principal: assume esse agente (um principal por campanha).
+    const byTrigger = await triageByTrigger(ws, text);
     const themeHit = matchByTriggers(text, await getActiveThemeAgents(ws));
-    const hit = triage ? await matchesTrigger(ws, triage, text) : Boolean(themeHit);
+    const hit = Boolean(byTrigger) || (triage ? await matchesTrigger(ws, triage, text) : Boolean(themeHit));
     // Formulário do Meta no WhatsApp: assume com o agente escolhido em Formulários (ou a triagem).
     const formMsg = !hit && looksLikeFormMessage(text);
     const formAgent = formMsg ? await formAgentOf(ws) : null;
-    const first = hit ? (triage ?? themeHit) : formMsg ? (formAgent ?? triage ?? null) : null;
+    const first = hit ? (byTrigger ?? triage ?? themeHit) : formMsg ? (formAgent ?? triage ?? null) : null;
     const start = Boolean(first);
     conversation = await prisma.conversation.create({
       data: {
@@ -560,15 +563,16 @@ async function handleInboundMessageNow(params: InboundParams) {
   // - Sem gatilho (triagem de porta aberta) → só reativa se ninguém da equipe
   //   está atendendo (contato recorrente), pra não atropelar atendimento humano.
   if (!conversation.aiEnabled && !startedBy) {
-    const triage = await getActiveTriage(ws);
+    const byTrigger = await triageByTrigger(ws, text);
+    const triage = byTrigger ?? (await getActiveTriage(ws));
     if (triage) {
-      const triggerHit = (await matchesTrigger(ws, triage, text)) || looksLikeFormMessage(text);
+      const triggerHit = Boolean(byTrigger) || (await matchesTrigger(ws, triage, text)) || looksLikeFormMessage(text);
       // Só com gatilho (ou mensagem de formulário): contato que volta sem gatilho fica com a equipe.
       const start = triggerHit;
       if (start) {
         conversation = await prisma.conversation.update({
           where: { id: conversation.id },
-          data: { aiEnabled: true, aiPausedBy: null, assignedAgentId: conversation.assignedAgentId ?? triage.id },
+          data: { aiEnabled: true, aiPausedBy: null, assignedAgentId: byTrigger?.id ?? conversation.assignedAgentId ?? triage.id },
         });
         emit(ws, { type: 'conversation:update', conversation });
         await systemNote(ws, conversation.id, `${triage.name} assumiu pelo gatilho.`);
