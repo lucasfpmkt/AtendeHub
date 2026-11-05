@@ -176,7 +176,9 @@ export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): stri
     mediaNames.length
       ? `Mídias disponíveis para enviar (use o nome exato): ${mediaNames.map((n) => `"${n}"`).join(', ')}. Envie só quando o roteiro mandar.`
       : '',
-    'Use só os marcadores que o roteiro pedir. Nunca escreva "⚡ Ação" nem os marcadores no meio da mensagem ao cliente.',
+    'Use só os marcadores que o roteiro pedir. Nunca escreva "⚡ Ação" nem os marcadores no meio da mensagem ao cliente. Todo marcador abre com [[ e fecha com ]] na mesma linha.',
+    'Estilo: não comece as mensagens com o nome do cliente nem com "Obrigada", "Entendi" ou "Anotei". Use o nome do cliente com moderação (no máximo uma vez a cada várias mensagens). Não repita nem resuma de volta o que o cliente acabou de responder: siga direto para a próxima pergunta ou etapa.',
+    'Nunca pergunte de novo algo que o cliente já respondeu nesta conversa ou no formulário.',
     'Se a conversa começar com "[CONTEXTO PARA A IA", são dados que o próprio lead preencheu num formulário de anúncio: use-os e não pergunte de novo o que já está ali.',
     `Data de hoje: ${hoje} (${semana}), horário de Brasília. Use sempre esta data para qualquer cálculo de prazo.`,
   ]
@@ -189,10 +191,14 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
   const actions: AgentAction[] = [];
   for (const m of raw.matchAll(/\[\[\s*TRANSFERIR\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'transfer', agentName: m[1] });
   if (/\[\[\s*DESATIVAR\s*\]\]/i.test(raw)) actions.push({ type: 'deactivate' });
-  for (const m of raw.matchAll(/\[\[\s*ETAPA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'stage', name: m[1] });
-  for (const m of raw.matchAll(/\[\[\s*ETIQUETA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'tag', name: m[1] });
-  for (const m of raw.matchAll(/\[\[\s*NOTIFICAR\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'notify', reason: m[1] });
-  for (const m of raw.matchAll(/\[\[\s*M[IÍ]DIA\s*:\s*([^\]]+?)\s*\]\]/gi)) actions.push({ type: 'media', name: m[1] });
+  // Etapa/etiqueta/notificar/mídia valem mesmo se o marcador vier sem o "]]" final
+  // (resposta cortada): o valor vai até o fim da linha. Transferir/Desativar exigem
+  // o marcador completo, por segurança.
+  const safe = (tag: string) => new RegExp(`\\[\\[\\s*${tag}\\s*:\\s*([^\\]\\n]+?)\\s*(?:\\]\\]|\\]?\\s*$)`, 'gim');
+  for (const m of raw.matchAll(safe('ETAPA'))) if (!/[›»>|]\s*$/.test(m[1])) actions.push({ type: 'stage', name: m[1] }); // "Funil ›" cortado: ignora
+  for (const m of raw.matchAll(safe('ETIQUETA'))) actions.push({ type: 'tag', name: m[1] });
+  for (const m of raw.matchAll(safe('NOTIFICAR'))) actions.push({ type: 'notify', reason: m[1] });
+  for (const m of raw.matchAll(safe('M[IÍ]DIA'))) actions.push({ type: 'media', name: m[1] });
   // O modelo às vezes copia a linha do roteiro ("⚡ Ação: Mudar etapa: X") em vez
   // do marcador [[...]]: entende essas linhas também, para a ação não se perder.
   if (!actions.length) {
@@ -211,7 +217,9 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
   }
   let text = raw
     .replace(/\[\[[^\]]*\]\]/g, '')
+    .replace(/\[\[.*$/gm, '') // marcador sem fechamento (resposta cortada): nunca vai ao cliente
     .replace(/^\s*⚡.*$/gim, '') // por segurança, nunca envia a linha de ação crua
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
   if (agent.signatureOn && agent.signature.trim() && text) text = `${text}\n\n${agent.signature.trim()}`;
   return { text, actions };
@@ -220,7 +228,7 @@ export function parseReply(agent: Agent, raw: string): AgentReply {
 /** Gera a resposta de um agente seguindo seu roteiro. */
 export async function runAgent(agent: Agent, history: ChatTurn[], llm: Llm, mediaNames: string[] = []): Promise<AgentReply> {
   const system = buildSystemPrompt(agent, mediaNames);
-  const raw = await llm.complete({ system, messages: history, maxTokens: 700 });
+  const raw = await llm.complete({ system, messages: history, maxTokens: 2000 });
   const reply = parseReply(agent, raw);
   if (reply.text) return reply;
   // Veio sem mensagem ao cliente (só ação, linha do roteiro ou vazio): pede de novo,
@@ -231,7 +239,7 @@ export async function runAgent(agent: Agent, history: ChatTurn[], llm: Llm, medi
       system +
       '\n\nIMPORTANTE: escreva agora a mensagem que vai para o cliente no WhatsApp (texto natural, sem "⚡ Ação" e sem rótulos). Se o roteiro pedir uma ação, coloque o marcador [[...]] numa linha separada no FIM, depois da mensagem.',
     messages: history,
-    maxTokens: 700,
+    maxTokens: 2000,
   });
   const second = parseReply(agent, raw2);
   if (!second.text) console.warn(`[agentes] ${agent.name}: 2ª tentativa também sem mensagem. Bruto: ${JSON.stringify(raw2.slice(0, 300))}`);

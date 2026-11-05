@@ -171,6 +171,7 @@ async function completeAnthropic(apiKey: string, model: string, opts: { system: 
     system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
     messages: normalizeTurns(opts.messages),
   });
+  if (resp.stop_reason === 'max_tokens') console.warn(`[llm] resposta cortada no limite de ${opts.maxTokens ?? 600} tokens (${model})`);
   return resp.content
     .filter((b): b is Anthropic.TextBlock => b.type === 'text')
     .map((b) => b.text)
