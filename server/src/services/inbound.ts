@@ -5,7 +5,7 @@ import { saveMedia, type MediaKind } from '../whatsapp/media.js';
 import { maybeFireQualifiedLead } from './metaAds.js';
 import { maybeFireGoogleConversion } from './googleAds.js';
 import { understandMedia } from './mediaAI.js';
-import { notifyQualifiedLead } from './leadNotify.js';
+import { notifyQualifiedLead, notifyTeamWhatsApp } from './leadNotify.js';
 
 /** Mídia recebida/enviada já baixada em memória. */
 export type InboundMedia = { kind: MediaKind; mimetype: string; filename?: string; buffer: Buffer };
@@ -1089,6 +1089,8 @@ async function applyNotify(ws: string, conversationId: string, reason: string) {
     data: { unread: { increment: 1 } },
   });
   emit(ws, { type: 'conversation:update', conversation: updated });
+  // E no WhatsApp do advogado (sem travar a resposta ao lead).
+  void notifyTeamWhatsApp(ws, conversationId, reason).catch((e) => console.error('[notify] aviso da equipe falhou:', (e as Error).message));
 }
 
 

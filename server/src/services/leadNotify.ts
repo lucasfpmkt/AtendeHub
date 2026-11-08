@@ -135,6 +135,42 @@ export async function notifyQualifiedLead(ws: string, conversationId: string, co
   }
 }
 
+/**
+ * Aviso da IA para a equipe ([[NOTIFICAR: ...]] do roteiro: reunião a agendar, ficha
+ * completa, urgência, golpe...). Além da nota na conversa, manda no WhatsApp do
+ * advogado (número configurado em Configurações › Avisos) com os dados do lead,
+ * o motivo e um resumo do atendimento. Usa a mesma chave dos avisos de lead qualificado.
+ */
+export async function notifyTeamWhatsApp(ws: string, conversationId: string, reason: string) {
+  const cfg = await prisma.aiConfig.findUnique({ where: { id: ws }, select: { notifyQualified: true, notifyNumber: true } });
+  if (cfg && !cfg.notifyQualified) return;
+  const to = await notifyTarget(ws, cfg?.notifyNumber ?? '');
+  if (!to) return;
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, include: { contact: true } });
+  if (!conv) return;
+  const agenda = /agend|reuni|hor[aá]rio|per[ií]odo/i.test(reason);
+  const urgent = /urgent|golpe|alerta|aten[cç][aã]o/i.test(reason);
+  const title = urgent ? '🚨 *Atenção: atendimento urgente*' : agenda ? '📅 *Reunião para agendar*' : '🔔 *Aviso do atendimento*';
+  const summary = await summarize(ws, conversationId);
+  const text = [
+    title,
+    '',
+    `👤 *Nome:* ${conv.contact?.name?.trim() || 'Não informado'}`,
+    `📱 *Telefone:* ${formatPhone(conv.contact?.phone ?? '')}`,
+    `📌 *Motivo:* ${reason.trim() || 'atenção neste atendimento'}`,
+    '',
+    '📝 *Resumo*',
+    summary,
+  ].join('\n');
+  const { sendText } = await import('../whatsapp/session.js');
+  try {
+    await sendText(ws, to, text);
+    console.log(`[notify:${ws}] aviso da equipe enviado em ${to.split('@')[0]}`);
+  } catch (err) {
+    console.error(`[notify:${ws}] falha ao enviar aviso da equipe:`, (err as Error).message);
+  }
+}
+
 /** Envia uma notificação de exemplo (botão "Enviar teste" nas configurações). */
 export async function sendTestNotification(ws: string): Promise<string> {
   const cfg = await prisma.aiConfig.findUnique({ where: { id: ws }, select: { notifyNumber: true } });

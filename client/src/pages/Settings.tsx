@@ -290,7 +290,7 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
         <section className="card stack" style={{ gridColumn: '1 / -1' }}>
           <div className="row between">
             <h3 className="card-title" style={{ margin: 0 }}>
-              <Icon name="zap" /> Notificação de lead qualificado
+              <Icon name="zap" /> Avisos no WhatsApp do advogado
             </h3>
             <label className="row" style={{ gap: 8 }}>
               <span className="small">{notifyOn ? 'Ligada' : 'Desligada'}</span>
@@ -300,16 +300,17 @@ export function Settings({ user, workspace, onLogout }: { user: SessionUser; wor
                   setNotifyOn(v);
                   void saveNotify({ notifyQualified: v });
                 }}
-                label="Ligar notificação de lead qualificado"
+                label="Ligar avisos no WhatsApp do advogado"
               />
             </label>
           </div>
           <p className="muted small">
-            Quando a IA levar um lead para a etapa <b>Lead Qualificado</b>, o escritório recebe no WhatsApp uma mensagem com
-            nome, telefone, funil, etiquetas e um resumo do atendimento feito pela IA. Vai uma vez por lead.
+            O advogado recebe no WhatsApp, com nome, telefone e um resumo do atendimento feito pela IA: quando a IA levar um
+            lead para a etapa <b>Lead Qualificado</b> (uma vez por lead) e sempre que o roteiro mandar <b>Notificar equipe</b>
+            (reunião para agendar, ficha completa, urgência).
           </p>
           <div className="field-sm">
-            <span>Enviar para (opcional)</span>
+            <span>WhatsApp do advogado</span>
             <input
               value={notifyNumber}
               onChange={(e) => setNotifyNumber(e.target.value)}
