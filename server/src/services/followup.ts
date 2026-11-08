@@ -4,6 +4,8 @@ import { emit } from '../realtime.js';
 import { getStatus, sendText } from '../whatsapp/session.js';
 import { mediaFilePath } from '../whatsapp/media.js';
 
+const STALE_MS = 3 * 24 * 60 * 60_000;
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Clientes ativos e dentro do prazo (não envia para conta desativada/vencida). */
@@ -61,7 +63,10 @@ async function runFollowupsOnce() {
         stageId: stage.id,
         // Só leads que entraram na etapa DEPOIS de ligar a chave (não dispara para a base antiga).
         stageSince: { lte: cutoff, gte: enabledSince },
-        NOT: { followupStageId: stage.id },
+        // Ainda sem follow-up nesta etapa. Atenção: `NOT: { followupStageId: X }` sozinho
+        // exclui quem tem o campo vazio (NULL) — ou seja, TODOS os negócios novos — e o
+        // follow-up nunca disparava. Por isso o OR explícito com null.
+        OR: [{ followupStageId: null }, { followupStageId: { not: stage.id } }],
       },
       include: { contact: true },
       take: 50,
@@ -88,6 +93,12 @@ async function runFollowupsOnce() {
           select: { direction: true, createdAt: true },
         });
         if (!last || last.direction !== 'out' || last.createdAt > cutoff) continue;
+        // Conversa parada há mais de 3 dias: não ressuscita lead antigo com um "vi que
+        // iniciamos…" fora de contexto (evita disparo em massa da fila acumulada).
+        if (last.createdAt.getTime() < now - STALE_MS) {
+          await prisma.deal.update({ where: { id: deal.id }, data: { followupStageId: stage.id } });
+          continue;
+        }
 
         const text = fillName(stage.followupMessage, contact.name);
         if (!text) continue;
