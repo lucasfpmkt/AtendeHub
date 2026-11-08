@@ -632,6 +632,25 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conversation || !conversation.aiEnabled) return; // humano pode ter assumido
 
+    // Nada para responder: a última fala é do escritório (advogado ou a própria IA) e o
+    // lead não escreveu depois. Acontecia ao "Devolver para IA" logo após o advogado
+    // mandar mensagem: a IA respondia por cima dele. Primeira mensagem de formulário
+    // (seed) e passagem entre agentes (hop) continuam podendo falar.
+    if (!seed && hop === 0) {
+      const lastIn = await prisma.message.findFirst({
+        where: { conversationId, direction: 'in' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      // Resposta automática do WhatsApp Business sai em segundos: não conta como fala da equipe.
+      const after = new Date((lastIn?.createdAt.getTime() ?? 0) + 10_000);
+      const outAfter = await prisma.message.findFirst({
+        where: { conversationId, direction: 'out', author: { in: ['agent', 'ai'] }, createdAt: { gt: after } },
+        select: { id: true },
+      });
+      if (!lastIn || outAfter) return;
+    }
+
     // Teto por hora conta só depois da última vez que a IA foi devolvida/ligada.
     const hourAgo = new Date(Date.now() - 60 * 60_000);
     const since = conversation.aiResumedAt && conversation.aiResumedAt > hourAgo ? conversation.aiResumedAt : hourAgo;
