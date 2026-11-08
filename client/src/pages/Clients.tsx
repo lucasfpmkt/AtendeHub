@@ -49,6 +49,7 @@ export function Clients({ currentId, isMaster }: { currentId: string; isMaster?:
       </div>
 
       {isMaster && <PlatformAI />}
+      {isMaster && <PlatformAlerts workspaces={list} />}
       {isMaster && <AdminUsers workspaces={list} />}
 
       <div className="card flush">
@@ -710,6 +711,141 @@ function PlatformAI() {
       </p>
     </div>
   );
+}
+
+/* ------------------- Alertas operacionais e backup (master) ------------------- */
+function PlatformAlerts({ workspaces }: { workspaces: AdminWorkspace[] }) {
+  const [number, setNumber] = useState('');
+  const [sender, setSender] = useState('');
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [backups, setBackups] = useState<{ file: string; bytes: number; at: string }[]>([]);
+  const [bkMsg, setBkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [bkBusy, setBkBusy] = useState(false);
+
+  useEffect(() => {
+    api.adminAiConfig().then((c) => {
+      setNumber(c.alertNumber || '');
+      setSender(c.alertWorkspaceId || '');
+    });
+    api.adminBackups().then((b) => setBackups(b.items)).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.adminUpdateAi({ alertNumber: number, alertWorkspaceId: sender });
+      setMsg({ ok: true, text: 'Salvo.' });
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const test = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.adminUpdateAi({ alertNumber: number, alertWorkspaceId: sender });
+      const r = await api.adminTestAlert();
+      setMsg(r.ok ? { ok: true, text: 'Teste enviado — confira o WhatsApp.' } : { ok: false, text: r.error || 'Falhou' });
+    } catch (x) {
+      setMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const backupNow = async () => {
+    setBkBusy(true);
+    setBkMsg(null);
+    try {
+      const r = await api.adminBackupNow();
+      setBackups(r.items);
+      setBkMsg(r.ok ? { ok: true, text: `Backup gerado (${fmtBytes(r.bytes ?? 0)}).` } : { ok: false, text: r.error || 'Falhou' });
+    } catch (x) {
+      setBkMsg({ ok: false, text: (x as Error).message });
+    } finally {
+      setBkBusy(false);
+    }
+  };
+
+  const connected = workspaces.filter((w) => w.active);
+  return (
+    <div className="card stack" style={{ marginBottom: 14 }}>
+      <h3 className="card-title">
+        <Icon name="shield" /> Alertas e backup
+      </h3>
+      <p className="muted small">
+        O LawHub te avisa no WhatsApp quando a <b>IA fica sem crédito</b> ou com chave inválida, quando o <b>WhatsApp de um cliente
+        cai</b> por mais de 2 minutos (ou é desvinculado) e quando o <b>backup falha</b>. O escritório também recebe, no número de
+        Avisos dele, quando o próprio WhatsApp cai e quando há leads esperando resposta há mais de 30 minutos.
+      </p>
+      <div className="duo">
+        <div className="field-sm">
+          <span>Seu WhatsApp (recebe os alertas)</span>
+          <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="DDD + número, ex.: 84996674738" inputMode="numeric" />
+        </div>
+        <div className="field-sm">
+          <span>Sai pelo WhatsApp de</span>
+          <select value={sender} onChange={(e) => setSender(e.target.value)}>
+            <option value="">Qualquer cliente conectado</option>
+            {connected.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+                {w.whatsapp ? ` · ${w.whatsapp}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="primary" onClick={save} disabled={busy}>
+          Salvar
+        </button>
+        <button onClick={test} disabled={busy}>
+          Enviar teste
+        </button>
+        {msg && <span className={`small ${msg.ok ? 'ok-text' : 'late-text'}`}>{msg.text}</span>}
+      </div>
+
+      <div className="card stack">
+        <div className="row between">
+          <h4 className="card-title" style={{ margin: 0 }}>
+            <Icon name="history" /> Backup do banco
+          </h4>
+          <span className={`pill ${backups.length ? 'ok' : 'warn'}`}>
+            {backups.length ? `${backups.length} cópia${backups.length === 1 ? '' : 's'}` : 'nenhuma cópia ainda'}
+          </span>
+        </div>
+        <p className="muted small">
+          Automático todo dia às 3h30 (guarda 7 dias) e antes de cada atualização do sistema (guarda as 10 últimas). As cópias ficam na
+          pasta <code>backups</code> ao lado do banco, no volume do servidor.
+        </p>
+        {backups.length > 0 && (
+          <ul className="small muted" style={{ margin: 0, paddingLeft: 18, columns: 2 }}>
+            {backups.slice(0, 8).map((b) => (
+              <li key={b.file}>
+                {b.file} · {fmtBytes(b.bytes)} · {new Date(b.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={backupNow} disabled={bkBusy}>
+            {bkBusy ? 'Gerando…' : 'Fazer backup agora'}
+          </button>
+          {bkMsg && <span className={`small ${bkMsg.ok ? 'ok-text' : 'late-text'}`}>{bkMsg.text}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fmtBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
 }
 
 /* ----------------------- Administradores (só master) ----------------------- */

@@ -394,6 +394,10 @@ model PlatformConfig {
   gadsDeveloperToken  String @default("")
   gadsLoginCustomerId String @default("")
   gadsRefreshToken    String @default("")
+  // Alertas operacionais (IA sem saldo, WhatsApp caído): número do administrador e
+  // cliente cujo WhatsApp envia o aviso (vazio = primeiro conectado).
+  alertNumber      String @default("")
+  alertWorkspaceId String @default("")
 }
 
 

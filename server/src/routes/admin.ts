@@ -10,6 +10,8 @@ import { providersPublic, resolveLlm, resolveCrmLlm } from '../services/llm.js';
 import { mediaUnderstandingReady } from '../services/mediaAI.js';
 import { googleGlobalReady, googleOauthReady } from '../services/googleAds.js';
 import { reclassifyAllStages } from '../services/inbound.js';
+import { alertAdmin } from '../services/alerts.js';
+import { backupDir, backupNow, listBackups } from '../services/backup.js';
 
 /** Painel do administrador: todos os clientes (workspaces) e seus acessos. */
 export const adminRouter = Router();
@@ -74,6 +76,34 @@ adminRouter.post('/ai/test', requireMaster, async (req, res) => {
     if (!llm.ready) return res.status(400).json({ ok: false, error: 'Nenhum provedor conectado. Salve a chave primeiro.' });
     const out = await llm.complete({ system: 'Responda apenas com a palavra OK.', messages: [{ role: 'user', content: 'teste' }], maxTokens: 5 });
     res.json({ ok: true, provider: llm.provider, model: llm.model, sample: out.slice(0, 40) });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+/* ------------------------ Alertas e backup (master) ----------------------- */
+adminRouter.post('/alerts/test', requireMaster, async (_req, res) => {
+  const cfg = await getPlatformConfig();
+  const ok = await alertAdmin('test', 'Teste de alerta: este é o número que recebe os avisos de IA sem crédito, WhatsApp de cliente caído e falha de backup. ✅', { cooldownMs: 0 });
+  if (!ok) {
+    return res.status(400).json({
+      ok: false,
+      error: cfg.alertNumber
+        ? 'Não foi possível enviar: nenhum cliente com WhatsApp conectado para sair o aviso.'
+        : 'Informe o número que recebe os alertas e salve antes de testar.',
+    });
+  }
+  res.json({ ok: true });
+});
+
+adminRouter.get('/backups', requireMaster, async (_req, res) => {
+  res.json({ dir: backupDir(), items: await listBackups() });
+});
+
+adminRouter.post('/backups', requireMaster, async (_req, res) => {
+  try {
+    const out = await backupNow('manual');
+    res.json({ ok: true, ...out, items: await listBackups() });
   } catch (err) {
     res.status(400).json({ ok: false, error: (err as Error).message });
   }

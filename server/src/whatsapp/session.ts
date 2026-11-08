@@ -21,6 +21,7 @@ import pino from 'pino';
 import { emit, type WaStatus } from '../realtime.js';
 import { prisma } from '../db.js';
 import { handleInboundMessage, importHistoryMessage, recordOutgoingMessage } from '../services/inbound.js';
+import { trackWaStatus, reportWaLoggedOut } from '../services/alerts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Em produção/Docker, aponte WA_AUTH_DIR para um volume persistente.
@@ -207,10 +208,13 @@ export function getStatus(ws: string) {
   };
 }
 
-function setStatus(ws: string, next: WaStatus) {
+function setStatus(ws: string, next: WaStatus, detail?: string) {
   const s = sessionOf(ws);
+  const prev = s.status;
   s.status = next;
   emit(ws, { type: 'wa:status', status: next, me: s.me });
+  // Alerta ao administrador/escritório se um número conectado ficar fora por mais de 2 min.
+  trackWaStatus(ws, prev, next, detail);
 }
 
 /** Só dígitos, com DDI (ex.: 5521999990000). Devolve null se inválido. */
@@ -373,10 +377,11 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         s.sock = null;
         s.starting = false;
         s.pairCode = null;
-        setStatus(ws, 'disconnected');
+        setStatus(ws, 'disconnected', code ? `código ${code}` : undefined);
         if (s.watchdog) clearInterval(s.watchdog);
         s.watchdog = null;
         if (loggedOut) {
+          reportWaLoggedOut(ws);
           // Credenciais inválidas (aparelho desvinculado): apaga para o próximo
           // "Gerar QR" mostrar um QR novo em vez de tentar retomar a sessão morta.
           await rm(await authDirOf(ws), { recursive: true, force: true }).catch(() => {});

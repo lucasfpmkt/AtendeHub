@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
 import { dec } from '../crypto.js';
+import { reportLlmFailure } from './alerts.js';
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string };
 
@@ -224,8 +225,14 @@ function buildLlm(provider: string, apiKey: string, baseUrl: string, model: stri
           apiKey ? 'Falta o endpoint do provedor (baseUrl).' : 'IA não conectada. Escolha um provedor e informe a chave em Ajustes.',
         );
       }
-      if (preset.kind === 'anthropic') return completeAnthropic(apiKey, model, opts);
-      return completeOpenAICompatible(baseUrl, apiKey, model, opts);
+      try {
+        if (preset.kind === 'anthropic') return await completeAnthropic(apiKey, model, opts);
+        return await completeOpenAICompatible(baseUrl, apiKey, model, opts);
+      } catch (err) {
+        // Saldo, chave recusada ou provedor fora: avisa o administrador (com intervalo).
+        reportLlmFailure(provider, model, err);
+        throw err;
+      }
     },
   };
 }

@@ -32,6 +32,8 @@ import { waWebhookRouter } from './routes/waWebhook.js';
 import { adsRouter, metaOauthRouter, googleOauthRouter } from './routes/ads.js';
 import { leadFormsRouter, leadgenWebhookRouter, leadInRouter } from './routes/leadForms.js';
 import { startLeadFormsLoop } from './services/leadForms.js';
+import { startAlertsLoop } from './services/alerts.js';
+import { startBackupLoop } from './services/backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -172,4 +174,6 @@ server.listen(env.port, async () => {
   startAttendanceLoop(); // análise de atendimento: diária, 19h
   startAiRecoveryLoop(); // responde leads que ficaram sem resposta (ex.: reinício no meio do delay)
   startLeadFormsLoop(); // formulários do Meta: busca de segurança a cada 10 min
+  startAlertsLoop(); // leads esperando resposta: avisa o escritório a cada 5 min (horário comercial)
+  startBackupLoop(); // cópia de segurança do banco todo dia às 3h30
 });

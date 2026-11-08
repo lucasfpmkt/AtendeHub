@@ -30,6 +30,8 @@ export type PlatformPatch = {
   clearGadsSecret?: boolean;
   clearGadsDeveloperToken?: boolean;
   clearGadsRefreshToken?: boolean;
+  alertNumber?: string;
+  alertWorkspaceId?: string;
 };
 
 export async function updatePlatformConfig(data: PlatformPatch) {
@@ -59,6 +61,9 @@ export async function updatePlatformConfig(data: PlatformPatch) {
   else if (typeof data.gadsDeveloperToken === 'string' && data.gadsDeveloperToken.trim()) patch.gadsDeveloperToken = enc(data.gadsDeveloperToken.trim());
   if (data.clearGadsRefreshToken) patch.gadsRefreshToken = '';
   else if (typeof data.gadsRefreshToken === 'string' && data.gadsRefreshToken.trim()) patch.gadsRefreshToken = enc(data.gadsRefreshToken.trim());
+
+  if (typeof data.alertNumber === 'string') patch.alertNumber = data.alertNumber.replace(/\D/g, '');
+  if (typeof data.alertWorkspaceId === 'string') patch.alertWorkspaceId = data.alertWorkspaceId.trim();
 
   return prisma.platformConfig.update({ where: { id: 'global' }, data: patch });
 }

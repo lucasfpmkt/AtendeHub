@@ -11,7 +11,8 @@ RUN npm run --workspace client build
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 # ffmpeg: converte áudios para OGG/Opus (mensagem de voz do WhatsApp).
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
+# sqlite3: backup consistente do banco antes de cada deploy (docker-entrypoint.sh).
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg sqlite3 && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 ENV SERVE_CLIENT=1
 # Fuso do escritório: o "hoje" do dashboard segue o horário de Brasília.

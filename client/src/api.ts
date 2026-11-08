@@ -726,6 +726,8 @@ export const api = {
       gadsHasRefreshToken: boolean;
       gadsReady: boolean;
       gadsOauthReady: boolean;
+      alertNumber: string;
+      alertWorkspaceId: string;
       providers: AiProvider[];
     }>('/admin/ai'),
   adminUpdateAi: (data: {
@@ -751,6 +753,8 @@ export const api = {
     clearGadsSecret?: boolean;
     clearGadsDeveloperToken?: boolean;
     clearGadsRefreshToken?: boolean;
+    alertNumber?: string;
+    alertWorkspaceId?: string;
   }) =>
     req<{
       providerConnected: boolean;
@@ -774,6 +778,13 @@ export const api = {
     }),
   adminReclassifyWorkspace: (workspaceId: string) =>
     req<{ total: number }>(`/admin/ai/reclassify/${workspaceId}`, { method: 'POST' }),
+  // Alertas operacionais e backup (só master)
+  adminTestAlert: () => req<{ ok: boolean; error?: string }>('/admin/alerts/test', { method: 'POST' }),
+  adminBackups: () => req<{ dir: string | null; items: { file: string; bytes: number; at: string }[] }>('/admin/backups'),
+  adminBackupNow: () =>
+    req<{ ok: boolean; file?: string; bytes?: number; error?: string; items: { file: string; bytes: number; at: string }[] }>('/admin/backups', {
+      method: 'POST',
+    }),
 
   // Administradores (só master)
   adminAdmins: () => req<AdminUser[]>('/admin/admins'),
