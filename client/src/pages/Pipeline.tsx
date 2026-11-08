@@ -768,6 +768,12 @@ const UNIT_MIN: Record<Unit, number> = { min: 1, h: 60, d: 1440 };
 const splitMinutes = (m: number): { n: number; unit: Unit } =>
   m > 0 && m % 1440 === 0 ? { n: m / 1440, unit: 'd' } : m > 0 && m % 60 === 0 ? { n: m / 60, unit: 'h' } : { n: m || 24, unit: m ? 'min' : 'h' };
 
+interface FuStep {
+  on: boolean;
+  n: number;
+  unit: Unit;
+  message: string;
+}
 interface FuRow {
   id: string;
   name: string;
@@ -776,8 +782,14 @@ interface FuRow {
   n: number;
   unit: Unit;
   message: string;
-  orig: { minutes: number; message: string };
+  /** 2º e 3º lembretes (contados a partir do anterior). */
+  more: [FuStep, FuStep];
+  orig: { minutes: number; message: string; m2: number; msg2: string; m3: number; msg3: string };
 }
+const fuStep = (minutes: number, message: string): FuStep => {
+  const { n, unit } = splitMinutes(minutes);
+  return { on: minutes > 0, n: minutes > 0 ? n : 1, unit: minutes > 0 ? unit : 'd', message };
+};
 
 /** Follow-ups automáticos: chave geral do cliente + tempo/mensagem por etapa (a IA sugere, o usuário aprova). */
 function FollowupsModal({
@@ -803,7 +815,15 @@ function FollowupsModal({
         n,
         unit,
         message: st.followupMessage,
-        orig: { minutes: st.followupMinutes, message: st.followupMessage },
+        more: [fuStep(st.followup2Minutes, st.followup2Message), fuStep(st.followup3Minutes, st.followup3Message)],
+        orig: {
+          minutes: st.followupMinutes,
+          message: st.followupMessage,
+          m2: st.followup2Minutes,
+          msg2: st.followup2Message,
+          m3: st.followup3Minutes,
+          msg3: st.followup3Message,
+        },
       };
     }),
   );
@@ -816,6 +836,15 @@ function FollowupsModal({
   }, []);
 
   const patch = (id: string, p: Partial<FuRow>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...p } : r)));
+  const patchStep = (id: string, i: 0 | 1, p: Partial<FuStep>) =>
+    setRows((rs) =>
+      rs.map((r) => {
+        if (r.id !== id) return r;
+        const more: [FuStep, FuStep] = [r.more[0], r.more[1]];
+        more[i] = { ...more[i], ...p };
+        return { ...r, more };
+      }),
+    );
 
   const toggle = async (on: boolean) => {
     setBusy('switch');
@@ -861,14 +890,34 @@ function FollowupsModal({
       setErr(`Etapa "${bad.name}": defina o tempo e a mensagem, ou desligue o follow-up dela.`);
       return;
     }
+    const badStep = rows.find((r) => r.on && r.more.some((m) => m.on && (!m.message.trim() || !(m.n > 0))));
+    if (badStep) {
+      setErr(`Etapa "${badStep.name}": o 2º/3º lembrete precisa de tempo e mensagem, ou desligue-o.`);
+      return;
+    }
     setBusy('save');
     setErr('');
     try {
       for (const r of rows) {
         const minutes = r.on ? Math.round(r.n * UNIT_MIN[r.unit]) : 0;
         const message = r.on ? r.message.trim() : r.orig.message;
-        if (minutes !== r.orig.minutes || message !== r.orig.message)
-          await api.updateStage(r.id, { followupMinutes: minutes, followupMessage: message });
+        // 2º lembrete só vale com o 1º ligado; o 3º só com o 2º.
+        const s2 = r.on && r.more[0].on;
+        const m2 = s2 ? Math.round(r.more[0].n * UNIT_MIN[r.more[0].unit]) : 0;
+        const msg2 = s2 ? r.more[0].message.trim() : r.orig.msg2;
+        const s3 = s2 && r.more[1].on;
+        const m3 = s3 ? Math.round(r.more[1].n * UNIT_MIN[r.more[1].unit]) : 0;
+        const msg3 = s3 ? r.more[1].message.trim() : r.orig.msg3;
+        const o = r.orig;
+        if (minutes !== o.minutes || message !== o.message || m2 !== o.m2 || msg2 !== o.msg2 || m3 !== o.m3 || msg3 !== o.msg3)
+          await api.updateStage(r.id, {
+            followupMinutes: minutes,
+            followupMessage: message,
+            followup2Minutes: m2,
+            followup2Message: msg2,
+            followup3Minutes: m3,
+            followup3Message: msg3,
+          });
       }
       onSaved();
     } catch (e) {
@@ -900,6 +949,7 @@ function FollowupsModal({
           <li>Só envia se o lead não respondeu depois da última mensagem do escritório.</li>
           <li>Só para leads que chegaram na etapa depois de ligar — nada retroativo.</li>
           <li>Só em horário comercial (seg–sáb, 8h–20h). Use {'{nome}'} para o primeiro nome do lead.</li>
+          <li>Até 3 lembretes por etapa; o 2º e o 3º contam a partir do anterior. Quem responder que não tem interesse vai para “Perdido”.</li>
         </ul>
 
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
@@ -943,6 +993,40 @@ function FollowupsModal({
                 onChange={(e) => patch(r.id, { message: e.target.value })}
               />
             )}
+            {r.on &&
+              ([0, 1] as const).map((i) => {
+                const st = r.more[i];
+                if (i === 1 && !r.more[0].on) return null; // 3º só depois do 2º
+                return (
+                  <div key={i} className={`fu-step ${st.on ? '' : 'off'}`}>
+                    <div className="fu-stage-top">
+                      <label className="row" style={{ gap: 8 }}>
+                        <input type="checkbox" checked={st.on} onChange={(e) => patchStep(r.id, i, { on: e.target.checked })} />
+                        <span>{i === 0 ? '2º lembrete' : '3º lembrete'} se continuar sem resposta</span>
+                      </label>
+                      {st.on && (
+                        <label className="fu-wait">
+                          enviar
+                          <input type="number" min={1} value={st.n} onChange={(e) => patchStep(r.id, i, { n: Number(e.target.value) })} />
+                          <select value={st.unit} onChange={(e) => patchStep(r.id, i, { unit: e.target.value as Unit })}>
+                            <option value="min">minutos</option>
+                            <option value="h">horas</option>
+                            <option value="d">dias</option>
+                          </select>
+                          depois do anterior
+                        </label>
+                      )}
+                    </div>
+                    {st.on && (
+                      <textarea
+                        value={st.message}
+                        placeholder={i === 0 ? 'Ex.: Oi {nome}, passando de novo por aqui. Ainda posso te ajudar com isso?' : 'Ex.: {nome}, vou encerrar por aqui. Se precisar, é só chamar.'}
+                        onChange={(e) => patchStep(r.id, i, { message: e.target.value })}
+                      />
+                    )}
+                  </div>
+                );
+              })}
           </div>
         ))}
 

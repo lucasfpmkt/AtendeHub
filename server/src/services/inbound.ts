@@ -526,6 +526,9 @@ async function handleInboundMessageNow(params: InboundParams) {
       where: { id: conversation.id },
       data: { campaignSource: 'formulario', campaignAd: 'Formulário no WhatsApp', campaignAt: new Date() },
     });
+    // Telefone digitado errado no formulário: o lead escreve do número certo. Junta com o
+    // cadastro do formulário e encerra a conversa órfã do número errado.
+    await adoptFormEntry(ws, contact.id, conversation.id, text).catch((e) => console.error('[leadforms] juntar duplicado falhou:', (e as Error).message));
   }
   if (!conversation.campaignSource) {
     const hit = await campaignTriggerHit(ws, text);
@@ -941,7 +944,7 @@ async function applyStage(ws: string, conversationId: string, stageRef: string, 
   if (deal) {
     await prisma.deal.update({
       where: { id: deal.id },
-      data: { funnelId: target.funnelId ?? deal.funnelId, stageId: target.id, stageSince: new Date(), followupStageId: null },
+      data: { funnelId: target.funnelId ?? deal.funnelId, stageId: target.id, stageSince: new Date(), followupStageId: null, followupStep: 0, followupAt: null },
     });
   } else {
     await prisma.deal.create({
@@ -1084,6 +1087,43 @@ async function applyTag(ws: string, conversationId: string, tagName: string) {
   if (!exists) await prisma.tag.create({ data: { workspaceId: ws, name, color: '#b71312' } }).catch(() => {});
 
   await systemNote(ws, conversationId, `Etiqueta "${name}" adicionada ao contato.`);
+}
+
+/**
+ * O lead mandou a mensagem do formulário de um número DIFERENTE do que digitou nele
+ * (dígito trocado, DDI errado). Acha o cadastro do formulário pelo e-mail ou nome dos
+ * últimos 7 dias e, se o contato do número errado nunca respondeu, encerra a conversa
+ * dele, apaga o negócio duplicado e liga o cadastro ao contato certo.
+ */
+async function adoptFormEntry(ws: string, contactId: string, conversationId: string, text: string) {
+  const email = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0]?.toLowerCase() ?? '';
+  const name = (text.match(/full\s*name\s*:\s*([^\n]+?)(?=\s+(?:whatsapp|email|e-mail|qual|com quais|phone|telefone)\b|\n|$)/i)?.[1] ?? '').trim();
+  if (!email && !name) return;
+  const recent = await prisma.leadFormEntry.findMany({
+    where: { workspaceId: ws, createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60_000) }, NOT: { contactId } },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+  const entry = recent.find((e) => (email && e.email.toLowerCase() === email) || (name && normalize(e.name) === normalize(name)));
+  if (!entry?.contactId) return;
+  const orphanId = entry.contactId;
+  // Só junta se o número errado nunca falou (senão pode ser outra pessoa de verdade).
+  const spoke = await prisma.message.count({ where: { direction: 'in', conversation: { workspaceId: ws, contactId: orphanId } } });
+  if (spoke > 0) return;
+  const orphan = await prisma.contact.findUnique({ where: { id: orphanId }, select: { phone: true, waJid: true } });
+  const me = await prisma.contact.findUnique({ where: { id: contactId }, select: { phone: true } });
+
+  await prisma.leadFormEntry.update({ where: { id: entry.id }, data: { contactId } });
+  for (const c of await prisma.conversation.findMany({ where: { workspaceId: ws, contactId: orphanId, status: { not: 'closed' } } })) {
+    cancelPendingReply(c.id);
+    await prisma.conversation.update({ where: { id: c.id }, data: { status: 'closed', aiEnabled: false, aiPausedBy: 'roteiro' } });
+    await systemNote(ws, c.id, `O número do formulário estava errado. O lead escreveu de +${me?.phone ?? '?'} e o atendimento segue lá. Esta conversa foi encerrada.`);
+  }
+  // Negócio do número errado some do funil; o do número certo é criado pelo fluxo normal.
+  await prisma.deal.deleteMany({ where: { workspaceId: ws, contactId: orphanId } });
+  await prisma.contact.update({ where: { id: orphanId }, data: { tags: 'Número errado no formulário' } }).catch(() => {});
+  await systemNote(ws, conversationId, `Formulário encontrado pelo ${email ? 'e-mail' : 'nome'}: o número digitado (${orphan?.phone ? `+${orphan.phone}` : orphan?.waJid ?? '?'}) estava errado. Cadastro ligado a este contato.`);
+  emit(ws, { type: 'crm:update' });
 }
 
 /**

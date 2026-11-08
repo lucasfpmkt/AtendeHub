@@ -181,6 +181,10 @@ export interface Stage {
   order: number;
   followupMinutes: number;
   followupMessage: string;
+  followup2Minutes: number;
+  followup2Message: string;
+  followup3Minutes: number;
+  followup3Message: string;
   autoTag: string;
   deals: Deal[];
 }
@@ -523,7 +527,18 @@ export const api = {
     }),
   updateStage: (
     id: string,
-    data: { name?: string; color?: string; order?: number; followupMinutes?: number; followupMessage?: string; autoTag?: string },
+    data: {
+      name?: string;
+      color?: string;
+      order?: number;
+      followupMinutes?: number;
+      followupMessage?: string;
+      followup2Minutes?: number;
+      followup2Message?: string;
+      followup3Minutes?: number;
+      followup3Message?: string;
+      autoTag?: string;
+    },
   ) => req<Stage>(`/stages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteStage: (id: string) => req(`/stages/${id}`, { method: 'DELETE' }),
 

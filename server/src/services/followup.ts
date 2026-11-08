@@ -56,17 +56,24 @@ async function runFollowupsOnce() {
   const active = await activeWorkspaceIds();
   const now = Date.now();
   for (const stage of stages) {
-    const cutoff = new Date(now - stage.followupMinutes * 60_000);
+    // Sequência de lembretes da etapa: o 1º conta a partir da entrada na etapa; os
+    // seguintes, a partir do lembrete anterior. Lembrete sem tempo ou sem texto encerra a sequência.
+    const steps = [
+      { minutes: stage.followupMinutes, message: stage.followupMessage },
+      { minutes: stage.followup2Minutes, message: stage.followup2Message },
+      { minutes: stage.followup3Minutes, message: stage.followup3Message },
+    ];
+    while (steps.length && !(steps[steps.length - 1].minutes > 0 && steps[steps.length - 1].message.trim())) steps.pop();
+    const firstCutoff = new Date(now - stage.followupMinutes * 60_000);
     const enabledSince = since.get(stage.workspaceId!) ?? new Date();
     const deals = await prisma.deal.findMany({
       where: {
         stageId: stage.id,
         // Só leads que entraram na etapa DEPOIS de ligar a chave (não dispara para a base antiga).
-        stageSince: { lte: cutoff, gte: enabledSince },
-        // Ainda sem follow-up nesta etapa. Atenção: `NOT: { followupStageId: X }` sozinho
-        // exclui quem tem o campo vazio (NULL) — ou seja, TODOS os negócios novos — e o
-        // follow-up nunca disparava. Por isso o OR explícito com null.
-        OR: [{ followupStageId: null }, { followupStageId: { not: stage.id } }],
+        stageSince: { lte: firstCutoff, gte: enabledSince },
+        // Ainda tem lembrete a enviar nesta etapa. (`NOT: { followupStageId: X }` sozinho
+        // excluiria quem tem o campo vazio — todos os negócios novos — e nada saía.)
+        OR: [{ followupStageId: null }, { followupStageId: { not: stage.id } }, { followupStep: { lt: steps.length } }],
       },
       include: { contact: true },
       take: 50,
@@ -78,6 +85,12 @@ async function runFollowupsOnce() {
       if (!ws || !contact?.waJid || !active.has(ws)) continue; // cliente inativo/vencido
       if (getStatus(ws).status !== 'connected') continue; // WhatsApp desconectado: tenta no próximo ciclo
 
+      const step = deal.followupStageId === stage.id ? deal.followupStep : 0;
+      if (step >= steps.length) continue;
+      const base = step === 0 ? deal.stageSince : (deal.followupAt ?? deal.stageSince);
+      const cutoff = new Date(now - steps[step].minutes * 60_000);
+      if (base > cutoff) continue; // ainda não deu o tempo deste lembrete
+
       try {
         const conversation = await prisma.conversation.findFirst({
           where: { workspaceId: ws, contactId: contact.id, status: { not: 'closed' } },
@@ -86,23 +99,23 @@ async function runFollowupsOnce() {
         if (!conversation) continue;
 
         // Só faz sentido se o LEAD parou de responder: a última mensagem foi do escritório
-        // e já passou o tempo da etapa. Se o lead está esperando resposta, não manda.
+        // e já passou o tempo. Se o lead está esperando resposta, não manda.
         const last = await prisma.message.findFirst({
           where: { conversationId: conversation.id, author: { not: 'system' } },
           orderBy: { createdAt: 'desc' },
           select: { direction: true, createdAt: true },
         });
         if (!last || last.direction !== 'out' || last.createdAt > cutoff) continue;
-        // Conversa parada há mais de 3 dias: não ressuscita lead antigo com um "vi que
-        // iniciamos…" fora de contexto (evita disparo em massa da fila acumulada).
-        if (last.createdAt.getTime() < now - STALE_MS) {
-          await prisma.deal.update({ where: { id: deal.id }, data: { followupStageId: stage.id } });
+        // Conversa parada há mais de 3 dias (sem contar os próprios lembretes): não ressuscita
+        // lead antigo com um "vi que iniciamos…" fora de contexto.
+        if (step === 0 && last.createdAt.getTime() < now - STALE_MS) {
+          await prisma.deal.update({ where: { id: deal.id }, data: { followupStageId: stage.id, followupStep: steps.length } });
           continue;
         }
 
-        const text = fillName(stage.followupMessage, contact.name);
+        const text = fillName(steps[step].message, contact.name);
         if (!text) continue;
-        const failKey = `${deal.id}:${stage.id}`;
+        const failKey = `${deal.id}:${stage.id}:${step}`;
         if ((followupFails.get(failKey) ?? 0) >= 3) continue; // já falhou 3x: não insiste o dia todo
         let waMessageId: string | undefined;
         try {
@@ -119,14 +132,17 @@ async function runFollowupsOnce() {
           data: { lastMessageAt: new Date() },
         });
 
-        // Marca como já notificado nesta etapa e registra a nota de sistema.
-        await prisma.deal.update({ where: { id: deal.id }, data: { followupStageId: stage.id } });
+        // Marca o lembrete enviado nesta etapa e registra a nota de sistema.
+        await prisma.deal.update({
+          where: { id: deal.id },
+          data: { followupStageId: stage.id, followupStep: step + 1, followupAt: new Date() },
+        });
         const note = await prisma.message.create({
           data: {
             conversationId: conversation.id,
             direction: 'out',
             author: 'system',
-            body: `⏰ Follow-up automático enviado (etapa "${stage.name}").`,
+            body: `⏰ Follow-up automático ${step + 1}/${steps.length} enviado (etapa "${stage.name}").`,
           },
         });
 

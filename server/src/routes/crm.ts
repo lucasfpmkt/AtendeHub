@@ -354,7 +354,7 @@ crmRouter.post('/funnels/:id/stages', async (req, res) => {
 
 crmRouter.patch('/stages/:id', async (req, res) => {
   if (!(await prisma.pipelineStage.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) } }))) return notFound(res);
-  const { name, color, order, followupMinutes, followupMessage, autoTag } = req.body ?? {};
+  const { name, color, order, followupMinutes, followupMessage, followup2Minutes, followup2Message, followup3Minutes, followup3Message, autoTag } = req.body ?? {};
   res.json(
     await prisma.pipelineStage.update({
       where: { id: req.params.id },
@@ -364,6 +364,10 @@ crmRouter.patch('/stages/:id', async (req, res) => {
         order,
         followupMinutes: followupMinutes === undefined ? undefined : Math.max(0, Number(followupMinutes) || 0),
         followupMessage: followupMessage === undefined ? undefined : String(followupMessage),
+        followup2Minutes: followup2Minutes === undefined ? undefined : Math.max(0, Number(followup2Minutes) || 0),
+        followup2Message: followup2Message === undefined ? undefined : String(followup2Message),
+        followup3Minutes: followup3Minutes === undefined ? undefined : Math.max(0, Number(followup3Minutes) || 0),
+        followup3Message: followup3Message === undefined ? undefined : String(followup3Message),
         autoTag: autoTag === undefined ? undefined : String(autoTag),
       },
     }),
@@ -431,7 +435,7 @@ crmRouter.patch('/deals/:id', async (req, res) => {
       responsavel,
       tags,
       // Mudou de etapa: reinicia o relógio do follow-up e permite notificar de novo.
-      ...(stageId === undefined ? {} : { stageSince: new Date(), followupStageId: null }),
+      ...(stageId === undefined ? {} : { stageSince: new Date(), followupStageId: null, followupStep: 0, followupAt: null }),
     },
     include: { contact: true },
   });

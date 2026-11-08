@@ -272,6 +272,11 @@ model PipelineStage {
   deals    Deal[]
   followupMinutes Int    @default(0) // 0 = sem follow-up automático
   followupMessage String @default("") // mensagem enviada ao ficar parado nesta etapa
+  // 2º e 3º lembretes (opcionais): contados a partir do lembrete anterior.
+  followup2Minutes Int    @default(0)
+  followup2Message String @default("")
+  followup3Minutes Int    @default(0)
+  followup3Message String @default("")
   autoTag         String @default("") // etiqueta aplicada automaticamente ao lead ao entrar nesta etapa
 }
 
@@ -291,7 +296,9 @@ model Deal {
   stageId     String?
   stage       PipelineStage? @relation(fields: [stageId], references: [id])
   stageSince  DateTime       @default(now()) // quando entrou na etapa atual (base do follow-up)
-  followupStageId String?    // etapa cujo follow-up já foi enviado (evita repetir)
+  followupStageId String?    // etapa dos follow-ups já enviados (zera ao mudar de etapa)
+  followupStep    Int        @default(0) // quantos lembretes já foram nesta etapa (0 a 3)
+  followupAt      DateTime?  // quando saiu o último lembrete (base do próximo)
   qualifiedNotifiedAt DateTime? // quando o escritório foi avisado deste lead qualificado
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
