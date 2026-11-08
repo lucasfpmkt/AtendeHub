@@ -514,6 +514,11 @@ async function handleInboundMessageNow(params: InboundParams) {
     data: { conversationId: conversation.id, direction: 'in', author: 'contact', body: text, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
+  // Resposta a um follow-up dizendo que não tem interesse / já fechou com outro: Perdido no CRM.
+  void lostAfterFollowup(ws, conversation.id, text, message.createdAt).catch((e) =>
+    console.error('[follow-up] classificação da resposta falhou:', (e as Error).message),
+  );
+
   // Lead de campanha: chegou com uma frase-gatilho cadastrada em QUALQUER roteiro de IA
   // (gatilhos = mensagens prontas dos anúncios). Marca a conversa e o momento.
   if (!conversation.campaignSource && looksLikeFormMessage(text)) {
@@ -1079,6 +1084,56 @@ async function applyTag(ws: string, conversationId: string, tagName: string) {
   if (!exists) await prisma.tag.create({ data: { workspaceId: ws, name, color: '#b71312' } }).catch(() => {});
 
   await systemNote(ws, conversationId, `Etiqueta "${name}" adicionada ao contato.`);
+}
+
+/**
+ * O lead respondeu a um FOLLOW-UP automático (última fala do escritório antes desta
+ * mensagem foi o follow-up). Se a resposta é de desistência — "não tenho interesse",
+ * "já resolvi", "fechei com outro advogado" —, move o negócio para a etapa "Perdido"
+ * do funil dele, etiqueta e deixa nota. Só age em funis que têm etapa "Perdido".
+ */
+async function lostAfterFollowup(ws: string, conversationId: string, text: string, at: Date) {
+  if (!text.trim()) return;
+  const prevIn = await prisma.message.findFirst({
+    where: { conversationId, direction: 'in', createdAt: { lt: at } },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  // Follow-up enviado depois da fala anterior do lead (e nos últimos 7 dias).
+  const fu = await prisma.message.findFirst({
+    where: {
+      conversationId,
+      author: 'system',
+      body: { startsWith: '⏰ Follow-up automático' },
+      createdAt: { gt: prevIn?.createdAt ?? new Date(0), gte: new Date(Date.now() - 7 * 24 * 60 * 60_000) },
+    },
+    select: { id: true },
+  });
+  if (!fu) return;
+
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
+  if (!conv) return;
+  const deal = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId: conv.contactId }, orderBy: { updatedAt: 'desc' } });
+  if (!deal?.funnelId) return;
+  const lost = await prisma.pipelineStage.findFirst({ where: { workspaceId: ws, funnelId: deal.funnelId, name: { contains: 'Perdid' } } });
+  if (!lost || deal.stageId === lost.id) return;
+
+  const llm = await resolveLlm(ws);
+  if (!llm.ready) return;
+  const out = await llm.complete({
+    system:
+      'Um escritório de advocacia mandou uma mensagem de acompanhamento (follow-up) para um lead que tinha parado de responder. ' +
+      'Classifique a RESPOSTA do lead. Responda só com uma palavra:\n' +
+      'PERDIDO — se ele deixa claro que não quer seguir: não tem interesse, desistiu, já resolveu, já contratou/fechou com outro advogado ou escritório, pediu para não mandar mais mensagens.\n' +
+      'SEGUE — qualquer outra coisa (quer continuar, tem dúvida, pede para falar depois, está ocupado, cumprimento, resposta vaga).',
+    messages: [{ role: 'user', content: text.slice(0, 1000) }],
+    maxTokens: 5,
+  });
+  if (!/perdid/i.test(out)) return;
+
+  await applyStage(ws, conversationId, lost.name, deal.funnelId);
+  await applyTag(ws, conversationId, 'Sem Interesse');
+  await systemNote(ws, conversationId, `Lead respondeu ao follow-up que não tem interesse ou já fechou com outro: movido para "${lost.name}".`);
 }
 
 /** Avisa a equipe: nota de sistema + marca a conversa como não lida. */
