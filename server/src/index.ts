@@ -37,6 +37,18 @@ import { startBackupLoop } from './services/backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// A libsignal (criptografia do Baileys) despeja no console o objeto inteiro da sessão a
+// cada troca de chave ("Closing session: SessionEntry {…}", dezenas de linhas): isso
+// enterra os logs úteis. Só esses avisos internos são silenciados.
+for (const level of ['log', 'info', 'warn'] as const) {
+  const orig = console[level].bind(console);
+  console[level] = (...args: unknown[]) => {
+    const first = args[0];
+    if (typeof first === 'string' && /^(Closing session:|Closing open session|Session already closed)/.test(first)) return;
+    orig(...args);
+  };
+}
+
 const app = express();
 // Confia SÓ no proxy do Easypanel (1 salto). Com `true`, qualquer um forjava o IP
 // pelo cabeçalho X-Forwarded-For e burlava o limite por IP.

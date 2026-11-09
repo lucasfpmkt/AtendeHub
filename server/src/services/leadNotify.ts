@@ -47,11 +47,11 @@ async function summarize(ws: string, conversationId: string): Promise<string> {
       const out = await llm.complete({
         system:
           'Você resume atendimentos de WhatsApp de um escritório de advocacia para o advogado responsável. ' +
-          'Escreva em português do Brasil, no máximo 5 linhas curtas, sem inventar nada: quem é o lead, ' +
+          'Escreva em português do Brasil, no máximo 6 linhas curtas (até 60 palavras no total), sem inventar nada: quem é o lead, ' +
           'qual o caso/pedido, os dados importantes informados (datas, tempo de trabalho, valores, documentos) ' +
-          'e o próximo passo sugerido. Sem saudação, sem markdown além de quebras de linha.',
+          'e o próximo passo sugerido. Sem saudação, sem markdown além de quebras de linha. Formato do WhatsApp: *negrito* só com um asterisco.',
         messages: [{ role: 'user', content: lines.join('\n') }],
-        maxTokens: 350,
+        maxTokens: 700, // 350 cortava o resumo no meio da frase
       });
       if (out.trim()) return out.trim();
     } catch (err) {
