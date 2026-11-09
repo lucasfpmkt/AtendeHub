@@ -650,6 +650,31 @@ export async function sendText(ws: string, jid: string, text: string): Promise<s
   return sent?.key?.id ?? messageId;
 }
 
+/**
+ * Humaniza a resposta da IA (só no WhatsApp por QR): marca as mensagens do lead como
+ * lidas (✓✓ azul) e mostra "digitando…" por um tempo proporcional ao texto antes de
+ * enviar. Tudo em modo melhor-esforço: nunca falha o envio.
+ */
+export async function humanizeBeforeSend(ws: string, jid: string, text: string, readIds: string[] = []): Promise<void> {
+  if (cloudInfo.get(ws)) return;
+  const s = sessionOf(ws);
+  if (!s.sock || s.status !== 'connected') return;
+  try {
+    if (readIds.length) await s.sock.readMessages(readIds.map((id) => ({ remoteJid: jid, id, fromMe: false })));
+  } catch {
+    /* leitura é cosmética */
+  }
+  try {
+    await s.sock.sendPresenceUpdate('composing', jid);
+    // ~50 ms por caractere, entre 1,2 s e 4,5 s: parece alguém digitando, sem atrasar o lead.
+    const ms = Math.min(4500, Math.max(1200, text.length * 50));
+    await new Promise((r) => setTimeout(r, ms));
+    await s.sock.sendPresenceUpdate('paused', jid);
+  } catch {
+    /* presença é cosmética */
+  }
+}
+
 /** Envia um arquivo (imagem/vídeo/áudio/documento) pelo WhatsApp do cliente. */
 export async function sendMedia(
   ws: string,

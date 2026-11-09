@@ -7,6 +7,7 @@ import { emit } from '../realtime.js';
 import { saveMedia, kindFromMime, prepareOutgoingMedia, sanitizeMime } from '../whatsapp/media.js';
 import { listTemplates } from '../whatsapp/cloud.js';
 import { enc, dec } from '../crypto.js';
+import { cancelPendingReply, systemNote, AI_RESUME_MIN } from '../services/inbound.js';
 
 /** Conexão de WhatsApp do cliente aberto (cada escritório tem a sua). */
 export const whatsappRouter = Router();
@@ -98,12 +99,17 @@ whatsappRouter.post('/send-media/:conversationId', raw({ type: '*/*', limit: '32
         mimeType: mimetype,
       },
     });
+    // Arquivo/áudio da equipe também é "a equipe assumiu": pausa a IA como no envio de texto
+    // (antes a IA continuava respondendo por cima de um áudio do advogado).
+    const human = conversation.aiEnabled;
+    if (human) cancelPendingReply(conversation.id);
     const updated = await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { lastMessageAt: new Date() },
+      data: { lastMessageAt: new Date(), ...(human ? { aiEnabled: false, aiPausedBy: 'humano' } : {}) },
     });
     emit(ws, { type: 'message:new', conversationId: conversation.id, message });
     emit(ws, { type: 'conversation:update', conversation: updated });
+    if (human) await systemNote(ws, conversation.id, `A equipe enviou um arquivo e a IA pausou. Se o lead escrever e ninguém responder em ${AI_RESUME_MIN} minutos, a IA retoma sozinha.`).catch(() => {});
     res.json(message);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });

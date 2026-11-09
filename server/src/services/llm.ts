@@ -141,7 +141,9 @@ export type Llm = {
   ready: boolean;
   provider: string;
   model: string;
-  complete(opts: { system: string; messages: ChatTurn[]; maxTokens?: number }): Promise<string>;
+  /** `systemDynamic`: parte do system que muda a cada chamada (ficha do lead, hora) — fica
+   *  fora do cache para o roteiro continuar sendo lido do cache. */
+  complete(opts: { system: string; systemDynamic?: string; messages: ChatTurn[]; maxTokens?: number }): Promise<string>;
 };
 
 /**
@@ -161,7 +163,7 @@ export function normalizeTurns(turns: ChatTurn[]): ChatTurn[] {
   return out;
 }
 
-async function completeAnthropic(apiKey: string, model: string, opts: { system: string; messages: ChatTurn[]; maxTokens?: number }) {
+async function completeAnthropic(apiKey: string, model: string, opts: { system: string; systemDynamic?: string; messages: ChatTurn[]; maxTokens?: number }) {
   // Tempo-limite curto: sem isso o SDK espera até 10 min e repete, travando a conversa.
   const client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 });
   const resp = await client.messages.create({
@@ -169,7 +171,11 @@ async function completeAnthropic(apiKey: string, model: string, opts: { system: 
     max_tokens: opts.maxTokens ?? 600,
     // Cache do prompt: o roteiro (system) é igual em toda resposta do agente, então
     // fica em cache por alguns minutos e as leituras seguintes custam ~10% do preço.
-    system: [{ type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } }],
+    // A parte dinâmica (ficha do lead, hora) vem DEPOIS do ponto de cache, sem quebrá-lo.
+    system: [
+      { type: 'text', text: opts.system, cache_control: { type: 'ephemeral' } },
+      ...(opts.systemDynamic?.trim() ? [{ type: 'text' as const, text: opts.systemDynamic }] : []),
+    ],
     messages: normalizeTurns(opts.messages),
   });
   if (resp.stop_reason === 'max_tokens') console.warn(`[llm] resposta cortada no limite de ${opts.maxTokens ?? 600} tokens (${model})`);
@@ -185,10 +191,10 @@ async function completeOpenAICompatible(
   baseUrl: string,
   apiKey: string,
   model: string,
-  opts: { system: string; messages: ChatTurn[]; maxTokens?: number },
+  opts: { system: string; systemDynamic?: string; messages: ChatTurn[]; maxTokens?: number },
 ) {
   const messages = [
-    { role: 'system' as const, content: opts.system },
+    { role: 'system' as const, content: opts.systemDynamic?.trim() ? `${opts.system}\n\n${opts.systemDynamic}` : opts.system },
     ...normalizeTurns(opts.messages),
   ];
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;

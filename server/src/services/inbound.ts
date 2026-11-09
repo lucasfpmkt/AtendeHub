@@ -98,10 +98,42 @@ async function historyOf(conversationId: string, answeredUntil?: Date | null): P
       msgs.push(...rest, ...pendingIn);
     }
   }
-  return msgs.map((m: { direction: string; body: string }) => ({
+  // Orçamento: no máximo ~24 mil caracteres (as mais antigas saem primeiro). Roteiro +
+  // 60 mensagens longas estouravam o contexto e encareciam cada resposta.
+  let budget = 24_000;
+  const kept: typeof msgs = [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    budget -= (msgs[i].body ?? '').length + 20;
+    if (budget < 0 && kept.length >= 6) break;
+    kept.unshift(msgs[i]);
+  }
+  return kept.map((m: { direction: string; author: string; body: string }) => ({
     role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',
-    content: m.body,
+    // O que o advogado/equipe escreveu também entra como "assistant" (é o escritório
+    // falando), mas marcado: a IA sabe que não foi ela e não contradiz nem repete.
+    content: m.direction === 'out' && m.author === 'agent' ? `[Mensagem enviada pelo advogado/equipe] ${m.body}` : m.body,
   }));
+}
+
+/** Alguém da equipe (não a IA) já escreveu nesta conversa? */
+function historyHasHuman(history: ChatTurn[]): boolean {
+  return history.some((h) => h.role === 'assistant' && h.content.startsWith('[Mensagem enviada pelo advogado/equipe]'));
+}
+
+/**
+ * Texto que o lead mandou não pode "falar com a IA": neutraliza marcadores de ação e o
+ * cabeçalho de contexto de formulário, que só o LawHub gera.
+ */
+export function sanitizeInboundText(text: string): string {
+  return text.replace(/\[\[/g, '[ [').replace(/\[\s*CONTEXTO PARA A IA/gi, '[contexto');
+}
+
+/** {nome} / {Primeiro_Nome} / {{nome}} que o modelo copia do roteiro → primeiro nome real (ou some). */
+export function fillNamePlaceholders(text: string, name?: string | null): string {
+  const first = (name ?? '').trim().split(/\s+/)[0] ?? '';
+  return text
+    .replace(/\s*\{\{?\s*(primeiro[_ ]?nome|nome(?:[_ ]do[_ ]cliente|[_ ]do[_ ]lead)?|first[_ ]?name|name)\s*\}?\}/gi, (m) => (first ? m.replace(/\{\{?[^}]*\}\}?/, first) : ''))
+    .replace(/\s+([,.!?])/g, '$1');
 }
 
 /**
@@ -214,20 +246,27 @@ export async function recordOutgoingMessage(params: {
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });
-    const quick = !!lastIn && Date.now() - lastIn.createdAt.getTime() < 8000;
-    if (quick && body.trim()) {
-      const inCount = await prisma.message.count({ where: { conversationId: conversation.id, direction: 'in' } });
-      const repeated =
-        body.trim().length >= 15 &&
-        (await prisma.message.count({
-          where: {
-            body,
-            direction: 'out',
-            author: 'agent',
-            createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60_000) },
-            conversation: { workspaceId: ws, NOT: { id: conversation.id } },
-          },
-        })) > 0;
+    const sinceIn = lastIn ? Date.now() - lastIn.createdAt.getTime() : Infinity;
+    if (body.trim()) {
+      // Ninguém digita uma resposta em menos de 4 s: no começo da conversa isso é a
+      // saudação automática. (Antes eram 8 s, e advogado rápido era confundido com robô.)
+      const inCount = sinceIn < 4000 ? await prisma.message.count({ where: { conversationId: conversation.id, direction: 'in' } }) : 99;
+      // Mesmo texto (15+ caracteres) já enviado a OUTROS contatos nos últimos 7 dias:
+      // 2+ contatos é mensagem automática em qualquer horário; 1 contato só conta se
+      // saiu em até 8 s (um advogado pode colar o mesmo texto para dois leads).
+      const repeatedIn =
+        body.trim().length >= 15
+          ? await prisma.message.count({
+              where: {
+                body,
+                direction: 'out',
+                author: 'agent',
+                createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60_000) },
+                conversation: { workspaceId: ws, NOT: { id: conversation.id } },
+              },
+            })
+          : 0;
+      const repeated = repeatedIn >= 2 || (repeatedIn >= 1 && sinceIn < 8000);
       if (inCount <= 2 || repeated) {
         const updatedAuto = await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: new Date() } });
         emit(ws, { type: 'message:new', conversationId: conversation.id, message });
@@ -337,11 +376,19 @@ export async function autoMoveStage(ws: string, conversationId: string, force = 
   const defaultFunnel = await prisma.funnel.findFirst({ where: { workspaceId: ws }, orderBy: { order: 'asc' } });
   if (!defaultFunnel) return;
 
-  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true, aiEnabled: true, assignedAgentId: true } });
   if (!conv) return;
+  // Roteiro com "Mudar etapa" no comando da conversa: a etapa é dele. A IA do CRM
+  // reclassificando por cima desfazia o que o roteiro acabou de fazer.
+  if (!force && conv.aiEnabled && conv.assignedAgentId) {
+    const a = await getAgent(ws, conv.assignedAgentId);
+    if (a && /mudar\s+(?:de\s+)?etapa|\[\[\s*ETAPA/i.test(a.script)) return;
+  }
   const deal = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId: conv.contactId }, orderBy: { createdAt: 'desc' } });
   // Sem negócio, ou negócio no Funil Padrão → a IA não mexe na etapa.
   if (!deal?.funnelId || deal.funnelId === defaultFunnel.id) return;
+  // Etapa mudada há pouco (pelo roteiro, pelo advogado no quadro ou por esta IA): espera.
+  if (!force && deal.stageSince && Date.now() - deal.stageSince.getTime() < 10 * 60_000) return;
 
   const funnel = await prisma.funnel.findUnique({ where: { id: deal.funnelId } });
   if (!funnel || funnel.workspaceId !== ws) return;
@@ -354,44 +401,21 @@ export async function autoMoveStage(ws: string, conversationId: string, force = 
   if (history.length < 2) return; // pouca conversa para classificar
 
   const lista = stages.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
-  const canCreate = stages.length < 12; // teto para a IA não inventar etapas demais
+  // A IA do CRM só escolhe entre as etapas que o escritório criou: etapa nova é decisão
+  // humana (antes ela criava "NOVA: …" e o funil virava uma bagunça).
   const system =
     'Você classifica em qual ETAPA do funil de vendas um lead está, com base na conversa de atendimento.\n' +
     `Etapas disponíveis (em ordem):\n${lista}\n` +
     (currentStage ? `Etapa atual do lead: "${currentStage}".\n` : '') +
     'Responda em UMA linha, APENAS com um destes:\n' +
     '- o nome EXATO de uma etapa da lista; ou\n' +
-    '- a palavra "manter" (se nada mudou ou se tiver dúvida); ou\n' +
-    (canCreate
-      ? '- "NOVA: <nome curto>" APENAS se nenhuma etapa existente representa bem a situação e uma nova for mesmo necessária (nome com 1 a 3 palavras).\n'
-      : '') +
-    'Seja conservador com etapas finais (ex.: "Fechado", "Perdido"): só use se o cliente deixou explícito. ' +
-    'Prefira sempre usar uma etapa existente. Não explique.';
+    '- a palavra "manter" (se nada mudou ou se tiver dúvida).\n' +
+    'Seja conservador com etapas finais (ex.: "Fechado", "Perdido"): só use se o cliente deixou explícito. Não explique.';
   try {
     const out = (await llm.complete({ system, messages: history, maxTokens: 24 })).trim();
-    if (/^manter/i.test(out)) return;
+    if (/^manter/i.test(out) || /^NOVA\s*:/i.test(out)) return;
 
-    // A IA pode pedir uma nova etapa: "NOVA: Aguardando documentos".
-    const nova = out.match(/^NOVA\s*:\s*(.+)$/i);
-    if (nova && canCreate) {
-      const name = nova[1].trim().replace(/["'.]/g, '').slice(0, 40);
-      if (!name) return;
-      // Se já existe algo parecido, usa a existente em vez de duplicar.
-      const existing = stages.find((s) => normalize(s.name) === normalize(name));
-      if (existing) {
-        if (existing.name !== currentStage) await applyStage(ws, conversationId, existing.name, funnel.id);
-        return;
-      }
-      await prisma.pipelineStage.create({
-        data: { workspaceId: ws, name, funnelId: funnel.id, order: stages.length, color: '#6366f1' },
-      });
-      emit(ws, { type: 'crm:update' });
-      await applyStage(ws, conversationId, name, funnel.id);
-      return;
-    }
-
-    const target =
-      stages.find((s) => normalize(s.name) === normalize(out)) ?? stages.find((s) => normalize(out).includes(normalize(s.name)));
+    const target = matchStageName(stages, out) as (typeof stages)[number] | undefined;
     if (!target || target.name === currentStage) return;
     await applyStage(ws, conversationId, target.name, funnel.id);
   } catch (err) {
@@ -485,7 +509,7 @@ async function handleInboundMessageNow(params: InboundParams) {
   // Entende áudio/imagem/PDF e usa o texto resultante em tudo (triagem, resposta da
   // IA, CRM). Quando não dá, o rótulo diz isso explicitamente, para a IA pedir ao lead
   // que escreva em vez de responder a um "🎤 Áudio" como se fosse texto.
-  let text = media ? await describeInboundMedia(body ?? '', media) : (body ?? '');
+  let text = sanitizeInboundText(media ? await describeInboundMedia(body ?? '', media) : (body ?? ''));
 
   const jid = await canonicalJid(ws, waJid); // mesmo contato com/sem 9º dígito
   const phone = phoneFromJid(jid);
@@ -645,6 +669,26 @@ const transientTries = new Map<string, number>();
 // Teto de segurança: se a IA mandar mais que isso numa hora, provavelmente está
 // conversando com outro robô (chatbot de empresa) — desliga e avisa a equipe.
 const AI_MAX_PER_HOUR = 30;
+// Respostas vazias seguidas por conversa (1ª: tenta de novo em silêncio; 2ª: avisa).
+const emptyTries = new Map<string, number>();
+
+/** Ficha do lead + etapas válidas do funil do agente, para o prompt. */
+async function agentContextFor(ws: string, contactId: string, agent: Agent, campaign: string | null | undefined, humanInConversation: boolean) {
+  const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { name: true, phone: true, tags: true, stageId: true } });
+  const funnelId = agent.funnelId ?? (await prisma.deal.findFirst({ where: { workspaceId: ws, contactId }, orderBy: { createdAt: 'desc' }, select: { funnelId: true } }))?.funnelId ?? null;
+  const stages = funnelId ? await prisma.pipelineStage.findMany({ where: { funnelId }, orderBy: { order: 'asc' }, select: { id: true, name: true } }) : [];
+  const deal = await prisma.deal.findFirst({ where: { workspaceId: ws, contactId }, orderBy: { createdAt: 'desc' }, select: { stageId: true } });
+  const stageId = deal?.stageId ?? contact?.stageId ?? null;
+  const stageName = stageId ? (stages.find((st) => st.id === stageId)?.name ?? (await prisma.pipelineStage.findUnique({ where: { id: stageId }, select: { name: true } }))?.name) : null;
+  return {
+    contact: { name: contact?.name, phone: contact?.phone },
+    stageName,
+    stages: stages.map((st) => st.name),
+    tags: (contact?.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean),
+    campaign: campaign ?? null,
+    humanInConversation,
+  };
+}
 
 async function respondWithAI(ws: string, conversationId: string, sendText: SendText, hop: number, seed?: ChatTurn[]) {
   if (inFlight.has(conversationId)) {
@@ -695,7 +739,12 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     }
 
     let agent = await getAgent(ws, conversation.assignedAgentId);
-    if (!agent || !agent.active) agent = await getActiveTriage(ws);
+    if (!agent || !agent.active) {
+      // Agente da conversa foi desativado/apagado: tenta o principal cujo gatilho abriu a
+      // conversa (cliente com um roteiro por campanha); senão, o primeiro principal ativo.
+      const firstIn = await prisma.message.findFirst({ where: { conversationId, direction: 'in' }, orderBy: { createdAt: 'asc' }, select: { body: true } });
+      agent = (firstIn ? await triageByTrigger(ws, firstIn.body) : null) ?? (await getActiveTriage(ws));
+    }
     if (!agent) {
       // Agente desativado/apagado e sem triagem ativa: avisa e devolve para a equipe
       // (antes descartava as respostas em silêncio).
@@ -733,9 +782,11 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     const llm = await resolveLlm(ws);
     // Biblioteca de mídias do agente: a IA recebe os nomes e pede com [[MIDIA: NOME]].
     const agentMedia = await prisma.agentMedia.findMany({ where: { agentId: agent.id }, orderBy: { createdAt: 'asc' } });
-    const { text, actions, raw } = llm.ready
-      ? await runAgent(agent, history, llm, agentMedia.map((m) => m.name))
-      : offlineReply(agent, history);
+    // Ficha do lead para o prompt: nome, etapa, etiquetas, origem e etapas válidas do funil.
+    const ctxCard = await agentContextFor(ws, conversation.contactId, agent, conversation.campaignAd, historyHasHuman(history));
+    const reply = llm.ready ? await runAgent(agent, history, llm, agentMedia.map((m) => m.name), ctxCard) : offlineReply(agent, history);
+    const { actions, raw } = reply;
+    const text = fillNamePlaceholders(reply.text, ctxCard.contact?.name);
 
     // A resposta da IA leva alguns segundos: se nesse meio-tempo um humano assumiu
     // (ou a IA foi desligada), descarta a resposta em vez de falar por cima.
@@ -755,17 +806,31 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
     }
 
     if (text) {
-      await deliver(ws, conversationId, text, sendText);
+      // Mensagens do lead que esta resposta cobre: ficam como lidas (✓✓) antes do "digitando…".
+      const toRead = answered
+        ? await prisma.message.findMany({ where: { conversationId, direction: 'in', createdAt: { gt: answered }, waMessageId: { not: null } }, select: { waMessageId: true }, take: 20 })
+        : await prisma.message.findMany({ where: { conversationId, direction: 'in', waMessageId: { not: null } }, orderBy: { createdAt: 'desc' }, select: { waMessageId: true }, take: 5 });
+      await deliver(ws, conversationId, text, sendText, toRead.map((m) => m.waMessageId!).filter(Boolean));
       await markAnswered();
       transientTries.delete(conversationId);
+      emptyTries.delete(conversationId);
     } else if (actions.length) {
       await markAnswered(); // só ações: não reaplica na recuperação
     } else if (actions.length === 0) {
+      // Resposta vazia (modelo devolveu só rótulo/ação): tenta de novo em 20 s, sem nota.
+      // Só na 2ª falha seguida avisa a equipe.
+      const tries = (emptyTries.get(conversationId) ?? 0) + 1;
+      emptyTries.set(conversationId, tries);
+      if (tries <= 1) {
+        schedule(ws, conversationId, sendText, 20_000, hop);
+        return;
+      }
+      emptyTries.delete(conversationId);
       const peek = (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
       await systemNote(
         ws,
         conversationId,
-        `${agent.name} não gerou mensagem para o lead${peek ? ` (a IA devolveu só: "${peek}")` : ' (resposta vazia)'}. Vou tentar de novo em instantes; se persistir, revise o roteiro ou responda manualmente.`,
+        `${agent.name} não gerou mensagem para o lead${peek ? ` (a IA devolveu só: "${peek}")` : ' (resposta vazia)'} duas vezes seguidas. Revise o roteiro ou responda manualmente.`,
       );
       return;
     }
@@ -853,12 +918,19 @@ async function respondWithAI(ws: string, conversationId: string, sendText: SendT
   }
 }
 
-async function deliver(ws: string, conversationId: string, text: string, sendText: SendText) {
+async function deliver(ws: string, conversationId: string, text: string, sendText: SendText, readIds: string[] = []) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: { contact: true },
   });
   if (!conversation) return;
+  // Lê as mensagens do lead e mostra "digitando…" por alguns segundos (humaniza).
+  try {
+    const { humanizeBeforeSend } = await import('../whatsapp/session.js');
+    await humanizeBeforeSend(ws, conversation.contact.waJid, text, readIds);
+  } catch {
+    /* cosmético */
+  }
   const waMessageId = await sendText(conversation.contact.waJid, text);
   const outMsg = await prisma.message.create({
     data: { conversationId, direction: 'out', author: 'ai', body: text, waMessageId },
@@ -916,6 +988,22 @@ async function deliverMedia(
 /* Ações de CRM executadas pelo agente                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Acha a etapa pelo nome: igual (normalizado) → o nome da etapa contém o pedido como
+ * palavra(s) inteira(s) ("Lead Qualificado" ⊃ "qualificado") → o pedido contém o nome da
+ * etapa inteiro. "Desqualificado" NÃO casa mais com "Qualificado" (era por substring).
+ */
+export function matchStageName<T extends { name: string }>(stages: T[], ref: string): T | undefined {
+  const want = normalize(ref);
+  if (!want) return undefined;
+  const words = (s: string) => ` ${s} `;
+  return (
+    stages.find((s) => normalize(s.name) === want) ??
+    stages.find((s) => words(normalize(s.name)).includes(words(want))) ??
+    stages.find((s) => words(want).includes(words(normalize(s.name))))
+  );
+}
+
 /** Move o lead para uma etapa do funil (move o negócio existente ou cria um).
  *  Aceita "Funil › Etapa" (desambigua o funil) ou apenas "Etapa". Se vier só a
  *  etapa, usa o funil do agente (preferFunnelId) para resolver a ambiguidade. */
@@ -936,9 +1024,7 @@ async function applyStage(ws: string, conversationId: string, stageRef: string, 
   let scoped = funnelName ? all.filter((s) => s.funnel && normalize(s.funnel.name) === normalize(funnelName)) : [];
   if (!scoped.length && preferFunnelId) scoped = all.filter((s) => s.funnelId === preferFunnelId);
   const pool = scoped.length ? scoped : all;
-  const target =
-    pool.find((s) => normalize(s.name) === normalize(stageName)) ??
-    pool.find((s) => normalize(s.name).includes(normalize(stageName)));
+  const target = matchStageName(pool, stageName) as (typeof pool)[number] | undefined;
   if (!target) {
     await systemNote(ws, conversationId, `Não encontrei a etapa "${stageRef}" para mover o lead.`);
     return;
@@ -1269,29 +1355,35 @@ async function recoverPendingReplies() {
     }
     if (recoveryTries.size > 5000) recoveryTries.clear();
 
-    // Retomada: pausada pelo advogado, lead esperando há 15 min e equipe sem responder há 15 min.
+    // Retomada: pausada pelo advogado (15 min), pelo roteiro (60 min) ou pelo teto por hora
+    // (60 min): lead esperando e equipe sem responder nesse tempo → a IA volta.
     const paused = await prisma.conversation.findMany({
       where: {
         aiEnabled: false,
-        aiPausedBy: 'humano',
+        aiPausedBy: { in: ['humano', 'roteiro', 'limite'] },
         status: { not: 'closed' },
         lastMessageAt: { gte: new Date(now - 24 * 60 * 60_000) },
       },
-      select: { id: true, workspaceId: true, assignedAgentId: true },
+      select: { id: true, workspaceId: true, assignedAgentId: true, aiPausedBy: true, aiResumedAt: true },
       orderBy: { lastMessageAt: 'desc' },
       take: 80,
     });
-    const limit = AI_RESUME_MIN * 60_000;
     for (const c of paused) {
       if (!c.workspaceId) continue;
       if (getWaStatus(c.workspaceId).status !== 'connected') continue;
+      const minutes = c.aiPausedBy === 'humano' ? AI_RESUME_MIN : 60;
+      const limit = minutes * 60_000;
+      // Teto por hora: só retoma uma vez a cada 24 h (se for outro robô, não fica em loop).
+      if (c.aiPausedBy === 'limite' && c.aiResumedAt && now - c.aiResumedAt.getTime() < 24 * 60 * 60_000) continue;
       const lastIn = await prisma.message.findFirst({
         where: { conversationId: c.id, direction: 'in' },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       });
+      // Só fala da equipe/IA conta: nota de sistema ("Etapa movida…") depois da mensagem
+      // do lead fazia parecer que ele já tinha sido respondido, e a IA nunca retomava.
       const lastOut = await prisma.message.findFirst({
-        where: { conversationId: c.id, direction: 'out' },
+        where: { conversationId: c.id, direction: 'out', author: { in: ['agent', 'ai'] } },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       });
@@ -1305,8 +1397,9 @@ async function recoverPendingReplies() {
         data: { aiEnabled: true, aiPausedBy: null, aiResumedAt: new Date(), assignedAgentId: c.assignedAgentId ?? agent.id },
       });
       emit(c.workspaceId, { type: 'conversation:update', conversation: updated });
-      await systemNote(c.workspaceId, c.id, `${AI_RESUME_MIN} minutos sem resposta da equipe: ${agent.name} retomou o atendimento.`).catch(() => {});
-      console.log(`[agentes:${c.workspaceId}] IA retomou a conversa ${c.id} após ${AI_RESUME_MIN} min sem resposta da equipe`);
+      const why = c.aiPausedBy === 'humano' ? 'sem resposta da equipe' : c.aiPausedBy === 'roteiro' ? 'depois que o roteiro encerrou, sem resposta da equipe' : 'após a pausa de segurança, sem resposta da equipe';
+      await systemNote(c.workspaceId, c.id, `${minutes} minutos ${why}: ${agent.name} retomou o atendimento.`).catch(() => {});
+      console.log(`[agentes:${c.workspaceId}] IA retomou a conversa ${c.id} após ${minutes} min (pausa: ${c.aiPausedBy})`);
       const ws = c.workspaceId;
       schedule(ws, c.id, (jid, text) => sessionSend(ws, jid, text), 500, 0);
     }
