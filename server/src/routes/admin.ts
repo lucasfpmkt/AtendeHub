@@ -161,9 +161,6 @@ adminRouter.patch('/admins/:id', requireMaster, async (req, res) => {
     }
   }
   clearAccessCache();
-  // API Oficial em memória e arquivos de mídia do cliente (LGPD).
-  await refreshChannel(ws.id).catch(() => {});
-  await rm(mediaDirOf(ws.id), { recursive: true, force: true }).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -329,5 +326,9 @@ adminRouter.delete('/workspaces/:id', requireMaster, async (req, res) => {
     prisma.workspace.delete({ where: { id: ws.id } }), // logins vão junto (cascade)
   ]);
   clearAccessCache();
+  // API Oficial em memória e arquivos de mídia do cliente (LGPD). Antes isso estava no
+  // handler errado (PATCH /admins/:id) com `ws` indefinido: dava 500 lá e nunca rodava aqui.
+  await refreshChannel(ws.id).catch(() => {});
+  await rm(mediaDirOf(ws.id), { recursive: true, force: true }).catch(() => {});
   res.json({ ok: true });
 });

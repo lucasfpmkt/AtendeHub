@@ -16,7 +16,7 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - DEFAULT_WORKSPACE_NAME=${DEFAULT_WORKSPACE_NAME:-Law Mídias}
-      - ALLOW_SIGNUP=${ALLOW_SIGNUP:-1}
+      - ALLOW_SIGNUP=${ALLOW_SIGNUP:-0}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - AI_MODEL=${AI_MODEL:-claude-haiku-5-5}
     volumes:

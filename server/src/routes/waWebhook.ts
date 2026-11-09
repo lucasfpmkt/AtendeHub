@@ -1,6 +1,9 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { prisma } from '../db.js';
 import { dec } from '../crypto.js';
+import { env } from '../env.js';
+import { alertAdmin } from '../services/alerts.js';
 import { handleInboundMessage, type InboundMedia } from '../services/inbound.js';
 import { sendText } from '../whatsapp/session.js';
 import { downloadCloudMedia, markReadCloud } from '../whatsapp/cloud.js';
@@ -28,6 +31,20 @@ const MEDIA_KINDS: Record<string, MediaKind> = {
   sticker: 'sticker',
 };
 
+/**
+ * Assinatura da Meta (X-Hub-Signature-256 = HMAC-SHA256 do corpo cru com o App Secret).
+ * Devolve 'ok' | 'bad' | 'unverified' (sem segredo ou sem cabeçalho para conferir).
+ */
+function checkSignature(req: Request, secret: string): 'ok' | 'bad' | 'unverified' {
+  const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+  const header = String(req.headers['x-hub-signature-256'] ?? '');
+  if (!secret || !raw || !header.startsWith('sha256=')) return 'unverified';
+  const expected = createHmac('sha256', secret).update(raw).digest('hex');
+  const got = header.slice(7).toLowerCase();
+  if (got.length !== expected.length) return 'bad';
+  return timingSafeEqual(Buffer.from(got, 'hex'), Buffer.from(expected, 'hex')) ? 'ok' : 'bad';
+}
+
 // Recebimento de mensagens.
 waWebhookRouter.post('/:ws', async (req, res) => {
   res.sendStatus(200); // responde rápido; processa depois
@@ -35,6 +52,23 @@ waWebhookRouter.post('/:ws', async (req, res) => {
     const ws = req.params.ws;
     const cfg = await prisma.waConfig.findUnique({ where: { id: ws } });
     if (!cfg || cfg.channel !== 'cloud') return;
+
+    // Assinatura: com o App Secret do próprio cliente (Conectar WhatsApp › API Oficial) a
+    // conferência é obrigatória; só com o do app global, uma falha avisa o administrador
+    // mas não descarta (o cliente pode usar outro app da Meta). Sem segredo nenhum, fica
+    // só a conferência do phone_number_id abaixo.
+    const ownSecret = dec(cfg.cloudAppSecret).trim();
+    const sig = checkSignature(req, ownSecret || env.fbAppSecret);
+    if (sig === 'bad') {
+      console.warn(`[cloud:${ws}] webhook com assinatura inválida${ownSecret ? ' — descartado' : ' (app global; processado mesmo assim)'}`);
+      void alertAdmin(
+        `wa_webhook_sig:${ws}`,
+        ownSecret
+          ? `⚠️ O webhook da API Oficial do WhatsApp de um cliente chegou com assinatura inválida e foi descartado. Se o App Secret colado em Conectar WhatsApp › API Oficial estiver errado, mensagens reais estão sendo perdidas.`
+          : `⚠️ O webhook da API Oficial do WhatsApp de um cliente chegou com assinatura que não bate com o FB_APP_SECRET global. Se o cliente usa outro app da Meta, cole o App Secret dele em Conectar WhatsApp › API Oficial; se não, pode ser alguém forjando eventos.`,
+      );
+      if (ownSecret) return;
+    }
     // O token é salvo criptografado: sem dec() a Meta recusava (401) mídia e "lido".
     const token = dec(cfg.cloudToken);
 

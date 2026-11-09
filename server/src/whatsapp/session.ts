@@ -50,7 +50,33 @@ type Session = {
   retries?: number;
   /** Timer do watchdog que confere se a conexão está viva de verdade. */
   watchdog?: NodeJS.Timeout | null;
+  /** Reconexão agendada após uma queda (cancelada em reconexão manual/logout). */
+  reconnectTimer?: NodeJS.Timeout | null;
 };
+
+/* Versão do WhatsApp Web usada pelo Baileys: 1 busca a cada 6 h (não 1 por cliente por boot). */
+let waVersionCache: { version: [number, number, number]; at: number } | null = null;
+async function waVersion(): Promise<[number, number, number] | undefined> {
+  if (waVersionCache && Date.now() - waVersionCache.at < 6 * 60 * 60_000) return waVersionCache.version;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    waVersionCache = { version: version as [number, number, number], at: Date.now() };
+    return waVersionCache.version;
+  } catch {
+    return waVersionCache?.version; // sem rede: a versão embutida no Baileys
+  }
+}
+
+/** creds.json de um pareamento que nunca terminou (QR não lido): não vale reabrir sozinho. */
+async function credsRegistered(dir: string): Promise<boolean> {
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const j = JSON.parse(await readFile(path.join(dir, 'creds.json'), 'utf8'));
+    return j?.registered !== false && Boolean(j?.me?.id);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Ids de mensagens que o PRÓPRIO LawHub enviou. O Baileys emite o "eco" da
@@ -255,7 +281,9 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
     }
   }
   if (opts.force && s.status !== 'connected') {
-    // Pedido explícito do usuário: derruba um socket preso em "conectando" e recomeça.
+    // Pedido explícito do usuário: derruba um socket preso em "conectando"/"qr" e recomeça.
+    if (s.reconnectTimer) clearTimeout(s.reconnectTimer);
+    s.reconnectTimer = null;
     try {
       s.sock?.end?.(undefined as unknown as Error);
     } catch {
@@ -264,14 +292,19 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
     s.sock = null;
     s.starting = false;
     s.qr = null;
+    // Sem isto, um socket preso em "conectando" era derrubado e o guard abaixo impedia o
+    // novo: o cliente ficava "conectando" para sempre até reiniciar o servidor.
+    if (s.status !== 'disconnected') setStatus(ws, 'disconnected');
   }
-  if (s.starting || s.status === 'connected' || s.status === 'connecting') return;
+  // Já existe um socket vivo (conectado, conectando ou mostrando QR): não abre outro.
+  // (Antes o estado "qr" passava pelo guard e nascia um 2º socket, com QR duplicado.)
+  if (s.starting || (s.sock && s.status !== 'disconnected')) return;
   s.starting = true;
   setStatus(ws, 'connecting');
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(await authDirOf(ws));
-    const { version } = await fetchLatestBaileysVersion();
+    const version = await waVersion();
 
     // Por cliente: se importHistory=false, não puxa o histórico antigo ao
     // (re)conectar — só as mensagens novas entram no LawHub.
@@ -373,27 +406,47 @@ export async function startWhatsApp(ws: string, opts: { phone?: string; force?: 
         }
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
+        // Sessão inválida/incompatível: as credenciais salvas não servem mais.
+        const badCreds = code === DisconnectReason.badSession || code === DisconnectReason.multideviceMismatch;
+        const reason =
+          code === DisconnectReason.loggedOut ? 'aparelho desvinculado' :
+          code === DisconnectReason.connectionReplaced ? 'outra sessão assumiu o número' :
+          code === DisconnectReason.forbidden ? 'conta bloqueada pelo WhatsApp' :
+          code === DisconnectReason.badSession ? 'sessão inválida' :
+          code === DisconnectReason.multideviceMismatch ? 'sessão incompatível' :
+          code === DisconnectReason.restartRequired ? 'reinício pedido pelo WhatsApp' :
+          code === DisconnectReason.timedOut ? 'tempo esgotado' :
+          code === DisconnectReason.connectionLost ? 'conexão perdida' :
+          code === DisconnectReason.connectionClosed ? 'conexão fechada' : undefined;
         s.me = undefined;
         s.sock = null;
         s.starting = false;
         s.pairCode = null;
-        setStatus(ws, 'disconnected', code ? `código ${code}` : undefined);
+        setStatus(ws, 'disconnected', code ? `código ${code}${reason ? ` (${reason})` : ''}` : undefined);
         if (s.watchdog) clearInterval(s.watchdog);
         s.watchdog = null;
-        if (loggedOut) {
+        if (loggedOut || badCreds) {
           reportWaLoggedOut(ws);
-          // Credenciais inválidas (aparelho desvinculado): apaga para o próximo
-          // "Gerar QR" mostrar um QR novo em vez de tentar retomar a sessão morta.
+          // Credenciais inválidas (aparelho desvinculado / sessão corrompida): apaga para o
+          // próximo "Gerar QR" mostrar um QR novo em vez de tentar retomar a sessão morta.
           await rm(await authDirOf(ws), { recursive: true, force: true }).catch(() => {});
         } else if (code === DisconnectReason.connectionReplaced) {
           // Outra sessão assumiu este número: reconectar só gera um "cabo de guerra"
           // (risco de bloqueio). Fica desconectado até alguém reconectar.
           console.warn(`[wa:${ws}] sessão substituída por outro aparelho/servidor; não vou reconectar sozinho.`);
+        } else if (code === DisconnectReason.forbidden) {
+          // 403: o WhatsApp bloqueou a conta. Insistir só piora.
+          console.warn(`[wa:${ws}] conta bloqueada pelo WhatsApp (403); não vou reconectar sozinho.`);
+        } else if (code === DisconnectReason.restartRequired) {
+          // 515 depois do pareamento: é normal e precisa reabrir já, sem espera.
+          s.retries = 0;
+          s.reconnectTimer = setTimeout(() => void startWhatsApp(ws).catch(() => {}), 500);
         } else {
           // Queda de rede etc.: reconecta com espera crescente (2s, 4s, 8s… até 60s).
           s.retries = (s.retries ?? 0) + 1;
           const delay = Math.min(60_000, 2000 * 2 ** Math.min(s.retries - 1, 5));
-          setTimeout(() => void startWhatsApp(ws).catch(() => {}), delay);
+          if (s.reconnectTimer) clearTimeout(s.reconnectTimer);
+          s.reconnectTimer = setTimeout(() => void startWhatsApp(ws).catch(() => {}), delay);
         }
       }
     });
@@ -602,7 +655,12 @@ export async function startSavedSessions() {
   const all = await prisma.workspace.findMany({ where: { active: true }, select: { id: true } });
   for (const w of all) {
     if (cloudInfo.has(w.id)) continue; // usa API Oficial: não abre Baileys
-    if (existsSync(path.join(await authDirOf(w.id), 'creds.json'))) {
+    const dir = await authDirOf(w.id);
+    if (existsSync(path.join(dir, 'creds.json'))) {
+      if (!(await credsRegistered(dir))) {
+        console.log(`[wa:${w.id}] pareamento não concluído: não reabro sozinho (gere o QR de novo no LawHub)`);
+        continue;
+      }
       void startWhatsApp(w.id).catch(() => {
         // Tenta de novo em 1 min (ex.: disco/rede instável na subida).
         setTimeout(() => void startWhatsApp(w.id).catch(() => {}), 60_000);
@@ -700,6 +758,8 @@ export async function sendMedia(
 /** Encerra a sessão do cliente e apaga as credenciais (força novo QR). */
 export async function logoutWhatsApp(ws: string) {
   const s = sessionOf(ws);
+  if (s.reconnectTimer) clearTimeout(s.reconnectTimer);
+  s.reconnectTimer = null;
   try {
     await s.sock?.logout();
   } catch {

@@ -8,8 +8,8 @@ import { Server as IOServer } from 'socket.io';
 import { env } from './env.js';
 import { setIO, roomOf } from './realtime.js';
 import { existsSync, createReadStream } from 'node:fs';
-import { accessStillValid, requireAuth, requireAdmin, verifyToken } from './auth.js';
-import { prisma } from './db.js';
+import { accessStillValid, requireAuth, requireAdmin, verifyToken, verifyMediaToken } from './auth.js';
+import { prisma, tuneSqlite } from './db.js';
 import { forceHttps, rateLimit, securityHeaders } from './security.js';
 import { mediaFilePath, safeMediaHeaders } from './whatsapp/media.js';
 import { getStatus, startSavedSessions } from './whatsapp/session.js';
@@ -48,10 +48,12 @@ app.use(cors({ origin: env.clientOrigin }));
 // Webhook PÚBLICO dos formulários do Meta: precisa do corpo cru (assinatura),
 // por isso vem antes do express.json.
 app.use('/api/meta/leadgen', express.raw({ type: '*/*', limit: '1mb' }), leadgenWebhookRouter);
-app.use(express.json({ limit: '2mb' }));
+// `verify` guarda o corpo cru: o webhook da API Oficial confere a assinatura da Meta sobre ele.
+app.use(express.json({ limit: '2mb', verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; } }));
 
 // Webhook PÚBLICO da API Oficial do WhatsApp (a Meta chama sem token de sessão).
-app.use('/api/wa/webhook', waWebhookRouter);
+// Limite largo por IP: a Meta manda rajadas, mas ninguém precisa de 10/s por minuto inteiro.
+app.use('/api/wa/webhook', rateLimit({ name: 'wa-webhook', windowMs: 60_000, max: 600 }), waWebhookRouter);
 // Retorno PÚBLICO do login com o Meta/Google (OAuth) — redireciona sem sessão.
 app.use('/api/ads/meta/callback', metaOauthRouter);
 app.use('/api/ads/google/callback', googleOauthRouter);
@@ -81,8 +83,10 @@ app.use('/api/auth', authRouter);
 
 // Mídia das conversas: autenticada por token na query (para <img>/<audio> src).
 app.get('/api/media/:id', async (req, res) => {
-  const token = (req.query.token as string) || (req.headers.authorization?.replace('Bearer ', '') ?? '');
-  const info = verifyToken(token);
+  // Preferência: token de mídia (?mt=, curto e sem poder na API). ?token= (sessão) fica
+  // aceito só para abas abertas antes da atualização.
+  const token = (req.query.mt as string) || (req.query.token as string) || (req.headers.authorization?.replace('Bearer ', '') ?? '');
+  const info = verifyMediaToken(token);
   if (!info) return res.status(401).end();
   const message = await prisma.message.findFirst({
     where: { mediaId: req.params.id, conversation: { workspaceId: info.ws } },
@@ -156,6 +160,7 @@ io.on('connection', (socket) => {
 });
 
 server.listen(env.port, async () => {
+  await tuneSqlite(); // WAL + busy_timeout: vários clientes sem "database is locked"
   console.log(`\n  LawHub API  →  http://localhost:${env.port}`);
   if (env.serveClient) console.log('  Servindo frontend compilado (client/dist)');
   console.log('');

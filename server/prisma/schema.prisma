@@ -424,6 +424,7 @@ model WaConfig {
   cloudToken   String @default("") // token permanente (System User)
   cloudVerify  String @default("") // verify token do webhook
   cloudWabaId  String @default("")
+  cloudAppSecret String @default("") // App Secret do app da Meta do cliente (cifrado): assinatura do webhook
 }
 
 

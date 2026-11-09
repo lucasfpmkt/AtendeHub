@@ -188,7 +188,9 @@ export async function maybeFireQualifiedLead(ws: string, contactId: string, stag
 /** Resumo da conta de anúncios (gasto, resultados e campanhas) via Graph API. */
 export async function getMetaAdsSummary(adAccountId: string, token: string, preset = 'last_30d') {
   const acct = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
-  const ckey = `sum:${acct}:${preset}`;
+  // Cache amarrado ao token: outro cliente com o mesmo id de conta (sem acesso a ela)
+  // não pode ler o que foi buscado com a credencial de alguém.
+  const ckey = `sum:${acct}:${preset}:${sha256(token).slice(0, 16)}`;
   const cached = cacheGet<Record<string, unknown>>(ckey);
   if (cached) return cached;
   const auth = `access_token=${encodeURIComponent(token)}`;
@@ -259,7 +261,7 @@ const blank = (): Omit<AdsRow, 'id' | 'name' | 'status'> => ({ spend: 0, impress
  */
 export async function getMetaAdsBreakdown(adAccountId: string, token: string, preset = 'last_30d') {
   const acct = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
-  const ckey = `brk:${acct}:${preset}`;
+  const ckey = `brk:${acct}:${preset}:${sha256(token).slice(0, 16)}`;
   const cached = cacheGet<unknown>(ckey);
   if (cached) return cached;
   const auth = `access_token=${encodeURIComponent(token)}`;

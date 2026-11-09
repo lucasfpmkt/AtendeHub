@@ -26,6 +26,7 @@ whatsappRouter.get('/cloud', async (req, res) => {
     phoneId: cfg.cloudPhoneId,
     wabaId: cfg.cloudWabaId,
     hasToken: Boolean(cfg.cloudToken),
+    hasAppSecret: Boolean(cfg.cloudAppSecret),
     verifyToken: cfg.cloudVerify,
     webhookUrl: `https://${host}/api/wa/webhook/${ws}`,
   });
@@ -44,12 +45,15 @@ whatsappRouter.get('/cloud/templates', async (req, res) => {
 
 whatsappRouter.patch('/cloud', async (req, res) => {
   const ws = wsOf(req);
-  const { channel, phoneId, token, wabaId } = req.body ?? {};
+  const { channel, phoneId, token, wabaId, appSecret, clearAppSecret } = req.body ?? {};
   const data: Record<string, unknown> = {};
   if (channel === 'qr' || channel === 'cloud') data.channel = channel;
   if (typeof phoneId === 'string') data.cloudPhoneId = phoneId.trim();
   if (typeof wabaId === 'string') data.cloudWabaId = wabaId.trim();
   if (typeof token === 'string' && token.trim()) data.cloudToken = enc(token.trim());
+  // App Secret do app da Meta do cliente: confere a assinatura de cada evento do webhook.
+  if (clearAppSecret === true) data.cloudAppSecret = '';
+  else if (typeof appSecret === 'string' && appSecret.trim()) data.cloudAppSecret = enc(appSecret.trim());
   await prisma.waConfig.upsert({
     where: { id: ws },
     update: data,

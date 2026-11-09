@@ -56,9 +56,15 @@ type Bucket = { count: number; resetAt: number };
  * cabeçalho CF-Connecting-IP (sobrescrito pelo próprio Cloudflare) traz o real.
  * Sem Cloudflare, usa o IP que o proxy do Easypanel entregou (trust proxy = 1).
  */
+const TRUST_CF = process.env.TRUST_CF_HEADER === '1';
 export function clientIp(req: Request): string {
-  const cf = String(req.headers['cf-connecting-ip'] ?? '').trim();
-  if (cf && /^[0-9a-f:.]{3,45}$/i.test(cf)) return cf;
+  // Só confia no CF-Connecting-IP quando o servidor está de fato atrás do Cloudflare
+  // (TRUST_CF_HEADER=1). Sem isso, qualquer um mandava o cabeçalho com um IP inventado
+  // e escapava do limite por IP (login, cadastro, envio).
+  if (TRUST_CF) {
+    const cf = String(req.headers['cf-connecting-ip'] ?? '').trim();
+    if (cf && /^[0-9a-f:.]{3,45}$/i.test(cf)) return cf;
+  }
   return req.ip || req.socket.remoteAddress || 'desconhecido';
 }
 

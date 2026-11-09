@@ -19,7 +19,7 @@ export function Connect({ status, me }: { status: string; me?: string }) {
 
   // Tipo de conexão: QR (servidor próprio) ou API Oficial (Meta Cloud API).
   const [conn, setConn] = useState<'qr' | 'cloud'>('qr');
-  const [cloud, setCloud] = useState<{ phoneId: string; token: string; wabaId: string; hasToken: boolean; verifyToken: string; webhookUrl: string } | null>(
+  const [cloud, setCloud] = useState<{ phoneId: string; token: string; wabaId: string; hasToken: boolean; appSecret: string; hasAppSecret: boolean; verifyToken: string; webhookUrl: string } | null>(
     null,
   );
   const [cloudMsg, setCloudMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -27,7 +27,7 @@ export function Connect({ status, me }: { status: string; me?: string }) {
   const loadCloud = () =>
     api.waCloud().then((c) => {
       setConn(c.channel === 'cloud' ? 'cloud' : 'qr');
-      setCloud({ phoneId: c.phoneId, token: '', wabaId: c.wabaId, hasToken: c.hasToken, verifyToken: c.verifyToken, webhookUrl: c.webhookUrl });
+      setCloud({ phoneId: c.phoneId, token: '', wabaId: c.wabaId, hasToken: c.hasToken, appSecret: '', hasAppSecret: c.hasAppSecret, verifyToken: c.verifyToken, webhookUrl: c.webhookUrl });
     });
   useEffect(() => {
     loadCloud().catch(() => {});
@@ -42,6 +42,7 @@ export function Connect({ status, me }: { status: string; me?: string }) {
         phoneId: cloud.phoneId,
         wabaId: cloud.wabaId,
         ...(cloud.token.trim() ? { token: cloud.token.trim() } : {}),
+        ...(cloud.appSecret.trim() ? { appSecret: cloud.appSecret.trim() } : {}),
       });
       setCloudMsg({ ok: true, text: activate ? 'API Oficial ativada.' : 'Salvo.' });
       await loadCloud();
@@ -305,6 +306,20 @@ export function Connect({ status, me }: { status: string; me?: string }) {
               placeholder={cloud?.hasToken ? '•••••••• (token salvo — deixe em branco para manter)' : 'cole o token'}
               autoComplete="new-password" data-lpignore="true" data-1p-ignore="true"
             />
+          </div>
+
+          <div className="field-sm">
+            <span>App Secret do app da Meta (recomendado)</span>
+            <input
+              type="password"
+              value={cloud?.appSecret ?? ''}
+              onChange={(e) => setCloud((c) => c && { ...c, appSecret: e.target.value })}
+              placeholder={cloud?.hasAppSecret ? '•••••••• (salvo — deixe em branco para manter)' : 'Meta → Configurações do app → Básico → Chave Secreta do Aplicativo'}
+              autoComplete="new-password" data-lpignore="true" data-1p-ignore="true"
+            />
+            <span className="muted small">
+              Com ele, o LawHub confere a assinatura de cada evento do webhook e descarta mensagens forjadas.
+            </span>
           </div>
 
           <div className="field-sm">

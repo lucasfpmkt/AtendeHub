@@ -41,8 +41,19 @@ function fillName(text: string, name?: string | null): string {
   return text.replace(/\s*\{nome\}/gi, (m) => (first ? m.replace(/\{nome\}/i, first) : '')).trim();
 }
 
+let followupsRunning = false;
 async function runFollowupsOnce() {
   if (!businessHoursNow()) return;
+  if (followupsRunning) return; // ciclo anterior ainda enviando (muitos leads): não duplica
+  followupsRunning = true;
+  try {
+    await runFollowupsBatch();
+  } finally {
+    followupsRunning = false;
+  }
+}
+
+async function runFollowupsBatch() {
   // Só clientes com a chave "Follow-ups automáticos" ligada no CRM.
   const enabledCfgs = await prisma.aiConfig.findMany({ where: { followupsEnabled: true }, select: { id: true, followupsSince: true } });
   if (enabledCfgs.length === 0) return;

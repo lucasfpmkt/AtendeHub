@@ -41,14 +41,16 @@ export const env = {
     process.env.AI_SYSTEM_PROMPT ?? DEFAULT_DRAFT_PROMPT,
 
   // Autenticação (single-operator). Em produção, defina os dois.
-  appPassword: process.env.APP_PASSWORD ?? 'admin',
+  appPassword: process.env.APP_PASSWORD?.trim() || 'admin',
   // Conta de administrador criada na primeira subida (vê todos os clientes).
+  // `ADMIN_PASSWORD=` (vazio) não vale como senha: cai no próximo da lista.
   adminEmail: (process.env.ADMIN_EMAIL ?? 'admin').trim().toLowerCase(),
-  adminPassword: process.env.ADMIN_PASSWORD ?? process.env.APP_PASSWORD ?? 'admin',
+  adminPassword: process.env.ADMIN_PASSWORD?.trim() || process.env.APP_PASSWORD?.trim() || 'admin',
   // Nome do cliente que recebe os dados já existentes (instalação antiga).
   defaultWorkspaceName: process.env.DEFAULT_WORKSPACE_NAME ?? 'Law Mídias',
-  // "0" desliga o botão "Criar conta" da tela de login.
-  allowSignup: process.env.ALLOW_SIGNUP !== '0',
+  // Cadastro público ("Criar conta" na tela de login) fica FECHADO por padrão: é a agência
+  // que cria os clientes. ALLOW_SIGNUP=1 abre.
+  allowSignup: process.env.ALLOW_SIGNUP === '1',
   appSecret: resolveAppSecret(),
 
   // Quando "1", o backend também serve o frontend compilado (client/dist).

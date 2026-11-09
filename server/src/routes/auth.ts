@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
-import { checkPasswordHash, hashPassword, issueToken, requireAuth, requireAdmin, allowedWorkspaceIds, type Role } from '../auth.js';
+import { checkPasswordHash, hashPassword, issueToken, issueMediaToken, requireAuth, requireAdmin, allowedWorkspaceIds, type Role } from '../auth.js';
 import { createWorkspace } from '../services/tenancy.js';
 
 export const authRouter = Router();
@@ -54,6 +54,7 @@ authRouter.post('/login', async (req, res) => {
   const role = user.role as Role;
   res.json({
     token: issueToken({ uid: user.id, role, ws: user.workspaceId }),
+    mediaToken: issueMediaToken({ uid: user.id, role, ws: user.workspaceId }),
     user: { id: user.id, name: user.name, email: user.email, role, isMaster: role === 'admin' && user.isMaster },
     workspace: publicWs(user.workspace),
   });
@@ -81,6 +82,7 @@ authRouter.post('/signup', async (req, res) => {
   });
   res.json({
     token: issueToken({ uid: user.id, role: 'user', ws: ws.id }),
+    mediaToken: issueMediaToken({ uid: user.id, role: 'user', ws: ws.id }),
     user: { id: user.id, name: user.name, email: user.email, role: 'user' },
     workspace: publicWs(ws),
   });
@@ -98,6 +100,7 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   res.json({
     user: { id: user.id, name: user.name, email: user.email, role: user.role, isMaster: user.role === 'admin' && user.isMaster },
     workspace: publicWs(ws),
+    mediaToken: issueMediaToken(req.auth!),
   });
 });
 
@@ -118,5 +121,5 @@ authRouter.post('/switch', requireAuth, requireAdmin, async (req, res) => {
   if (!ws) return res.status(404).json({ error: 'cliente não encontrado' });
   const allowed = await allowedWorkspaceIds(req.auth!.uid);
   if (allowed !== 'all' && !allowed.includes(ws.id)) return res.status(403).json({ error: 'sem acesso a este cliente' });
-  res.json({ token: issueToken({ uid: req.auth!.uid, role: 'admin', ws: ws.id }), workspace: publicWs(ws) });
+  res.json({ token: issueToken({ uid: req.auth!.uid, role: 'admin', ws: ws.id }), mediaToken: issueMediaToken({ uid: req.auth!.uid, role: 'admin', ws: ws.id }), workspace: publicWs(ws) });
 });

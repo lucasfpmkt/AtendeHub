@@ -11,7 +11,28 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    else {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem('atendehub.mediaToken');
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+// Token só de mídia (curto, sem poder na API): vai na URL de <img>/<audio>.
+const MEDIA_TOKEN_KEY = 'atendehub.mediaToken';
+export function getMediaToken(): string | null {
+  try {
+    return sessionStorage.getItem(MEDIA_TOKEN_KEY) || localStorage.getItem(MEDIA_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+export function setMediaToken(token: string | null | undefined) {
+  try {
+    if (token) localStorage.setItem(MEDIA_TOKEN_KEY, token);
+    else localStorage.removeItem(MEDIA_TOKEN_KEY);
   } catch {
     /* ignore */
   }
@@ -90,7 +111,7 @@ export interface AdminWorkspace extends WorkspaceInfo {
   openConversations: number;
   agents: number;
 }
-type AuthResult = { token: string; user: SessionUser; workspace: WorkspaceInfo };
+type AuthResult = { token: string; mediaToken?: string; user: SessionUser; workspace: WorkspaceInfo };
 
 async function postPublic<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -106,12 +127,14 @@ async function postPublic<T>(path: string, body: unknown): Promise<T> {
 export async function login(email: string, password: string): Promise<AuthResult> {
   const r = await postPublic<AuthResult>('/auth/login', { email, password });
   setToken(r.token);
+  setMediaToken(r.mediaToken);
   return r;
 }
 
 export async function signup(data: { name: string; company: string; email: string; password: string }): Promise<AuthResult> {
   const r = await postPublic<AuthResult>('/auth/signup', data);
   setToken(r.token);
+  setMediaToken(r.mediaToken);
   return r;
 }
 
@@ -425,10 +448,10 @@ export const api = {
     req<{ status: string; qr: string | null; pairCode: string | null }>('/whatsapp/reconnect', { method: 'POST' }),
   waLogout: () => req('/whatsapp/logout', { method: 'POST' }),
   waCloud: () =>
-    req<{ channel: string; phoneId: string; wabaId: string; hasToken: boolean; verifyToken: string; webhookUrl: string }>(
+    req<{ channel: string; phoneId: string; wabaId: string; hasToken: boolean; hasAppSecret: boolean; verifyToken: string; webhookUrl: string }>(
       '/whatsapp/cloud',
     ),
-  waCloudSave: (data: { channel?: 'qr' | 'cloud'; phoneId?: string; token?: string; wabaId?: string }) =>
+  waCloudSave: (data: { channel?: 'qr' | 'cloud'; phoneId?: string; token?: string; wabaId?: string; appSecret?: string; clearAppSecret?: boolean }) =>
     req<{ ok: boolean }>('/whatsapp/cloud', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Conversas / mensagens
@@ -465,7 +488,11 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Falha ao enviar arquivo');
     return (await res.json()) as Message;
   },
-  mediaUrl: (mediaId: string) => `/api/media/${mediaId}?token=${encodeURIComponent(getToken() ?? '')}`,
+  // Token de mídia (curto) na URL; sem ele (sessão antiga), cai no token de sessão.
+  mediaUrl: (mediaId: string) => {
+    const mt = getMediaToken();
+    return mt ? `/api/media/${mediaId}?mt=${encodeURIComponent(mt)}` : `/api/media/${mediaId}?token=${encodeURIComponent(getToken() ?? '')}`;
+  },
 
   // Mensagens agendadas (lembretes)
   schedules: (conversationId: string) =>
@@ -673,15 +700,20 @@ export const api = {
   reclassifyStages: () => req<{ total: number }>('/ai/reclassify-stages', { method: 'POST' }),
 
   // Sessão / clientes
-  me: () => req<{ user: SessionUser; workspace: WorkspaceInfo }>('/auth/me'),
+  me: async () => {
+    const r = await req<{ user: SessionUser; workspace: WorkspaceInfo; mediaToken?: string }>('/auth/me');
+    setMediaToken(r.mediaToken);
+    return r;
+  },
   changePassword: (current: string, next: string) =>
     req('/auth/password', { method: 'POST', body: JSON.stringify({ current, next }) }),
   switchWorkspace: async (workspaceId: string) => {
-    const r = await req<{ token: string; workspace: WorkspaceInfo }>('/auth/switch', {
+    const r = await req<{ token: string; mediaToken?: string; workspace: WorkspaceInfo }>('/auth/switch', {
       method: 'POST',
       body: JSON.stringify({ workspaceId }),
     });
     setToken(r.token);
+    setMediaToken(r.mediaToken);
     return r.workspace;
   },
   adminWorkspaces: () => req<AdminWorkspace[]>('/admin/workspaces'),

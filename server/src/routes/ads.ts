@@ -305,7 +305,16 @@ adsRouter.patch('/google', async (req, res) => {
   const { customerId, customerName, developerToken, refreshToken, clientId, clientSecret, conversionsEnabled, qualifiedStageId, conversionActionId, conversionName } =
     req.body ?? {};
   const data: Record<string, unknown> = {};
-  if (typeof customerId === 'string') data.customerId = customerId.trim();
+  if (typeof customerId === 'string') {
+    // Com a MCC global da agência, qualquer Customer ID da MCC abriria os dados de OUTRO
+    // cliente: só o administrador define a conta de quem usa a credencial global.
+    const own = await prisma.googleAdsConfig.findUnique({ where: { id: ws }, select: { refreshToken: true, customerId: true } });
+    const usesGlobal = !own?.refreshToken;
+    if (usesGlobal && req.auth!.role !== 'admin' && customerId.trim() !== (own?.customerId ?? '')) {
+      return res.status(403).json({ error: 'A conta do Google Ads deste escritório é definida pelo administrador da plataforma.' });
+    }
+    data.customerId = customerId.trim();
+  }
   if (typeof customerName === 'string') data.customerName = customerName.trim();
   if (typeof conversionsEnabled === 'boolean') data.conversionsEnabled = conversionsEnabled;
   if (typeof qualifiedStageId === 'string') data.qualifiedStageId = qualifiedStageId;

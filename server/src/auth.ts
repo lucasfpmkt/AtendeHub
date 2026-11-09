@@ -29,6 +29,35 @@ export function issueToken(info: AuthInfo): string {
   return `${payload}.${sign(payload)}`;
 }
 
+/**
+ * Token só para abrir mídia (<img>/<audio> precisam do token na URL). Vale 12 h e não
+ * serve para a API: antes a URL da mídia carregava o token de sessão inteiro (7 dias),
+ * que ficava em histórico do navegador, logs e prévias.
+ */
+const MEDIA_TTL_MS = 1000 * 60 * 60 * 12;
+export function issueMediaToken(info: AuthInfo): string {
+  const payload = b64url(JSON.stringify({ ws: info.ws, scope: 'media', exp: Date.now() + MEDIA_TTL_MS }));
+  return `${payload}.${sign(payload)}`;
+}
+
+/** Cliente (workspace) autorizado a ver mídia: token de mídia OU token de sessão. */
+export function verifyMediaToken(token?: string | null): { ws: string } | null {
+  if (!token) return null;
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig) return null;
+  const expected = sign(payload);
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64').toString());
+    if (typeof data.exp !== 'number' || data.exp <= Date.now() || !data.ws) return null;
+    if (data.scope === 'media') return { ws: String(data.ws) };
+  } catch {
+    return null;
+  }
+  const session = verifyToken(token);
+  return session ? { ws: session.ws } : null;
+}
+
 /** Valida o token e devolve quem é; null se inválido ou expirado. */
 export function verifyToken(token?: string | null): AuthInfo | null {
   if (!token) return null;
@@ -41,6 +70,7 @@ export function verifyToken(token?: string | null): AuthInfo | null {
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64').toString());
     if (typeof data.exp !== 'number' || data.exp <= Date.now()) return null;
+    if (data.scope) return null; // token de mídia não abre a API
     if (!data.uid || !data.ws || (data.role !== 'admin' && data.role !== 'user')) return null;
     return { uid: data.uid, role: data.role, ws: data.ws };
   } catch {
