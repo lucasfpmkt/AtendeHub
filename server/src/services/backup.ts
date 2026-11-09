@@ -36,8 +36,11 @@ export async function backupNow(prefix = 'daily'): Promise<{ file: string; bytes
   const dir = backupDir();
   if (!dir) throw new Error('DATABASE_URL não aponta para um arquivo SQLite.');
   await mkdir(dir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
-  const file = path.join(dir, `${prefix}-${stamp}.db`);
+  // Nome com a hora de Brasília (igual ao pre-deploy do entrypoint): 2026-11-09-03-30.
+  const b = brasiliaHM();
+  const stamp = `${b.day}-${String(b.hour).padStart(2, '0')}-${String(b.minute).padStart(2, '0')}`;
+  // Manual pode acontecer duas vezes no mesmo minuto: segundos evitam "arquivo já existe".
+  const file = path.join(dir, `${prefix}-${stamp}${prefix === 'daily' ? '' : `-${String(new Date().getSeconds()).padStart(2, '0')}`}.db`);
   // VACUUM INTO não pode rodar dentro de transação; executeRawUnsafe roda solto.
   await prisma.$executeRawUnsafe(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
   const { size } = await stat(file);

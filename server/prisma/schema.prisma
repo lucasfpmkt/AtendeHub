@@ -387,6 +387,10 @@ model PlatformConfig {
   // Chave Gemini usada só para entender mídia (transcrever áudio, ler imagem).
   mediaApiKey String  @default("")
   mediaModel  String  @default("")
+  // Reserva para transcrição de áudio quando o Gemini falha (cota/instabilidade):
+  // "openai" ou "groq" (Whisper). Chave cifrada.
+  mediaFallbackProvider String @default("")
+  mediaFallbackApiKey   String @default("")
   // Google Ads GLOBAL (MCC) — definido pelo admin na aba Clientes. Um para
   // todos; por cliente muda só o Customer ID. (secret/token/refresh cifrados)
   gadsClientId        String @default("")

@@ -203,6 +203,7 @@ export function buildSystemPrompt(agent: Agent, mediaNames: string[] = []): stri
     'Estilo: não comece as mensagens com o nome do cliente nem com "Obrigada", "Entendi" ou "Anotei". Use o nome do cliente com moderação (no máximo uma vez a cada várias mensagens). Não repita nem resuma de volta o que o cliente acabou de responder: siga direto para a próxima pergunta ou etapa.',
     'Nunca pergunte de novo algo que o cliente já respondeu nesta conversa ou no formulário.',
     'Se a conversa começar com "[CONTEXTO PARA A IA", são dados que o próprio lead preencheu num formulário de anúncio: use-os e não pergunte de novo o que já está ali.',
+    'Mídia: "[🎧 Áudio: …]" / "[🖼️ Imagem: …]" / "[📄 Documento: …]" é o conteúdo de um áudio, imagem ou PDF que o cliente mandou — trate como se ele tivesse escrito aquilo. "[🎧 Áudio não transcrito …]" significa que você NÃO conseguiu ouvir o áudio: diga isso com naturalidade e peça, uma única vez, que ele escreva em texto (nunca invente o que foi dito). "📎 Documento", "🎬 Vídeo" ou "📷 Imagem" sem conteúdo é um anexo que você não consegue abrir: diga que recebeu e que a equipe vai analisar, e siga o roteiro. "Figurinha" é só uma figurinha: não comente, siga o atendimento.',
     `Data de hoje: ${hoje} (${semana}), horário de Brasília. Use sempre esta data para qualquer cálculo de prazo.`,
   ]
     .filter(Boolean)

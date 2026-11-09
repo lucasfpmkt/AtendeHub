@@ -719,6 +719,8 @@ export const api = {
       mediaHasKey: boolean;
       mediaReady: boolean;
       mediaModel: string;
+      mediaFallbackProvider: string;
+      mediaFallbackHasKey: boolean;
       gadsClientId: string;
       gadsLoginCustomerId: string;
       gadsHasSecret: boolean;
@@ -745,6 +747,9 @@ export const api = {
     mediaApiKey?: string;
     mediaModel?: string;
     clearMediaKey?: boolean;
+    mediaFallbackProvider?: string;
+    mediaFallbackApiKey?: string;
+    clearMediaFallbackKey?: boolean;
     gadsClientId?: string;
     gadsClientSecret?: string;
     gadsDeveloperToken?: string;
@@ -762,6 +767,7 @@ export const api = {
       crmConnected: boolean;
       crmHasKey: boolean;
       mediaHasKey: boolean;
+      mediaFallbackHasKey: boolean;
       mediaReady: boolean;
       gadsReady: boolean;
       gadsOauthReady: boolean;

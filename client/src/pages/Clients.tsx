@@ -425,6 +425,9 @@ function PlatformAI() {
   const [mediaModel, setMediaModel] = useState('');
   const [mediaHasKey, setMediaHasKey] = useState(false);
   const [mediaReady, setMediaReady] = useState(false);
+  const [mediaFbProvider, setMediaFbProvider] = useState('');
+  const [mediaFbKey, setMediaFbKey] = useState('');
+  const [mediaFbHasKey, setMediaFbHasKey] = useState(false);
   const [mediaMsg, setMediaMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Google Ads global (MCC)
   const [gadsClientId, setGadsClientId] = useState('');
@@ -459,6 +462,8 @@ function PlatformAI() {
       setMediaHasKey(c.mediaHasKey);
       setMediaReady(c.mediaReady);
       setMediaModel(c.mediaModel || '');
+      setMediaFbProvider(c.mediaFallbackProvider || '');
+      setMediaFbHasKey(c.mediaFallbackHasKey);
       setGadsClientId(c.gadsClientId || '');
       setGadsLoginCustomerId(c.gadsLoginCustomerId || '');
       setGadsHas({ secret: c.gadsHasSecret, dev: c.gadsHasDeveloperToken, refresh: c.gadsHasRefreshToken });
@@ -491,10 +496,14 @@ function PlatformAI() {
     const r = await api.adminUpdateAi({
       ...(mediaApiKey.trim() ? { mediaApiKey: mediaApiKey.trim() } : {}),
       mediaModel,
+      mediaFallbackProvider: mediaFbProvider,
+      ...(mediaFbKey.trim() ? { mediaFallbackApiKey: mediaFbKey.trim() } : {}),
     });
     setMediaHasKey(r.mediaHasKey);
     setMediaReady(r.mediaReady);
+    setMediaFbHasKey(r.mediaFallbackHasKey);
     setMediaApiKey('');
+    setMediaFbKey('');
     setMediaMsg({ ok: true, text: r.mediaReady ? 'Salvo — IA já entende áudio e imagem.' : 'Salvo.' });
   };
 
@@ -627,6 +636,44 @@ function PlatformAI() {
           <div className="field-sm">
             <span>Modelo</span>
             <input value={mediaModel} onChange={(e) => setMediaModel(e.target.value)} placeholder="gemini-2.5-flash" />
+          </div>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>
+          <b>Reserva para áudio:</b> se o Gemini falhar (cota do plano grátis, instabilidade), a transcrição passa para o Whisper da
+          OpenAI ou da Groq. Imagens e PDFs já caem para a IA dos agentes automaticamente. Sem reserva, o lead recebe um pedido
+          para escrever em texto.
+        </p>
+        <div className="duo">
+          <div className="field-sm">
+            <span>Provedor reserva (áudio)</span>
+            <select value={mediaFbProvider} onChange={(e) => setMediaFbProvider(e.target.value)}>
+              <option value="">Nenhum</option>
+              <option value="groq">Groq · Whisper (grátis até certo volume)</option>
+              <option value="openai">OpenAI · Whisper</option>
+            </select>
+          </div>
+          <div className="field-sm">
+            <span>
+              Chave reserva{' '}
+              {mediaFbProvider === 'groq' && (
+                <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="small">
+                  (onde pegar)
+                </a>
+              )}
+              {mediaFbProvider === 'openai' && (
+                <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="small">
+                  (onde pegar)
+                </a>
+              )}
+            </span>
+            <input
+              type="password"
+              value={mediaFbKey}
+              onChange={(e) => setMediaFbKey(e.target.value)}
+              placeholder={mediaFbHasKey ? '•••••••• (salva)' : 'cole a chave'}
+              disabled={!mediaFbProvider}
+              autoComplete="new-password" data-lpignore="true" data-1p-ignore="true"
+            />
           </div>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>

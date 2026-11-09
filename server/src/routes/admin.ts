@@ -26,12 +26,13 @@ adminRouter.get('/ai', requireMaster, async (_req, res) => {
     googleGlobalReady(),
     googleOauthReady(),
   ]);
-  const { apiKey, crmApiKey, mediaApiKey, gadsClientSecret, gadsDeveloperToken, gadsRefreshToken, ...safe } = cfg;
+  const { apiKey, crmApiKey, mediaApiKey, mediaFallbackApiKey, gadsClientSecret, gadsDeveloperToken, gadsRefreshToken, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
     crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
     mediaHasKey: Boolean(mediaApiKey && mediaApiKey.trim()),
+    mediaFallbackHasKey: Boolean(mediaFallbackApiKey && mediaFallbackApiKey.trim()),
     mediaReady,
     gadsHasSecret: Boolean(gadsClientSecret),
     gadsHasDeveloperToken: Boolean(gadsDeveloperToken),
@@ -53,12 +54,13 @@ adminRouter.patch('/ai', requireMaster, async (req, res) => {
     googleGlobalReady(),
     googleOauthReady(),
   ]);
-  const { apiKey, crmApiKey, mediaApiKey, gadsClientSecret, gadsDeveloperToken, gadsRefreshToken, ...safe } = cfg;
+  const { apiKey, crmApiKey, mediaApiKey, mediaFallbackApiKey, gadsClientSecret, gadsDeveloperToken, gadsRefreshToken, ...safe } = cfg;
   res.json({
     ...safe,
     hasKey: Boolean(apiKey && apiKey.trim()),
     crmHasKey: Boolean(crmApiKey && crmApiKey.trim()),
     mediaHasKey: Boolean(mediaApiKey && mediaApiKey.trim()),
+    mediaFallbackHasKey: Boolean(mediaFallbackApiKey && mediaFallbackApiKey.trim()),
     mediaReady,
     gadsHasSecret: Boolean(gadsClientSecret),
     gadsHasDeveloperToken: Boolean(gadsDeveloperToken),

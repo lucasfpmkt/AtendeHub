@@ -21,6 +21,9 @@ export type PlatformPatch = {
   mediaApiKey?: string;
   mediaModel?: string;
   clearMediaKey?: boolean;
+  mediaFallbackProvider?: string;
+  mediaFallbackApiKey?: string;
+  clearMediaFallbackKey?: boolean;
   // Google Ads global (MCC)
   gadsClientId?: string;
   gadsClientSecret?: string;
@@ -51,6 +54,9 @@ export async function updatePlatformConfig(data: PlatformPatch) {
   if (typeof data.mediaModel === 'string') patch.mediaModel = data.mediaModel.trim();
   if (data.clearMediaKey) patch.mediaApiKey = '';
   else if (typeof data.mediaApiKey === 'string' && data.mediaApiKey.trim()) patch.mediaApiKey = enc(data.mediaApiKey.trim());
+  if (typeof data.mediaFallbackProvider === 'string') patch.mediaFallbackProvider = ['openai', 'groq'].includes(data.mediaFallbackProvider.trim()) ? data.mediaFallbackProvider.trim() : '';
+  if (data.clearMediaFallbackKey) patch.mediaFallbackApiKey = '';
+  else if (typeof data.mediaFallbackApiKey === 'string' && data.mediaFallbackApiKey.trim()) patch.mediaFallbackApiKey = enc(data.mediaFallbackApiKey.trim());
 
   // Google Ads global (MCC)
   if (typeof data.gadsClientId === 'string') patch.gadsClientId = data.gadsClientId.trim();

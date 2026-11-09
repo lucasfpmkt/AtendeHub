@@ -1,10 +1,10 @@
 import { prisma } from '../db.js';
 import { canonicalJid } from './leadForms.js';
 import { emit } from '../realtime.js';
-import { saveMedia, type MediaKind } from '../whatsapp/media.js';
+import { saveMedia, kindLabel, type MediaKind } from '../whatsapp/media.js';
 import { maybeFireQualifiedLead } from './metaAds.js';
 import { maybeFireGoogleConversion } from './googleAds.js';
-import { understandMedia } from './mediaAI.js';
+import { understandMedia, canUnderstand } from './mediaAI.js';
 import { notifyQualifiedLead, notifyTeamWhatsApp } from './leadNotify.js';
 
 /** Mídia recebida/enviada já baixada em memória. */
@@ -193,8 +193,16 @@ export async function recordOutgoingMessage(params: {
     });
   }
 
+  // Áudio do advogado em conversa com IA: transcreve, para a IA (e a análise de
+  // atendimento) saberem o que foi combinado quando retomarem.
+  let outBody = body;
+  if (media?.kind === 'audio' && conversation.aiEnabled) {
+    const u = await understandMedia(media);
+    if (u.status === 'ok' && u.text) outBody = body.trim() && body.trim() !== kindLabel('audio') ? `${body}\n\n[🎧 Áudio: ${u.text}]` : `[🎧 Áudio] ${u.text}`;
+  }
+
   const message = await prisma.message.create({
-    data: { conversationId: conversation.id, direction: 'out', author: 'agent', body, waMessageId, ...(await mediaFields(ws, media)) },
+    data: { conversationId: conversation.id, direction: 'out', author: 'agent', body: outBody, waMessageId, ...(await mediaFields(ws, media)) },
   });
 
   // Resposta automática do WhatsApp Business (saudação/ausência) ou de outro sistema
@@ -423,6 +431,22 @@ export async function reclassifyAllStages(ws: string): Promise<number> {
   return ids.length;
 }
 
+/**
+ * Texto que representa uma mídia recebida: legenda + transcrição/leitura, ou um rótulo
+ * claro de falha. "[🎧 Áudio não transcrito]" é lido pela IA como pedido para o lead
+ * escrever; "📎 Documento"/"🎬 Vídeo" como anexo que o advogado vai abrir.
+ */
+export async function describeInboundMedia(body: string, media: InboundMedia): Promise<string> {
+  const caption = body.trim() === kindLabel(media.kind) ? '' : body.trim();
+  const tag = media.kind === 'audio' ? '🎧 Áudio' : media.kind === 'image' ? '🖼️ Imagem' : '📄 Documento';
+  if (!canUnderstand(media)) return caption ? `${caption}\n${kindLabel(media.kind)}` : kindLabel(media.kind);
+  const u = await understandMedia(media);
+  if (u.status === 'ok' && u.text) return caption ? `${caption}\n\n[${tag}: ${u.text}]` : `[${tag}] ${u.text}`;
+  const why = u.status === 'unconfigured' ? 'sem IA de mídia configurada' : 'não foi possível ouvir/ler o arquivo';
+  const label = `[${tag} não transcrito — ${why}]`;
+  return caption ? `${caption}\n${label}` : label;
+}
+
 /** Processa uma mensagem recebida do WhatsApp. */
 type InboundParams = {
   workspaceId: string;
@@ -458,16 +482,10 @@ async function handleInboundMessageNow(params: InboundParams) {
     if (already) return;
   }
 
-  // Entende áudio/imagem com o Gemini e usa o texto resultante em tudo
-  // (triagem, resposta da IA, CRM). Se não houver chave de mídia, fica vazio.
-  let text = body ?? '';
-  if (media && (media.kind === 'audio' || media.kind === 'image')) {
-    const understood = await understandMedia(media);
-    if (understood) {
-      const tag = media.kind === 'audio' ? '🎧 Áudio' : '🖼️ Imagem';
-      text = text.trim() ? `${text}\n\n[${tag}: ${understood}]` : `[${tag}] ${understood}`;
-    }
-  }
+  // Entende áudio/imagem/PDF e usa o texto resultante em tudo (triagem, resposta da
+  // IA, CRM). Quando não dá, o rótulo diz isso explicitamente, para a IA pedir ao lead
+  // que escreva em vez de responder a um "🎤 Áudio" como se fosse texto.
+  let text = media ? await describeInboundMedia(body ?? '', media) : (body ?? '');
 
   const jid = await canonicalJid(ws, waJid); // mesmo contato com/sem 9º dígito
   const phone = phoneFromJid(jid);
