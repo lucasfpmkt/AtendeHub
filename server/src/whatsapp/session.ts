@@ -67,14 +67,19 @@ async function waVersion(): Promise<[number, number, number] | undefined> {
   }
 }
 
-/** creds.json de um pareamento que nunca terminou (QR não lido): não vale reabrir sozinho. */
+/**
+ * creds.json de um pareamento que nunca terminou (QR não lido): não vale reabrir sozinho.
+ * Critério: `me.id` só existe depois do pareamento. (`registered` NÃO serve: no login por
+ * QR/código o Baileys deixa `registered: false` mesmo com a sessão válida.)
+ */
 async function credsRegistered(dir: string): Promise<boolean> {
   try {
     const { readFile } = await import('node:fs/promises');
     const j = JSON.parse(await readFile(path.join(dir, 'creds.json'), 'utf8'));
-    return j?.registered !== false && Boolean(j?.me?.id);
+    // Nunca pareou: sem identidade nem conta. Qualquer outro caso reabre como sempre fez.
+    return Boolean(j?.me?.id || j?.account || j?.me);
   } catch {
-    return false;
+    return true; // na dúvida, reabre
   }
 }
 
