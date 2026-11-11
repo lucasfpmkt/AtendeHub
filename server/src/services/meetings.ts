@@ -10,7 +10,11 @@
  * atualizado. Evento criado ou movido à mão na Agenda (source "manual") não é tocado.
  * Também roda em lote para conversas antigas (backfillMeetings).
  */
+import { existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { prisma } from '../db.js';
+import { backupDir } from './backup.js';
 import { emit } from '../realtime.js';
 import { resolveCrmLlm, resolveLlm } from './llm.js';
 import { extractJson } from './llmJson.js';
@@ -173,4 +177,19 @@ export async function backfillMeetings(scope: 'forms' | 'all' = 'forms', days = 
     backfillRunning = false;
     console.log(`[agenda] lote concluído: ${JSON.stringify(lastBackfill)}`);
   }
+}
+
+/**
+ * Lote único das conversas antigas de formulário, logo após o deploy que trouxe esta
+ * função (marcador em <pasta do banco>/backups/.agenda-backfill-v1 para não repetir).
+ */
+export function startMeetingsBackfillOnce() {
+  const dir = backupDir();
+  if (!dir) return;
+  const marker = path.join(dir, '.agenda-backfill-v1');
+  if (existsSync(marker)) return;
+  setTimeout(async () => {
+    await backfillMeetings('forms', 120).catch((e) => console.error('[agenda] lote inicial:', (e as Error).message));
+    await writeFile(marker, JSON.stringify(lastBackfill)).catch(() => {});
+  }, 3 * 60_000);
 }

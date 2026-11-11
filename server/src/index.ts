@@ -35,6 +35,7 @@ import { startLeadFormsLoop } from './services/leadForms.js';
 import { startAlertsLoop } from './services/alerts.js';
 import { startBackupLoop } from './services/backup.js';
 import { startAvatarLoop, avatarFilePath } from './services/avatars.js';
+import { startMeetingsBackfillOnce } from './services/meetings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -210,4 +211,5 @@ server.listen(env.port, async () => {
   startAlertsLoop(); // leads esperando resposta: avisa o escritório a cada 5 min (horário comercial)
   startBackupLoop(); // cópia de segurança do banco todo dia às 3h30
   startAvatarLoop(); // fotos de perfil dos contatos (WhatsApp por QR)
+  startMeetingsBackfillOnce(); // reuniões das conversas antigas de formulário → Agenda (1 vez)
 });
