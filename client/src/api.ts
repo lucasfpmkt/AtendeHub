@@ -177,6 +177,8 @@ export interface Conversation {
   unread: number;
   lastMessageAt: string;
   messages?: Message[];
+  /** Quando o lead foi marcado como Perdido (conversa na aba Perdidos). */
+  lostAt?: string | null;
 }
 
 export interface Funnel {
@@ -548,6 +550,14 @@ export const api = {
     req<Funnel>(`/funnels/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deleteFunnel: (id: string) => req(`/funnels/${id}`, { method: 'DELETE' }),
   board: (funnelId: string) => req<Board>(`/funnels/${funnelId}/board`),
+  // Reativação de leads antigos
+  reactivation: () => req<{ job: ReactivationJob | null }>('/reactivation'),
+  reactivationCreate: (data: { stageIds: string[]; minDays: number; maxDays: number; limit: number }) =>
+    req<{ job: ReactivationJob }>('/reactivation', { method: 'POST', body: JSON.stringify(data) }),
+  reactivationItem: (id: string, data: { text?: string; status?: 'pending' | 'excluded' }) =>
+    req<ReactivationItem>(`/reactivation/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  reactivationAction: (id: string, action: 'start' | 'pause' | 'cancel', perHour?: number) =>
+    req<{ job: ReactivationJob | null }>(`/reactivation/${id}/${action}`, { method: 'POST', body: JSON.stringify({ perHour }) }),
   stages: () => req<{ id: string; name: string; color: string; funnelId: string; funnelName: string }[]>('/stages'),
   exportFunnel: async (funnelId: string): Promise<Blob> => {
     const token = getToken();
@@ -969,3 +979,25 @@ export const api = {
       campaigns?: { name: string; status: string }[];
     }>('/ads/google/summary'),
 };
+
+export interface ReactivationItem {
+  id: string;
+  conversationId: string;
+  contactId: string;
+  name: string;
+  lastActivity?: string | null;
+  context: string;
+  text: string;
+  status: 'pending' | 'sent' | 'skipped' | 'failed' | 'excluded';
+  note: string;
+  sentAt?: string | null;
+}
+export interface ReactivationJob {
+  id: string;
+  status: 'generating' | 'draft' | 'running' | 'paused' | 'done' | 'canceled';
+  perHour: number;
+  filters: { stageIds?: string[]; minDays?: number; maxDays?: number; limit?: number };
+  createdAt: string;
+  items: ReactivationItem[];
+  counts: { pending: number; sent: number; excluded: number; skipped: number; failed: number };
+}

@@ -91,6 +91,8 @@ model Conversation {
   @@index([workspaceId, lastMessageAt])
   @@index([contactId, status])
   @@index([aiEnabled, lastMessageAt])
+  // Lead marcado como Perdido (pela equipe ou pela IA): conversa finalizada e listada na aba Perdidos.
+  lostAt DateTime?
 }
 
 /// Um agente de IA. Pode ser de triagem (recebe tudo e roteia) ou de tema
@@ -504,4 +506,38 @@ model LeadFormEntry {
   createdAt   DateTime @default(now())
   @@unique([workspaceId, externalId])
   @@index([workspaceId, createdAt])
+}
+
+// Reativação de leads antigos: a IA escreve uma mensagem personalizada por lead
+// (rascunho revisável), e o envio sai aos poucos em horário comercial.
+model ReactivationJob {
+  id          String   @id @default(cuid())
+  workspaceId String
+  status      String   @default("generating") // generating | draft | running | paused | done | canceled
+  perHour     Int      @default(20)
+  filters     String   @default("{}") // JSON: etapas, dias parado, limite
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  items       ReactivationItem[]
+
+  @@index([workspaceId, status])
+}
+
+model ReactivationItem {
+  id             String   @id @default(cuid())
+  jobId          String
+  job            ReactivationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  workspaceId    String
+  conversationId String
+  contactId      String
+  name           String   @default("")
+  lastActivity   DateTime?
+  context        String   @default("") // resumo curto da conversa (para a revisão)
+  text           String   @default("")
+  status         String   @default("pending") // pending | sent | skipped | failed | excluded
+  note           String   @default("")
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([jobId, status])
 }

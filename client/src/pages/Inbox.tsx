@@ -4,13 +4,14 @@ import { socket } from '../socket';
 import { Icon } from '../icons';
 import { ContactAvatar } from '../components/ContactAvatar';
 
-type Filter = 'open' | 'ai' | 'unread' | 'closed';
+type Filter = 'open' | 'ai' | 'unread' | 'closed' | 'lost';
 
 const FILTERS: { id: Filter; label: string; test: (c: Conversation) => boolean }[] = [
   { id: 'open', label: 'Geral', test: (c) => c.status !== 'closed' },
   { id: 'ai', label: 'IA', test: (c) => c.status !== 'closed' && c.aiEnabled },
   { id: 'unread', label: 'Não lidas', test: (c) => (c.unread ?? 0) > 0 },
-  { id: 'closed', label: 'Fechadas', test: (c) => c.status === 'closed' },
+  { id: 'closed', label: 'Fechadas', test: (c) => c.status === 'closed' && !c.lostAt },
+  { id: 'lost', label: 'Perdidos', test: (c) => c.status === 'closed' && Boolean(c.lostAt) },
 ];
 
 const hm = (iso: string) => {
@@ -108,7 +109,7 @@ export function Inbox({
     if (!focusContactId) return;
     const conv = conversations.find((c) => c.contact?.id === focusContactId);
     if (conv) {
-      setFilter(conv.status === 'closed' ? 'closed' : 'open');
+      setFilter(conv.status === 'closed' ? (conv.lostAt ? 'lost' : 'closed') : 'open');
       setActiveId(conv.id);
       onFocusConsumed?.();
     }

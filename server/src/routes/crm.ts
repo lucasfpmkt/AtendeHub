@@ -201,6 +201,8 @@ crmRouter.patch('/conversations/:id', async (req, res) => {
     data: {
       aiEnabled,
       status,
+      // Reabrir tira da aba Perdidos.
+      ...(status === 'open' ? { lostAt: null } : {}),
       // Escolher um agente manualmente já devolve a conversa para a IA; null desvincula.
       ...(assignedAgentId !== undefined
         ? { assignedAgentId: assignedAgentId || null, aiEnabled: aiEnabled ?? Boolean(assignedAgentId) }

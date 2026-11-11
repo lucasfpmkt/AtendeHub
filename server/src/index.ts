@@ -36,6 +36,9 @@ import { startAlertsLoop } from './services/alerts.js';
 import { startBackupLoop } from './services/backup.js';
 import { startAvatarLoop, avatarFilePath } from './services/avatars.js';
 import { startMeetingsBackfillOnce } from './services/meetings.js';
+import { startReactivationLoop } from './services/reactivation.js';
+import { startLostBackfillOnce } from './services/lostBackfill.js';
+import { reactivationRouter } from './routes/reactivation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -137,6 +140,7 @@ app.use('/api', requireAuth, crmRouter);
 app.use('/api/ai', requireAuth, aiRouter);
 app.use('/api/agents', requireAuth, agentsRouter);
 app.use('/api/campaigns', requireAuth, campaignsRouter);
+app.use('/api/reactivation', requireAuth, reactivationRouter);
 app.use('/api/ads', requireAuth, adsRouter);
 app.use('/api/attendance', requireAuth, attendanceRouter);
 app.use('/api/leadforms', requireAuth, leadFormsRouter);
@@ -211,5 +215,7 @@ server.listen(env.port, async () => {
   startAlertsLoop(); // leads esperando resposta: avisa o escritório a cada 5 min (horário comercial)
   startBackupLoop(); // cópia de segurança do banco todo dia às 3h30
   startAvatarLoop(); // fotos de perfil dos contatos (WhatsApp por QR)
+  startReactivationLoop(); // reativação de leads antigos (envio aos poucos)
+  startLostBackfillOnce(); // leads já em Perdido → conversas finalizadas (1 vez)
   startMeetingsBackfillOnce(); // reuniões das conversas antigas de formulário → Agenda (1 vez)
 });

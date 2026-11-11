@@ -1088,7 +1088,27 @@ async function applyStage(ws: string, conversationId: string, stageRef: string, 
  * a da etapa de destino. Etiquetas manuais (que não são de nenhuma etapa) são
  * preservadas. Chamado por todos os caminhos que mudam a etapa (IA, CRM, etc.).
  */
-export async function syncStageTag(ws: string, contactId: string, stageId: string | null | undefined) {
+/**
+ * Lead foi para uma etapa "Perdido" (arrastado pela equipe, pela IA do roteiro, pela
+ * IA do CRM ou pela resposta a um follow-up): finaliza as conversas abertas dele, pausa a
+ * IA e marca `lostAt` — a conversa passa a aparecer na aba Perdidos. Se o lead escrever
+ * de novo, nasce uma conversa nova e ele volta ao atendimento normal.
+ */
+export async function finalizeIfLost(ws: string, contactId: string, stageId: string | null | undefined) {
+  if (!stageId) return;
+  const stage = await prisma.pipelineStage.findFirst({ where: { id: stageId, workspaceId: ws }, select: { name: true } });
+  if (!stage || !/perdid/i.test(stage.name)) return;
+  const open = await prisma.conversation.findMany({ where: { workspaceId: ws, contactId, status: { not: 'closed' } }, select: { id: true } });
+  for (const c of open) {
+    cancelPendingReply(c.id);
+    const updated = await prisma.conversation.update({ where: { id: c.id }, data: { status: 'closed', lostAt: new Date(), aiEnabled: false, aiPausedBy: 'manual' } });
+    emit(ws, { type: 'conversation:update', conversation: updated });
+    await systemNote(ws, c.id, `Lead marcado como "${stage.name}": conversa finalizada e movida para a aba Perdidos.`).catch(() => {});
+  }
+}
+
+export async function syncStageTag(ws: string, contactId: string, stageId: string | null | undefined, opts: { finalize?: boolean } = {}) {
+  if (opts.finalize !== false) await finalizeIfLost(ws, contactId, stageId).catch((e) => console.error('[perdido] finalizar falhou:', (e as Error).message));
   const stages = await prisma.pipelineStage.findMany({ where: { workspaceId: ws }, select: { id: true, autoTag: true } });
   const stageTagNorms = new Set(stages.map((s) => s.autoTag?.trim()).filter(Boolean).map((t) => normalize(t!)));
   const newTag = (stageId ? stages.find((s) => s.id === stageId)?.autoTag : '')?.trim() || '';
@@ -1172,7 +1192,7 @@ export async function backfillStageTags() {
   } else {
     return;
   }
-  for (const c of toSync) await syncStageTag(c.workspaceId, c.id, c.stageId).catch(() => {});
+  for (const c of toSync) await syncStageTag(c.workspaceId, c.id, c.stageId, { finalize: false }).catch(() => {});
   console.log(`[crm] etapas alinhadas ao negócio (${touched.size}) e ${toSync.length} contatos re-sincronizados.`);
 }
 

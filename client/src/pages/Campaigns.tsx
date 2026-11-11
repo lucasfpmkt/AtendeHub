@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type Stage, type Tag } from '../api';
 import { Icon } from '../icons';
+import { Reactivation } from './Reactivation';
 
 type Aud = 'all' | 'tag' | 'stage';
 
@@ -82,6 +83,8 @@ export function Campaigns({ connected }: { connected: boolean }) {
           Conecte o WhatsApp para disparar campanhas.
         </div>
       )}
+
+      <Reactivation connected={connected} />
 
       <div className="grid2">
         <div className="card stack">
