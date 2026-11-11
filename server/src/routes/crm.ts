@@ -6,6 +6,7 @@ import { wsOf } from '../auth.js';
 import { sendFromConversation } from '../whatsapp/session.js';
 import { mediaFilePath } from '../whatsapp/media.js';
 import { createFunnelWithDefaults } from '../services/crmSeed.js';
+import { onMessageForMeetings } from '../services/meetings.js';
 import { resolveLlm } from '../services/llm.js';
 import { askJson, extractJson } from '../services/llmJson.js';
 import { cancelPendingReply, systemNote, syncStageTag, kickAI, AI_RESUME_MIN } from '../services/inbound.js';
@@ -168,6 +169,7 @@ crmRouter.post('/conversations/:id/messages', async (req, res) => {
   if (!text) return res.status(400).json({ error: 'texto vazio' });
   try {
     const message = await sendFromConversation(ws, req.params.id, text);
+    onMessageForMeetings(ws, req.params.id, text); // reunião combinada → Agenda
     // Quando alguém da equipe responde, a IA para nesta conversa (evita os dois falando).
     const conv = await prisma.conversation.findFirst({ where: { id: req.params.id, workspaceId: ws } });
     if (conv?.aiEnabled) {

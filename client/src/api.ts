@@ -400,6 +400,9 @@ export interface CalEvent {
   end: string;
   kind: 'meet' | 'int';
   notes?: string | null;
+  /** Reunião com lead: contato de origem e quem registrou ("auto" = IA, "manual" = ajustada à mão). */
+  contactId?: string | null;
+  source?: string;
 }
 
 export interface QuickReply {

@@ -11,6 +11,7 @@ import { mediaUnderstandingReady } from '../services/mediaAI.js';
 import { googleGlobalReady, googleOauthReady } from '../services/googleAds.js';
 import { reclassifyAllStages } from '../services/inbound.js';
 import { alertAdmin } from '../services/alerts.js';
+import { backfillMeetings, backfillStatus } from '../services/meetings.js';
 import { backupDir, backupNow, listBackups } from '../services/backup.js';
 
 /** Painel do administrador: todos os clientes (workspaces) e seus acessos. */
@@ -97,6 +98,14 @@ adminRouter.post('/alerts/test', requireMaster, async (_req, res) => {
   }
   res.json({ ok: true });
 });
+
+adminRouter.post('/agenda/backfill', requireMaster, async (req, res) => {
+  const scope = req.body?.scope === 'all' ? 'all' : 'forms';
+  const days = Math.min(365, Math.max(7, Number(req.body?.days) || 120));
+  void backfillMeetings(scope, days);
+  res.json({ ok: true, started: true, scope, days });
+});
+adminRouter.get('/agenda/backfill', requireMaster, (_req, res) => res.json(backfillStatus()));
 
 adminRouter.get('/backups', requireMaster, async (_req, res) => {
   res.json({ dir: backupDir(), items: await listBackups() });

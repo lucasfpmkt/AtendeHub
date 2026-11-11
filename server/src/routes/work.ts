@@ -74,7 +74,13 @@ workRouter.post('/events', async (req, res) => {
     }),
   );
 });
-workRouter.patch('/events/:id', (req, res) => scopedUpdate(req, res, 'event', pick(req.body ?? {}, EVENT_KEYS)));
+workRouter.patch('/events/:id', async (req, res) => {
+  // Reunião registrada pela IA e ajustada à mão: a IA não remarca mais por cima.
+  const data = pick(req.body ?? {}, EVENT_KEYS) as Record<string, unknown>;
+  const ev = await prisma.event.findFirst({ where: { id: req.params.id, workspaceId: wsOf(req) }, select: { source: true } });
+  if (ev?.source === 'auto' && ('date' in data || 'start' in data || 'end' in data)) data.source = 'manual';
+  return scopedUpdate(req, res, 'event', data);
+});
 workRouter.delete('/events/:id', async (req, res) => {
   const r = await prisma.event.deleteMany({ where: { id: req.params.id, workspaceId: wsOf(req) } });
   res.json({ ok: r.count > 0 });

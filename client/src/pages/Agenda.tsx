@@ -28,7 +28,7 @@ const toH = (hm: string) => {
 
 type Mode = 'week' | 'month' | 'list';
 
-export function Agenda() {
+export function Agenda({ onOpenContact }: { onOpenContact?: (contactId: string) => void } = {}) {
   const [mode, setMode] = useState<Mode>('week');
   const [ref, setRef] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -240,6 +240,7 @@ export function Agenda() {
         <EventModal
           event={editing}
           onClose={() => setEditing(null)}
+          onOpenContact={onOpenContact}
           onSaved={() => {
             setEditing(null);
             load();
@@ -269,7 +270,7 @@ function Row({ hour, weekStart, onPick }: { hour: number; weekStart: Date; onPic
   );
 }
 
-function EventModal({ event, onClose, onSaved }: { event: Partial<CalEvent>; onClose: () => void; onSaved: () => void }) {
+function EventModal({ event, onClose, onSaved, onOpenContact }: { event: Partial<CalEvent>; onClose: () => void; onSaved: () => void; onOpenContact?: (contactId: string) => void }) {
   const [e, setE] = useState<Partial<CalEvent>>(event);
   const [err, setErr] = useState('');
   const isNew = !event.id;
@@ -321,6 +322,14 @@ function EventModal({ event, onClose, onSaved }: { event: Partial<CalEvent>; onC
           <label htmlFor="ev-notes">Anotações</label>
           <textarea id="ev-notes" rows={2} value={e.notes ?? ''} onChange={(x) => set('notes', x.target.value)} />
         </div>
+        {event.contactId && onOpenContact && (
+          <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="sm" onClick={() => onOpenContact(event.contactId!)}>
+              <Icon name="chat" /> Abrir conversa do lead
+            </button>
+            {event.source === 'auto' && <span className="muted small">Registrada pela IA a partir da conversa.</span>}
+          </div>
+        )}
         {err && <div className="alert">{err}</div>}
         <div className="modal-actions">
           {!isNew && (

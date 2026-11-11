@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
 import { queueAvatar } from './avatars.js';
+import { onMessageForMeetings } from './meetings.js';
 import { canonicalJid } from './leadForms.js';
 import { emit } from '../realtime.js';
 import { saveMedia, kindLabel, type MediaKind } from '../whatsapp/media.js';
@@ -237,6 +238,7 @@ export async function recordOutgoingMessage(params: {
   const message = await prisma.message.create({
     data: { conversationId: conversation.id, direction: 'out', author: 'agent', body: outBody, waMessageId, ...(await mediaFields(ws, media)) },
   });
+  onMessageForMeetings(ws, conversation.id, outBody);
 
   // Resposta automática do WhatsApp Business (saudação/ausência) ou de outro sistema
   // no mesmo número: sai segundos depois da mensagem do lead, no começo da conversa
@@ -557,6 +559,7 @@ async function handleInboundMessageNow(params: InboundParams) {
   const message = await prisma.message.create({
     data: { conversationId: conversation.id, direction: 'in', author: 'contact', body: text, waMessageId, ...(await mediaFields(ws, media)) },
   });
+  onMessageForMeetings(ws, conversation.id, text); // reunião combinada → Agenda
 
   // Resposta a um follow-up dizendo que não tem interesse / já fechou com outro: Perdido no CRM.
   void lostAfterFollowup(ws, conversation.id, text, message.createdAt).catch((e) =>
@@ -937,6 +940,7 @@ async function deliver(ws: string, conversationId: string, text: string, sendTex
   const outMsg = await prisma.message.create({
     data: { conversationId, direction: 'out', author: 'ai', body: text, waMessageId },
   });
+  onMessageForMeetings(ws, conversationId, text);
   await prisma.conversation.update({
     where: { id: conversationId },
     data: { lastMessageAt: new Date() },

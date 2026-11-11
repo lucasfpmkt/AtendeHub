@@ -205,7 +205,14 @@ model Event {
   end       String // HH:MM
   kind      String   @default("meet") // meet (com cliente) | int (interna)
   notes     String?
+  // Reunião com lead: contato/conversa de origem. source: "" (criada na Agenda),
+  // "auto" (lida da conversa pela IA) ou "manual" (automática ajustada à mão — a IA não mexe mais).
+  contactId      String?
+  conversationId String?
+  source         String   @default("")
   createdAt DateTime @default(now())
+
+  @@index([workspaceId, conversationId])
 }
 
 /// Mensagem rápida: digite o atalho (ex.: /docs) no chat.
