@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { queueAvatar } from './avatars.js';
 import { canonicalJid } from './leadForms.js';
 import { emit } from '../realtime.js';
 import { saveMedia, kindLabel, type MediaKind } from '../whatsapp/media.js';
@@ -520,6 +521,7 @@ async function handleInboundMessageNow(params: InboundParams) {
     update: pushName && !(await hasFormName(ws, jid)) ? { name: pushName } : {},
     create: { workspaceId: ws, waJid: jid, phone, name: pushName || null },
   });
+  queueAvatar(ws, contact.id, contact.avatarUrl); // foto de perfil (em segundo plano)
 
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: ws, contactId: contact.id, status: { not: 'closed' } },

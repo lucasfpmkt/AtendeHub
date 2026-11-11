@@ -320,6 +320,8 @@ button.pill { cursor: pointer; }
 .rail-user { display: flex; align-items: center; gap: 10px; padding: 6px 4px 0; }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 12.5px; color: #fff; background: var(--p-600); flex: none; }
 .avatar.gray { background: var(--g-200); color: var(--g-700); }
+.avatar.has-photo { background: var(--g-200); overflow: hidden; padding: 0; }
+.avatar.has-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* --------------------------- submenu (coluna 2) ------------------------ */
 .split { display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; }

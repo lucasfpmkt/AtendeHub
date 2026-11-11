@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type Agent, type Conversation, type Message, type QuickReply, type Tag } from '../api';
 import { socket } from '../socket';
 import { Icon } from '../icons';
+import { ContactAvatar } from '../components/ContactAvatar';
 
 type Filter = 'open' | 'ai' | 'unread' | 'closed';
 
@@ -128,9 +129,11 @@ export function Inbox({
     };
     socket.on('message:new', onNew);
     socket.on('conversation:update', reloadSoon);
+    socket.on('contact:update', reloadSoon);
     return () => {
       socket.off('message:new', onNew);
       socket.off('conversation:update', reloadSoon);
+      socket.off('contact:update', reloadSoon);
       if (reloadTimer.current) clearTimeout(reloadTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -374,7 +377,7 @@ export function Inbox({
             const last = c.messages?.[0];
             return (
               <button key={c.id} className={`conv-item ${c.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(c.id)}>
-                <span className="avatar">{initials(name)}</span>
+                <ContactAvatar contact={c.contact} label={initials(name)} />
                 <span className="conv-body">
                   <span className="conv-top">
                     <span className="name">{name}</span>
@@ -447,7 +450,7 @@ export function Inbox({
               <button className="icon-btn back" onClick={() => setActiveId(null)} aria-label="Voltar à lista">
                 <Icon name="left" />
               </button>
-              <span className="avatar">{initials(active.contact.name || active.contact.phone)}</span>
+              <ContactAvatar contact={active.contact} label={initials(active.contact.name || active.contact.phone)} />
               <div style={{ minWidth: 0 }}>
                 <strong>{active.contact.name || active.contact.phone}</strong>
                 <div className="muted mono small">{active.contact.phone}</div>

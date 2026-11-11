@@ -738,6 +738,39 @@ export async function humanizeBeforeSend(ws: string, jid: string, text: string, 
   }
 }
 
+/**
+ * Foto de perfil do contato (só WhatsApp por QR; a API Oficial não fornece).
+ * Devolve a imagem, `null` quando o contato não tem foto ou a esconde na privacidade,
+ * ou `undefined` quando não deu para consultar agora (desconectado, limite, rede).
+ */
+export async function fetchProfilePicture(ws: string, jid: string): Promise<Buffer | null | undefined> {
+  if (cloudInfo.get(ws)) return undefined;
+  const s = sessionOf(ws);
+  if (!s.sock || s.status !== 'connected') return undefined;
+  let url: string | undefined;
+  try {
+    url = await Promise.race([
+      s.sock.profilePictureUrl(jid, 'image'),
+      new Promise<undefined>((_, rej) => setTimeout(() => rej(new Error('timeout')), 10_000)),
+    ]);
+  } catch (err) {
+    const code = (err as { output?: { statusCode?: number }; data?: number })?.output?.statusCode;
+    const msg = String((err as Error)?.message ?? '');
+    // 401/404 / item-not-found: sem foto ou foto só para contatos.
+    if (code === 401 || code === 404 || /not-authorized|item-not-found|404|401/i.test(msg)) return null;
+    return undefined;
+  }
+  if (!url) return null;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!r.ok) return r.status === 404 ? null : undefined;
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length ? buf : null;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Envia um arquivo (imagem/vídeo/áudio/documento) pelo WhatsApp do cliente. */
 export async function sendMedia(
   ws: string,

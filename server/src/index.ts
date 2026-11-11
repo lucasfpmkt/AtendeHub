@@ -34,6 +34,7 @@ import { leadFormsRouter, leadgenWebhookRouter, leadInRouter } from './routes/le
 import { startLeadFormsLoop } from './services/leadForms.js';
 import { startAlertsLoop } from './services/alerts.js';
 import { startBackupLoop } from './services/backup.js';
+import { startAvatarLoop, avatarFilePath } from './services/avatars.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -110,6 +111,21 @@ app.get('/api/media/:id', async (req, res) => {
   // Só imagem/áudio/vídeo/PDF abrem no navegador; o resto (HTML, SVG, scripts…)
   // baixa como arquivo — um "documento" recebido não pode rodar código no LawHub.
   safeMediaHeaders(res, message.mimeType, message.mediaName);
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  createReadStream(file).pipe(res);
+});
+
+// Foto de perfil do contato (cópia salva do WhatsApp). Mesmo token de mídia das imagens.
+app.get('/api/avatar/:contactId', async (req, res) => {
+  const token = (req.query.mt as string) || (req.headers.authorization?.replace('Bearer ', '') ?? '');
+  const info = verifyMediaToken(token);
+  if (!info) return res.status(401).end();
+  const c = await prisma.contact.findFirst({ where: { id: req.params.contactId, workspaceId: info.ws }, select: { id: true, avatarUrl: true } });
+  if (!c?.avatarUrl?.startsWith('ok:')) return res.status(404).end();
+  const file = avatarFilePath(info.ws, c.id);
+  if (!existsSync(file)) return res.status(404).end();
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, max-age=86400');
   createReadStream(file).pipe(res);
 });
@@ -193,4 +209,5 @@ server.listen(env.port, async () => {
   startLeadFormsLoop(); // formulários do Meta: busca de segurança a cada 10 min
   startAlertsLoop(); // leads esperando resposta: avisa o escritório a cada 5 min (horário comercial)
   startBackupLoop(); // cópia de segurança do banco todo dia às 3h30
+  startAvatarLoop(); // fotos de perfil dos contatos (WhatsApp por QR)
 });

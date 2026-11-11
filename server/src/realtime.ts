@@ -19,6 +19,7 @@ export type RealtimeEvent =
   | { type: 'wa:status'; status: WaStatus; me?: string }
   | { type: 'message:new'; conversationId: string; message: unknown }
   | { type: 'conversation:update'; conversation: unknown }
+  | { type: 'contact:update'; contact: unknown }
   | { type: 'crm:update' };
 
 export function emit(workspaceId: string, event: RealtimeEvent) {

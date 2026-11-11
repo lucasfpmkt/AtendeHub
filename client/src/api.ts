@@ -151,6 +151,8 @@ export interface Contact {
   notes?: string | null;
   tags: string;
   stageId?: string | null;
+  /** "ok:<ms>" quando há foto de perfil salva; "none:<ms>" sem foto. */
+  avatarUrl?: string | null;
 }
 
 export interface Message {
@@ -487,6 +489,13 @@ export const api = {
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Falha ao enviar arquivo');
     return (await res.json()) as Message;
+  },
+  /** Foto de perfil do contato, ou null se não houver. `?v=` muda quando a foto é atualizada. */
+  avatarSrc: (c?: { id: string; avatarUrl?: string | null } | null) => {
+    if (!c?.avatarUrl?.startsWith('ok:')) return null;
+    const mt = getMediaToken();
+    if (!mt) return null;
+    return `/api/avatar/${c.id}?mt=${encodeURIComponent(mt)}&v=${c.avatarUrl.slice(3)}`;
   },
   // Token de mídia (curto) na URL; sem ele (sessão antiga), cai no token de sessão.
   mediaUrl: (mediaId: string) => {

@@ -9,6 +9,7 @@ import {
   type Contact,
 } from '../api';
 import { Icon } from '../icons';
+import { ContactAvatar } from '../components/ContactAvatar';
 import { socket } from '../socket';
 import { Switch } from './Agents';
 
@@ -445,9 +446,11 @@ function KanbanColumn({
             onClick={() => onOpenDeal(d)}
           >
             <div className="deal-top">
-              <span className="avatar" style={{ background: avatarColor(d.contact?.name || d.title) }}>
-                {(d.contact?.name || d.title).trim()[0]?.toUpperCase() ?? '?'}
-              </span>
+              <ContactAvatar
+                contact={d.contact}
+                label={(d.contact?.name || d.title).trim()[0]?.toUpperCase() ?? '?'}
+                style={{ background: avatarColor(d.contact?.name || d.title) }}
+              />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="title">
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
